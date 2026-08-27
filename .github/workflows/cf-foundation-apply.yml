@@ -1,0 +1,194 @@
+name: Apply Cloudflare runtime foundation
+
+on:
+  push:
+    branches:
+      - phase/cf-01-runtime-foundation
+    paths:
+      - '.github/workflows/cf-foundation-apply.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cf-runtime-foundation
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@v4
+        with:
+          ref: phase/cf-01-runtime-foundation
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Update package and Prisma configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path('package.json')
+          data = json.loads(p.read_text())
+          data['name'] = 'boardops-cloudflare'
+          data['type'] = 'module'
+          scripts = data.setdefault('scripts', {})
+          scripts['dev:next'] = scripts.get('dev', 'next dev -p 3000')
+          scripts['build:next'] = 'next build'
+          scripts['dev'] = 'vinext dev --host 0.0.0.0'
+          scripts['dev:vinext'] = 'vinext dev --host 0.0.0.0'
+          scripts['build'] = 'vinext build'
+          scripts['build:vinext'] = 'vinext build'
+          scripts['cf:check'] = 'vinext check'
+          scripts['cf:types'] = 'wrangler types'
+          scripts['deploy'] = 'bunx @vinext/cloudflare deploy'
+          scripts['db:generate'] = 'prisma generate'
+          scripts['db:migration:initial'] = 'prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script'
+          scripts['db:migrate:local'] = 'wrangler d1 migrations apply boardops --local'
+          scripts['db:migrate:remote'] = 'wrangler d1 migrations apply boardops --remote'
+          data.get('dependencies', {}).pop('next-auth', None)
+          p.write_text(json.dumps(data, indent=2) + '\n')
+
+          schema = Path('prisma/schema.prisma')
+          s = schema.read_text()
+          old = 'generator client {\n  provider = "prisma-client-js"\n}'
+          new = 'generator client {\n  provider        = "prisma-client-js"\n  previewFeatures = ["driverAdapters"]\n}'
+          if old in s:
+              s = s.replace(old, new, 1)
+          elif 'previewFeatures = ["driverAdapters"]' not in s:
+              raise SystemExit('Unexpected Prisma generator block; refusing unsafe edit')
+          schema.write_text(s)
+
+          eslint = Path('eslint.config.mjs')
+          e = eslint.read_text()
+          e = e.replace('import { dirname } from "path";\n', '')
+          e = e.replace('import { fileURLToPath } from "url";\n', '')
+          e = e.replace('\nconst __filename = fileURLToPath(import.meta.url);\nconst __dirname = dirname(__filename);\n', '\n')
+          eslint.write_text(e)
+          PY
+
+      - name: Install Cloudflare runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun install
+          bun add @prisma/adapter-d1@latest
+          bun add -d vinext@latest @vinext/cloudflare@latest @cloudflare/vite-plugin@latest vite@latest wrangler@latest @cloudflare/workers-types@latest
+
+      - name: Add vinext and Wrangler configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > vite.config.ts <<'EOF'
+          import { cloudflare } from "@cloudflare/vite-plugin";
+          import { defineConfig } from "vite";
+          import vinext from "vinext";
+
+          export default defineConfig({
+            plugins: [
+              vinext(),
+              cloudflare({
+                viteEnvironment: {
+                  name: "rsc",
+                  childEnvironments: ["ssr"],
+                },
+              }),
+            ],
+          });
+          EOF
+
+          cat > wrangler.jsonc <<'EOF'
+          {
+            "$schema": "./node_modules/wrangler/config-schema.json",
+            "name": "boardops",
+            "compatibility_date": "2026-08-27",
+            "compatibility_flags": ["nodejs_compat"],
+            "main": "vinext/server/app-router-entry",
+            "assets": {
+              "not_found_handling": "none"
+            },
+            "observability": {
+              "enabled": true
+            },
+            "d1_databases": [
+              {
+                "binding": "DB",
+                "database_name": "boardops",
+                "database_id": "00000000-0000-0000-0000-000000000000"
+              }
+            ],
+            "r2_buckets": [
+              {
+                "binding": "UPLOADS",
+                "bucket_name": "boardops-uploads"
+              }
+            ],
+            "ratelimits": [
+              {
+                "name": "AUTH_RATE_LIMITER",
+                "namespace_id": "1001",
+                "simple": {
+                  "limit": 5,
+                  "period": 60
+                }
+              }
+            ],
+            "send_email": [
+              {
+                "name": "EMAIL"
+              }
+            ]
+          }
+          EOF
+
+      - name: Generate Worker and Prisma types
+        shell: bash
+        run: |
+          set -euo pipefail
+          bunx wrangler types
+          bunx prisma generate
+
+      - name: Generate initial D1 migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p migrations
+          bunx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script > migrations/0001_initial.sql
+          test -s migrations/0001_initial.sql
+
+      - name: Re-run compatibility check
+        shell: bash
+        run: |
+          set -o pipefail
+          bunx vinext check 2>&1 | tee /tmp/vinext-after.txt || true
+
+      - name: Probe production build
+        shell: bash
+        run: |
+          set -o pipefail
+          bun run build 2>&1 | tee /tmp/vinext-build.txt || true
+
+      - name: Commit runtime foundation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json bun.lock prisma/schema.prisma eslint.config.mjs vite.config.ts wrangler.jsonc worker-configuration.d.ts migrations/0001_initial.sql
+          if git diff --cached --quiet; then
+            echo 'No foundation changes to commit.'
+            exit 0
+          fi
+          git commit -m 'feat: establish Cloudflare Workers runtime foundation'
+          git push origin HEAD:phase/cf-01-runtime-foundation
