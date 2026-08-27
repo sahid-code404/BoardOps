@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/bootstrap-from-board-ops.yml'
   workflow_dispatch:
+  issues:
+    types: [opened]
 
 permissions:
   contents: write
@@ -15,6 +17,9 @@ concurrency:
 
 jobs:
   import-source:
+    if: >-
+      github.event_name != 'issues' ||
+      github.event.issue.title == 'bootstrap: import Board-Ops source baseline'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Cloudflare target
