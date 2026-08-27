@@ -6,13 +6,6 @@ import { hashOtp, generateOtp } from "@/lib/otp";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
 
-/**
- * POST /api/auth/forgot-password
- * PRD 03.12: Forgot Password flow — Email → OTP → Reset Password → Invalidate sessions
- *
- * Generates a 6-digit OTP, stores a bcrypt hash + 10-min expiry on the user.
- * The OTP is logged to console (dev) so it can be retrieved from the server log.
- */
 const schema = z.object({
   email: z.string().email("Enter a valid email"),
 });
@@ -20,7 +13,7 @@ const schema = z.object({
 export async function POST(req: Request) {
   try {
     const ip = await getClientIp();
-    const rateLimit = checkRateLimit(ip, "forgot-password");
+    const rateLimit = await checkRateLimit(ip, "forgot-password");
     if (!rateLimit.allowed) {
       return err("Too many requests. Please try again later.", 429);
     }
@@ -30,15 +23,13 @@ export async function POST(req: Request) {
 
     const user = await db.user.findUnique({ where: { email } });
 
-    // Always return success — don't leak whether the email exists
     if (!user) {
       return ok({ sent: true });
     }
 
-    // Generate 6-digit OTP
     const otp = generateOtp();
     const otpHash = hashOtp(otp);
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     await db.user.update({
       where: { id: user.id },
@@ -48,8 +39,9 @@ export async function POST(req: Request) {
       },
     });
 
-    // Log OTP to console (dev mode — in production this would be emailed)
-    console.log(`[PASSWORD RESET OTP for ${email}]: ${otp}`);
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[PASSWORD RESET OTP for ${email}]: ${otp}`);
+    }
 
     await logAudit({
       actorId: user.id,
