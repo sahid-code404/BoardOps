@@ -69,7 +69,7 @@ import {
 import { useAuthStore, type Role } from "@/stores/use-auth-store";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { formatDeletionCountdown } from "@/lib/user-cleanup";
+import { formatDeletionCountdown } from "@/lib/deletion-utils";
 import { Checkbox } from "@/components/ui/checkbox";
 
 type UserStatus = "PENDING" | "APPROVED" | "ACTIVE" | "INACTIVE" | "SUSPENDED" | "ARCHIVED";

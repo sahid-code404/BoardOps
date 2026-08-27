@@ -28,7 +28,7 @@ import {
 
 import { api } from "@/lib/api-client";
 import { cn, toLocalDateKey } from "@/lib/utils";
-import { formatDeletionCountdown } from "@/lib/user-cleanup";
+import { formatDeletionCountdown } from "@/lib/deletion-utils";
 import { useAuthStore } from "@/stores/use-auth-store";
 
 import { GlassCard } from "@/components/glass/glass-card";
