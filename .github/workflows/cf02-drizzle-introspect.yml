@@ -1,0 +1,65 @@
+name: Introspect BoardOps schema into Drizzle
+
+on:
+  push:
+    branches:
+      - phase/cf-02-modular-monolith
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cf02-drizzle-introspect
+  cancel-in-progress: true
+
+jobs:
+  introspect:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: phase/cf-02-modular-monolith
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build temporary SQLite database from authoritative migration
+        shell: bash
+        run: |
+          rm -f /tmp/boardops-introspect.sqlite
+          sqlite3 /tmp/boardops-introspect.sqlite < migrations/0001_initial.sql
+          sqlite3 /tmp/boardops-introspect.sqlite 'PRAGMA foreign_key_check;'
+
+      - name: Introspect schema with Drizzle Kit
+        run: bunx drizzle-kit pull --config drizzle.introspect.config.ts
+
+      - name: Typecheck generated TypeScript
+        shell: bash
+        run: |
+          test -f src/modern/infrastructure/db/introspected/schema.ts
+          bunx tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --skipLibCheck src/modern/infrastructure/db/introspected/schema.ts
+
+      - name: Check diff whitespace
+        run: git diff --check
+
+      - name: Commit generated schema
+        shell: bash
+        run: |
+          if git diff --quiet -- src/modern/infrastructure/db/introspected; then
+            echo 'Introspection produced no changes.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/modern/infrastructure/db/introspected
+          git commit -m 'build: introspect complete BoardOps schema for Drizzle'
+          git push origin HEAD:phase/cf-02-modular-monolith
