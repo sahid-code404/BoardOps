@@ -17,6 +17,22 @@ node_modules
 /.next/
 /out/
 
+# Cloudflare / vinext local and build state
+/.wrangler/
+/dist/
+.dev.vars*
+!.dev.vars.example
+
+# local databases and mutable runtime data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+/backups/
+/uploads/
+
 # production
 /build
 
@@ -35,7 +51,6 @@ yarn-error.log*
 
 # vercel
 .vercel
-
 
 # typescript
 *.tsbuildinfo
