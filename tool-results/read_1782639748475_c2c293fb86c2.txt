@@ -1,0 +1,1271 @@
+     1→"use client";
+     2→
+     3→import { useMemo, useState } from "react";
+     4→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     5→import { motion } from "framer-motion";
+     6→import { toast } from "sonner";
+     7→import {
+     8→  Wallet,
+     9→  TrendingUp,
+    10→  AlertCircle,
+    11→  Receipt,
+    12→  Plus,
+    13→  Search,
+    14→  Ban,
+    15→  Eye,
+    16→  FileText,
+    17→  Calendar,
+    18→  CheckCircle2,
+    19→  Clock,
+    20→  IndianRupee,
+    21→  ChevronLeft,
+    22→  ChevronRight,
+    23→  Trash2,
+    24→  AlertTriangle,
+    25→  RotateCcw,
+    26→} from "lucide-react";
+    27→
+    28→import { api } from "@/lib/api-client";
+    29→import { cn } from "@/lib/utils";
+    30→import { useAuthStore } from "@/stores/use-auth-store";
+    31→import { useAppStore } from "@/stores/use-app-store";
+    32→import { formatDeletionCountdown } from "@/lib/user-cleanup";
+    33→
+    34→import { GlassCard } from "@/components/glass/glass-card";
+    35→import { GlassButton } from "@/components/glass/glass-button";
+    36→import { GlassInput, GlassTextarea } from "@/components/glass/glass-input";
+    37→import { AnimatedCounter } from "@/components/glass/animated-counter";
+    38→import {
+    39→  StaggerGroup,
+    40→  StaggerItem,
+    41→} from "@/components/glass/page-transition";
+    42→import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
+    43→
+    44→import { Badge } from "@/components/ui/badge";
+    45→import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+    46→import {
+    47→  Dialog,
+    48→  DialogContent,
+    49→  DialogDescription,
+    50→  DialogFooter,
+    51→  DialogHeader,
+    52→  DialogTitle,
+    53→} from "@/components/ui/dialog";
+    54→import {
+    55→  Select,
+    56→  SelectContent,
+    57→  SelectItem,
+    58→  SelectTrigger,
+    59→  SelectValue,
+    60→} from "@/components/ui/select";
+    61→import {
+    62→  Table,
+    63→  TableBody,
+    64→  TableCell,
+    65→  TableHead,
+    66→  TableHeader,
+    67→  TableRow,
+    68→} from "@/components/ui/table";
+    69→import {
+    70→  AlertDialog,
+    71→  AlertDialogAction,
+    72→  AlertDialogCancel,
+    73→  AlertDialogContent,
+    74→  AlertDialogDescription,
+    75→  AlertDialogFooter,
+    76→  AlertDialogHeader,
+    77→  AlertDialogTitle,
+    78→} from "@/components/ui/alert-dialog";
+    79→
+    80→// ─────────────────────────────────────────────────────────────
+    81→// Types
+    82→// ─────────────────────────────────────────────────────────────
+    83→
+    84→type BillStatus =
+    85→  | "DRAFT"
+    86→  | "GENERATED"
+    87→  | "PARTIALLY_PAID"
+    88→  | "PAID"
+    89→  | "OVERDUE"
+    90→  | "VOID"
+    91→  | "DELETED";
+    92→
+    93→type Bill = {
+    94→  id: string;
+    95→  periodMonth: number;
+    96→  periodYear: number;
+    97→  mealCharges: number;
+    98→  otherCharges: number;
+    99→  adjustments: number;
+   100→  totalAmount: number;
+   101→  paidAmount: number;
+   102→  dueAmount: number;
+   103→  status: BillStatus;
+   104→  dueDate: string | null;
+   105→  generatedAt: string | null;
+   106→  createdAt: string;
+   107→  deletedAt: string | null;
+   108→  deletionReason: string | null;
+   109→  user: { name: string; email: string; room: string | null; avatarUrl: string | null };
+   110→};
+   111→
+   112→type ApiResponse<T> = { success: boolean; data: T; error?: string };
+   113→
+   114→const MONTHS = [
+   115→  "January", "February", "March", "April", "May", "June",
+   116→  "July", "August", "September", "October", "November", "December",
+   117→];
+   118→
+   119→const AVATAR_GRADIENTS = [
+   120→  "from-violet-500 to-fuchsia-500",
+   121→  "from-emerald-500 to-teal-500",
+   122→  "from-amber-500 to-orange-500",
+   123→  "from-rose-500 to-pink-500",
+   124→  "from-cyan-500 to-blue-500",
+   125→  "from-indigo-500 to-purple-500",
+   126→];
+   127→
+   128→function gradientFor(name: string) {
+   129→  const idx = name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0) % AVATAR_GRADIENTS.length;
+   130→  return AVATAR_GRADIENTS[idx];
+   131→}
+   132→
+   133→function initials(name: string) {
+   134→  return name.split(" ").filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("");
+   135→}
+   136→
+   137→// ─────────────────────────────────────────────────────────────
+   138→// Status badge helpers
+   139→// ─────────────────────────────────────────────────────────────
+   140→
+   141→const BILL_STATUS_STYLES: Record<
+   142→  BillStatus,
+   143→  { className: string; label: string }
+   144→> = {
+   145→  PAID: {
+   146→    className:
+   147→      "bg-success/15 text-success border-success/30",
+   148→    label: "Paid",
+   149→  },
+   150→  PARTIALLY_PAID: {
+   151→    className:
+   152→      "bg-warning/15 text-warning border-warning/30",
+   153→    label: "Partially Paid",
+   154→  },
+   155→  OVERDUE: {
+   156→    className:
+   157→      "bg-destructive/15 text-destructive border-destructive/30",
+   158→    label: "Overdue",
+   159→  },
+   160→  GENERATED: {
+   161→    className:
+   162→      "bg-info/15 text-info border-info/30",
+   163→    label: "Generated",
+   164→  },
+   165→  DRAFT: {
+   166→    className:
+   167→      "bg-muted text-muted-foreground border-border",
+   168→    label: "Draft",
+   169→  },
+   170→  VOID: {
+   171→    className:
+   172→      "bg-muted text-muted-foreground border-border",
+   173→    label: "Void",
+   174→  },
+   175→  DELETED: {
+   176→    className:
+   177→      "bg-destructive/15 text-destructive border-destructive/30",
+   178→    label: "Deleted",
+   179→  },
+   180→};
+   181→
+   182→function BillStatusBadge({ status }: { status: BillStatus }) {
+   183→  const s = BILL_STATUS_STYLES[status];
+   184→  return (
+   185→    <Badge variant="outline" className={cn("rounded-full", s.className)}>
+   186→      {s.label}
+   187→    </Badge>
+   188→  );
+   189→}
+   190→
+   191→function formatINR(n: number) {
+   192→  return `₹${Math.round(n).toLocaleString("en-IN")}`;
+   193→}
+   194→
+   195→function formatMonthYear(month: number, year: number) {
+   196→  return `${MONTHS[month] ?? "—"} ${year}`;
+   197→}
+   198→
+   199→function formatDate(iso: string | null) {
+   200→  if (!iso) return "—";
+   201→  return new Date(iso).toLocaleDateString("en-IN", {
+   202→    day: "numeric",
+   203→    month: "short",
+   204→    year: "numeric",
+   205→  });
+   206→}
+   207→
+   208→// ─────────────────────────────────────────────────────────────
+   209→// Main view
+   210→// ─────────────────────────────────────────────────────────────
+   211→
+   212→export function BillingView() {
+   213→  const user = useAuthStore((s) => s.user);
+   214→  const setView = useAppStore((s) => s.setView);
+   215→  const isAdmin =
+   216→    user?.role === "ADMIN";
+   217→
+   218→  const qc = useQueryClient();
+   219→  const [search, setSearch] = useState("");
+   220→  const [statusFilter, setStatusFilter] = useState<BillStatus | "ALL" | "DELETED">("ALL");
+   221→  const [generateOpen, setGenerateOpen] = useState(false);
+   222→  const [genMonth, setGenMonth] = useState<number>(new Date().getMonth());
+   223→  const [genYear, setGenYear] = useState<number>(new Date().getFullYear());
+   224→  const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
+   225→  const [voidTarget, setVoidTarget] = useState<Bill | null>(null);
+   226→  const now = new Date();
+   227→  const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
+   228→  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+   229→
+   230→  const { data: bills = [], isLoading } = useQuery({
+   231→    queryKey: ["bills", { month: selectedMonth, year: selectedYear }],
+   232→    queryFn: async () => {
+   233→      const r = await api.get<ApiResponse<Bill[]>>("/bills", {
+   234→        params: { month: selectedMonth, year: selectedYear },
+   235→      });
+   236→      return r.data;
+   237→    },
+   238→  });
+   239→
+   240→  // Fetch soft-deleted bills (deletion queue) — admin only
+   241→  const { data: deletedBills = [] } = useQuery({
+   242→    queryKey: ["bills", "deleted", { month: selectedMonth, year: selectedYear }],
+   243→    queryFn: async () => {
+   244→      const r = await api.get<ApiResponse<Bill[]>>("/bills", {
+   245→        params: { month: selectedMonth, year: selectedYear, includeDeleted: "true" },
+   246→      });
+   247→      return r.data;
+   248→    },
+   249→    enabled: isAdmin,
+   250→  });
+   251→
+   252→  const generateMutation = useMutation({
+   253→    mutationFn: () =>
+   254→      api.post<ApiResponse<{ generated: number; month: number; year: number }>>(
+   255→        "/bills",
+   256→        { month: genMonth, year: genYear }
+   257→      ),
+   258→    onSuccess: (r) => {
+   259→      toast.success(`Generated ${r.data.generated} bills for ${MONTHS[genMonth]} ${genYear}`);
+   260→      setGenerateOpen(false);
+   261→      qc.invalidateQueries({ queryKey: ["bills"] });
+   262→    },
+   263→    onError: (e: Error) => toast.error(e.message || "Failed to generate bills"),
+   264→  });
+   265→
+   266→  const voidMutation = useMutation({
+   267→    mutationFn: (id: string) =>
+   268→      api.delete<ApiResponse<{ success: boolean }>>(`/bills/${id}`),
+   269→    onSuccess: () => {
+   270→      toast.success("Bill voided successfully");
+   271→      setVoidTarget(null);
+   272→      qc.invalidateQueries({ queryKey: ["bills"] });
+   273→    },
+   274→    onError: (e: Error) => toast.error(e.message || "Failed to void bill"),
+   275→  });
+   276→
+   277→  const [deleteTarget, setDeleteTarget] = useState<Bill | null>(null);
+   278→  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+   279→  const [deleteReason, setDeleteReason] = useState("");
+   280→  const [deleteAllReason, setDeleteAllReason] = useState("");
+   281→
+   282→  const deleteMutation = useMutation({
+   283→    mutationFn: async (id: string) => {
+   284→      await api.delete(`/bills/${id}`, { body: JSON.stringify({ reason: deleteReason || undefined }) });
+   285→    },
+   286→    onSuccess: () => {
+   287→      toast.success("Bill scheduled for deletion — permanently removed in 7 days");
+   288→      setDeleteTarget(null);
+   289→      setDeleteReason("");
+   290→      qc.invalidateQueries({ queryKey: ["bills"] });
+   291→    },
+   292→    onError: (e: Error) => toast.error(e.message || "Failed to delete bill"),
+   293→  });
+   294→
+   295→  const deleteAllMutation = useMutation({
+   296→    mutationFn: async () => {
+   297→      const r = await api.delete<ApiResponse<{ deleted: number }>>("/bills", {
+   298→        params: { month: selectedMonth, year: selectedYear },
+   299→        body: JSON.stringify({ reason: deleteAllReason || undefined }),
+   300→      });
+   301→      return r.data;
+   302→    },
+   303→    onSuccess: (data) => {
+   304→      toast.success(`${data.deleted} bills scheduled for deletion — permanently removed in 7 days`);
+   305→      setDeleteAllOpen(false);
+   306→      setDeleteAllReason("");
+   307→      qc.invalidateQueries({ queryKey: ["bills"] });
+   308→    },
+   309→    onError: (e: Error) => toast.error(e.message || "Failed to delete bills"),
+   310→  });
+   311→
+   312→  const restoreMutation = useMutation({
+   313→    mutationFn: async (id: string) => {
+   314→      const r = await api.post<ApiResponse<Bill>>(`/bills/${id}/restore`);
+   315→      return r.data;
+   316→    },
+   317→    onSuccess: () => {
+   318→      toast.success("Bill restored successfully");
+   319→      qc.invalidateQueries({ queryKey: ["bills"] });
+   320→    },
+   321→    onError: (e: Error) => toast.error(e.message || "Failed to restore bill"),
+   322→  });
+   323→
+   324→  const restoreAllMutation = useMutation({
+   325→    mutationFn: async () => {
+   326→      const results = await Promise.all(
+   327→        deletedBills.map((b) => api.post(`/bills/${b.id}/restore`).catch(() => null))
+   328→      );
+   329→      return results.filter((r) => r !== null).length;
+   330→    },
+   331→    onSuccess: (count) => {
+   332→      toast.success(`${count} bills restored successfully`);
+   333→      qc.invalidateQueries({ queryKey: ["bills"] });
+   334→    },
+   335→    onError: (e: Error) => toast.error(e.message || "Failed to restore bills"),
+   336→  });
+   337→
+   338→  // ── Derived KPIs ──
+   339→  const kpis = useMemo(() => {
+   340→    const active = bills.filter((b) => b.status !== "VOID");
+   341→    const totalBilled = active.reduce((s, b) => s + b.totalAmount, 0);
+   342→    const totalCollected = active.reduce((s, b) => s + b.paidAmount, 0);
+   343→    const totalOutstanding = active.reduce((s, b) => s + b.dueAmount, 0);
+   344→    const overdueCount = active.filter((b) => b.status === "OVERDUE").length;
+   345→    return { totalBilled, totalCollected, totalOutstanding, overdueCount };
+   346→  }, [bills]);
+   347→
+   348→  // ── Filtered list ──
+   349→  // Use deleted bills when filter is DELETED, otherwise use active bills
+   350→  const sourceBills = statusFilter === "DELETED" ? deletedBills : bills;
+   351→
+   352→  const filtered = useMemo(() => {
+   353→    const q = search.trim().toLowerCase();
+   354→    return sourceBills.filter((b) => {
+   355→      if (statusFilter !== "ALL" && statusFilter !== "DELETED" && b.status !== statusFilter) return false;
+   356→      if (!q) return true;
+   357→      return (
+   358→        b.user.name?.toLowerCase().includes(q) ||
+   359→        b.user.email?.toLowerCase().includes(q) ||
+   360→        (b.user.room || "").toLowerCase().includes(q)
+   361→      );
+   362→    });
+   363→  }, [sourceBills, search, statusFilter]);
+   364→
+   365→  if (isLoading) {
+   366→    return (
+   367→      <div className="space-y-4">
+   368→        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+   369→          {Array.from({ length: 4 }).map((_, i) => (
+   370→            <ShimmerSkeleton key={i} className="h-32" />
+   371→          ))}
+   372→        </div>
+   373→        <ShimmerSkeleton className="h-14 w-full" />
+   374→        <div className="grid gap-3">
+   375→          {Array.from({ length: 5 }).map((_, i) => (
+   376→            <ShimmerSkeleton key={i} className="h-20" />
+   377→          ))}
+   378→        </div>
+   379→      </div>
+   380→    );
+   381→  }
+   382→
+   383→  return (
+   384→    <StaggerGroup className="space-y-4 md:space-y-5">
+   385→      {/* Month picker — centered, capsule design (matches expenses page) */}
+   386→      <StaggerItem>
+   387→        <div className="flex items-center justify-center gap-4">
+   388→          <motion.button
+   389→            whileTap={{ scale: 0.9 }}
+   390→            onClick={() => {
+   391→              const d = new Date(selectedYear, selectedMonth - 1, 1);
+   392→              setSelectedMonth(d.getMonth());
+   393→              setSelectedYear(d.getFullYear());
+   394→            }}
+   395→            aria-label="Previous month"
+   396→            className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   397→          >
+   398→            <ChevronLeft className="h-5 w-5" />
+   399→          </motion.button>
+   400→
+   401→          <div className="flex-1 max-w-[280px] flex items-center justify-center gap-2.5 glass-soft rounded-full px-6 py-2.5">
+   402→            <Calendar className="h-4 w-4 text-primary shrink-0" />
+   403→            <div className="leading-tight text-center">
+   404→              <p className="text-sm font-bold text-primary">
+   405→                {new Date(selectedYear, selectedMonth).toLocaleDateString("en-US", { month: "long" })}
+   406→              </p>
+   407→              <p className="text-[11px] text-muted-foreground">
+   408→                {selectedYear}
+   409→              </p>
+   410→            </div>
+   411→          </div>
+   412→
+   413→          <motion.button
+   414→            whileTap={{ scale: 0.9 }}
+   415→            onClick={() => {
+   416→              const d = new Date(selectedYear, selectedMonth + 1, 1);
+   417→              setSelectedMonth(d.getMonth());
+   418→              setSelectedYear(d.getFullYear());
+   419→            }}
+   420→            aria-label="Next month"
+   421→            className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   422→          >
+   423→            <ChevronRight className="h-5 w-5" />
+   424→          </motion.button>
+   425→        </div>
+   426→      </StaggerItem>
+   427→
+   428→      {/* Compact action bar */}
+   429→      {isAdmin && (
+   430→        <StaggerItem>
+   431→          <div className="flex items-center justify-end gap-3">
+   432→            <p className="text-sm text-muted-foreground hidden sm:block">
+   433→              Generate and track resident bills
+   434→            </p>
+   435→            <GlassButton
+   436→              onClick={() => setGenerateOpen(true)}
+   437→              className="shrink-0"
+   438→            >
+   439→              <Plus className="h-4 w-4" />
+   440→              Generate Bills
+   441→            </GlassButton>
+   442→          </div>
+   443→        </StaggerItem>
+   444→      )}
+   445→
+   446→      {/* KPIs */}
+   447→      <StaggerItem>
+   448→        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+   449→          <KpiCard
+   450→            label="Total Billed"
+   451→            value={kpis.totalBilled}
+   452→            icon={<Wallet className="h-5 w-5" />}
+   453→            color="primary"
+   454→            prefix="₹"
+   455→          />
+   456→          <KpiCard
+   457→            label="Total Collected"
+   458→            value={kpis.totalCollected}
+   459→            icon={<CheckCircle2 className="h-5 w-5" />}
+   460→            color="success"
+   461→            prefix="₹"
+   462→          />
+   463→          <KpiCard
+   464→            label="Outstanding"
+   465→            value={kpis.totalOutstanding}
+   466→            icon={<TrendingUp className="h-5 w-5" />}
+   467→            color="warning"
+   468→            prefix="₹"
+   469→          />
+   470→          <KpiCard
+   471→            label="Overdue Count"
+   472→            value={kpis.overdueCount}
+   473→            icon={<AlertCircle className="h-5 w-5" />}
+   474→            color="danger"
+   475→          />
+   476→        </div>
+   477→      </StaggerItem>
+   478→
+   479→      {/* Search + Filter pills (expenses-style design) */}
+   480→      <StaggerItem>
+   481→        <div className="space-y-3">
+   482→          <GlassInput
+   483→            placeholder="Search by name, email, room…"
+   484→            value={search}
+   485→            onChange={(e) => setSearch(e.target.value)}
+   486→            icon={<Search />}
+   487→          />
+   488→          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+   489→            {(
+   490→              [
+   491→                "ALL",
+   492→                "GENERATED",
+   493→                "PARTIALLY_PAID",
+   494→                "PAID",
+   495→                "OVERDUE",
+   496→                "VOID",
+   497→                ...(isAdmin ? ["DELETED" as const] : []),
+   498→              ] as const
+   499→            ).map((s) => {
+   500→              const active = statusFilter === s;
+   501→              const label = s === "DELETED" ? "Deletion Queue" : s === "ALL" ? "All" : BILL_STATUS_STYLES[s as BillStatus]?.label || s;
+   502→              const badge = s === "DELETED" && deletedBills.length > 0 ? deletedBills.length : null;
+   503→              return (
+   504→                <button
+   505→                  key={s}
+   506→                  onClick={() => setStatusFilter(s)}
+   507→                  className={cn(
+   508→                    "inline-flex items-center gap-1 h-8 px-2.5 rounded-xl text-[11px] font-medium whitespace-nowrap transition-all",
+   509→                    active
+   510→                      ? "bg-primary text-primary-foreground shadow-md shadow-primary/30"
+   511→                      : "glass-soft text-muted-foreground hover:text-foreground"
+   512→                  )}
+   513→                >
+   514→                  {label}
+   515→                  {badge !== null && (
+   516→                    <span className={cn(
+   517→                      "text-[9px] rounded-full px-1.5 py-0.5 leading-none font-bold min-w-[16px] text-center",
+   518→                      active && s !== "DELETED"
+   519→                        ? "bg-primary-foreground/20 text-primary-foreground"
+   520→                        : active && s === "DELETED"
+   521→                          ? "bg-primary-foreground/20 text-primary-foreground"
+   522→                          : "bg-destructive text-white"
+   523→                    )}>
+   524→                      {badge}
+   525→                    </span>
+   526→                  )}
+   527→                </button>
+   528→              );
+   529→            })}
+   530→          </div>
+   531→          {/* Action buttons below sorting bar */}
+   532→          {isAdmin && statusFilter !== "DELETED" && bills.length > 0 && (
+   533→            <div className="flex justify-end pt-1">
+   534→              <button
+   535→                onClick={() => setDeleteAllOpen(true)}
+   536→                className="inline-flex items-center gap-1.5 text-[11px] font-medium text-destructive/70 hover:text-destructive transition-colors"
+   537→              >
+   538→                <Trash2 className="h-3 w-3" />
+   539→                Delete All ({bills.length})
+   540→              </button>
+   541→            </div>
+   542→          )}
+   543→          {/* Restore All — only in deletion queue */}
+   544→          {isAdmin && statusFilter === "DELETED" && deletedBills.length > 0 && (
+   545→            <div className="flex justify-end pt-1">
+   546→              <button
+   547→                onClick={() => restoreAllMutation.mutate()}
+   548→                disabled={restoreAllMutation.isPending}
+   549→                className="inline-flex items-center gap-1.5 text-[11px] font-medium text-success/70 hover:text-success transition-colors"
+   550→              >
+   551→                <RotateCcw className="h-3 w-3" />
+   552→                {restoreAllMutation.isPending ? "Restoring…" : `Restore All (${deletedBills.length})`}
+   553→              </button>
+   554→            </div>
+   555→          )}
+   556→        </div>
+   557→      </StaggerItem>
+   558→
+   559→      {/* List */}
+   560→      <StaggerItem>
+   561→        {filtered.length === 0 ? (
+   562→          <GlassCard className="p-10 md:p-16" hover={false}>
+   563→            <div className="flex flex-col items-center justify-center text-center gap-3">
+   564→              <div className="grid place-items-center h-14 w-14 rounded-3xl bg-muted/40">
+   565→                <Receipt className="h-6 w-6 text-muted-foreground" />
+   566→              </div>
+   567→              <div>
+   568→                <p className="font-medium">No bills found</p>
+   569→                <p className="text-sm text-muted-foreground">
+   570→                  {isAdmin
+   571→                    ? "Generate bills for the current period to get started."
+   572→                    : "You have no bills matching the current filters."}
+   573→                </p>
+   574→              </div>
+   575→              {isAdmin && (
+   576→                <GlassButton className="mt-2" onClick={() => setGenerateOpen(true)}>
+   577→                  <Wallet className="h-4 w-4" />
+   578→                  Generate Bills
+   579→                </GlassButton>
+   580→              )}
+   581→              {!isAdmin && (
+   582→                <GlassButton variant="ghost" className="mt-2" onClick={() => setView("dashboard")}>
+   583→                  Back to Dashboard
+   584→                </GlassButton>
+   585→              )}
+   586→            </div>
+   587→          </GlassCard>
+   588→        ) : (
+   589→          <>
+   590→            {/* Mobile cards */}
+   591→            <div className="md:hidden space-y-3">
+   592→              <StaggerGroup className="space-y-3">
+   593→                {filtered.map((bill) => (
+   594→                  <StaggerItem key={bill.id}>
+   595→                    <BillCard
+   596→                      bill={bill}
+   597→                      isAdmin={isAdmin}
+   598→                      onView={() => setSelectedBill(bill)}
+   599→                      onVoid={() => setVoidTarget(bill)}
+   600→                      onDelete={() => setDeleteTarget(bill)}
+   601→                      onRestore={() => restoreMutation.mutate(bill.id)}
+   602→                    />
+   603→                  </StaggerItem>
+   604→                ))}
+   605→              </StaggerGroup>
+   606→            </div>
+   607→
+   608→            {/* Desktop table */}
+   609→            <GlassCard className="hidden md:block p-2" hover={false}>
+   610→              <Table>
+   611→                <TableHeader>
+   612→                  <TableRow className="border-border/60">
+   613→                    <TableHead className="pl-4">Resident</TableHead>
+   614→                    <TableHead>Period</TableHead>
+   615→                    <TableHead className="text-right">Meals</TableHead>
+   616→                    <TableHead className="text-right">Other</TableHead>
+   617→                    <TableHead className="text-right">Total</TableHead>
+   618→                    <TableHead className="text-right">Paid</TableHead>
+   619→                    <TableHead className="text-right">Due</TableHead>
+   620→                    <TableHead>Status</TableHead>
+   621→                    <TableHead>Due Date</TableHead>
+   622→                    <TableHead className="text-right pr-4">Actions</TableHead>
+   623→                  </TableRow>
+   624→                </TableHeader>
+   625→                <TableBody>
+   626→                  {filtered.map((bill) => (
+   627→                    <TableRow key={bill.id} className="border-border/40">
+   628→                      <TableCell className="pl-4">
+   629→                        <div className="flex items-center gap-2.5">
+   630→                          <Avatar className="h-8 w-8 rounded-xl shrink-0">
+   631→                            {bill.user.avatarUrl && <AvatarImage src={bill.user.avatarUrl} alt={bill.user.name} />}
+   632→                            <AvatarFallback className={cn("rounded-xl bg-gradient-to-br text-white font-semibold text-[10px]", gradientFor(bill.user.name))}>
+   633→                              {initials(bill.user.name) || "U"}
+   634→                            </AvatarFallback>
+   635→                          </Avatar>
+   636→                          <div className="flex flex-col">
+   637→                            <span className="font-medium">{bill.user.name}</span>
+   638→                            <span className="text-xs text-muted-foreground">
+   639→                              {bill.user.room ? `Room ${bill.user.room}` : bill.user.email}
+   640→                            </span>
+   641→                          </div>
+   642→                        </div>
+   643→                      </TableCell>
+   644→                      <TableCell className="text-sm">
+   645→                        {formatMonthYear(bill.periodMonth, bill.periodYear)}
+   646→                      </TableCell>
+   647→                      <TableCell className="text-right text-sm tabular-nums">
+   648→                        {formatINR(bill.mealCharges)}
+   649→                      </TableCell>
+   650→                      <TableCell className="text-right text-sm tabular-nums">
+   651→                        {formatINR(bill.otherCharges)}
+   652→                      </TableCell>
+   653→                      <TableCell className="text-right font-semibold tabular-nums">
+   654→                        {formatINR(bill.totalAmount)}
+   655→                      </TableCell>
+   656→                      <TableCell className="text-right text-sm text-success tabular-nums">
+   657→                        {formatINR(bill.paidAmount)}
+   658→                      </TableCell>
+   659→                      <TableCell className="text-right text-sm text-warning tabular-nums">
+   660→                        {formatINR(bill.dueAmount)}
+   661→                      </TableCell>
+   662→                      <TableCell>
+   663→                        <BillStatusBadge status={bill.status} />
+   664→                      </TableCell>
+   665→                      <TableCell className="text-sm text-muted-foreground">
+   666→                        {formatDate(bill.dueDate)}
+   667→                      </TableCell>
+   668→                      <TableCell className="pr-4">
+   669→                        <div className="flex items-center justify-end gap-1">
+   670→                          {bill.deletedAt ? (
+   671→                            isAdmin && (
+   672→                              <GlassButton
+   673→                                variant="ghost"
+   674→                                size="sm"
+   675→                                className="text-success hover:text-success"
+   676→                                onClick={() => restoreMutation.mutate(bill.id)}
+   677→                                aria-label="Restore bill"
+   678→                              >
+   679→                                <RotateCcw className="h-3.5 w-3.5" />
+   680→                                Restore
+   681→                              </GlassButton>
+   682→                            )
+   683→                          ) : (
+   684→                            <>
+   685→                              <GlassButton
+   686→                                variant="ghost"
+   687→                                size="icon"
+   688→                                onClick={() => setSelectedBill(bill)}
+   689→                                aria-label="View bill"
+   690→                              >
+   691→                                <Eye className="h-4 w-4" />
+   692→                              </GlassButton>
+   693→                              {isAdmin && bill.status !== "VOID" && (
+   694→                                <GlassButton
+   695→                                  variant="ghost"
+   696→                                  size="icon"
+   697→                                  onClick={() => setVoidTarget(bill)}
+   698→                                  aria-label="Void bill"
+   699→                                  className="text-destructive hover:text-destructive"
+   700→                                >
+   701→                                  <Ban className="h-4 w-4" />
+   702→                                </GlassButton>
+   703→                              )}
+   704→                              {isAdmin && (
+   705→                                <GlassButton
+   706→                                  variant="ghost"
+   707→                                  size="icon"
+   708→                                  onClick={() => setDeleteTarget(bill)}
+   709→                                  aria-label="Delete bill"
+   710→                                  className="text-destructive hover:text-destructive"
+   711→                                >
+   712→                                  <Trash2 className="h-4 w-4" />
+   713→                                </GlassButton>
+   714→                              )}
+   715→                            </>
+   716→                          )}
+   717→                        </div>
+   718→                      </TableCell>
+   719→                    </TableRow>
+   720→                  ))}
+   721→                </TableBody>
+   722→              </Table>
+   723→            </GlassCard>
+   724→          </>
+   725→        )}
+   726→      </StaggerItem>
+   727→
+   728→      {/* Generate Bills Dialog */}
+   729→      <Dialog open={generateOpen} onOpenChange={setGenerateOpen}>
+   730→        <DialogContent className="rounded-3xl">
+   731→          <DialogHeader>
+   732→            <DialogTitle className="flex items-center gap-2">
+   733→              <FileText className="h-5 w-5 text-primary" />
+   734→              Generate Bills
+   735→            </DialogTitle>
+   736→            <DialogDescription>
+   737→              Generate or refresh bills for all active residents for the
+   738→              selected period. Existing non-void bills will be re-calculated.
+   739→            </DialogDescription>
+   740→          </DialogHeader>
+   741→          <div className="grid grid-cols-2 gap-3">
+   742→            <div className="space-y-1.5">
+   743→              <label className="text-xs font-medium text-muted-foreground ml-1">
+   744→                Month
+   745→              </label>
+   746→              <Select
+   747→                value={String(genMonth)}
+   748→                onValueChange={(v) => setGenMonth(Number(v))}
+   749→              >
+   750→                <SelectTrigger className="w-full h-11 rounded-2xl">
+   751→                  <SelectValue />
+   752→                </SelectTrigger>
+   753→                <SelectContent>
+   754→                  {MONTHS.map((m, i) => (
+   755→                    <SelectItem key={m} value={String(i)}>
+   756→                      {m}
+   757→                    </SelectItem>
+   758→                  ))}
+   759→                </SelectContent>
+   760→              </Select>
+   761→            </div>
+   762→            <div className="space-y-1.5">
+   763→              <label className="text-xs font-medium text-muted-foreground ml-1">
+   764→                Year
+   765→              </label>
+   766→              <Select
+   767→                value={String(genYear)}
+   768→                onValueChange={(v) => setGenYear(Number(v))}
+   769→              >
+   770→                <SelectTrigger className="w-full h-11 rounded-2xl">
+   771→                  <SelectValue />
+   772→                </SelectTrigger>
+   773→                <SelectContent>
+   774→                  {Array.from({ length: 5 }).map((_, i) => {
+   775→                    const y = new Date().getFullYear() - 2 + i;
+   776→                    return (
+   777→                      <SelectItem key={y} value={String(y)}>
+   778→                        {y}
+   779→                      </SelectItem>
+   780→                    );
+   781→                  })}
+   782→                </SelectContent>
+   783→              </Select>
+   784→            </div>
+   785→          </div>
+   786→          <DialogFooter>
+   787→            <GlassButton
+   788→              variant="ghost"
+   789→              onClick={() => setGenerateOpen(false)}
+   790→            >
+   791→              Cancel
+   792→            </GlassButton>
+   793→            <GlassButton
+   794→              onClick={() => generateMutation.mutate()}
+   795→              loading={generateMutation.isPending}
+   796→            >
+   797→              <Sparkles className="h-4 w-4" />
+   798→              Generate
+   799→            </GlassButton>
+   800→          </DialogFooter>
+   801→        </DialogContent>
+   802→      </Dialog>
+   803→
+   804→      {/* Bill detail dialog */}
+   805→      <Dialog
+   806→        open={!!selectedBill}
+   807→        onOpenChange={(o) => !o && setSelectedBill(null)}
+   808→      >
+   809→        <DialogContent className="rounded-3xl max-w-lg">
+   810→          {selectedBill && (
+   811→            <BillDetail bill={selectedBill} isAdmin={isAdmin} />
+   812→          )}
+   813→        </DialogContent>
+   814→      </Dialog>
+   815→
+   816→      {/* Void confirm */}
+   817→      <AlertDialog
+   818→        open={!!voidTarget}
+   819→        onOpenChange={(o) => !o && setVoidTarget(null)}
+   820→      >
+   821→        <AlertDialogContent className="rounded-3xl">
+   822→          <AlertDialogHeader>
+   823→            <AlertDialogTitle>Void this bill?</AlertDialogTitle>
+   824→            <AlertDialogDescription>
+   825→              {voidTarget && (
+   826→                <>
+   827→                  This will mark the bill for{" "}
+   828→                  <span className="font-medium text-foreground">
+   829→                    {voidTarget.user.name}
+   830→                  </span>{" "}
+   831→                  ({formatMonthYear(voidTarget.periodMonth, voidTarget.periodYear)}
+   832→                  ) as void. This action cannot be undone.
+   833→                </>
+   834→              )}
+   835→            </AlertDialogDescription>
+   836→          </AlertDialogHeader>
+   837→          <AlertDialogFooter>
+   838→            <AlertDialogCancel className="rounded-2xl">
+   839→              Cancel
+   840→            </AlertDialogCancel>
+   841→            <AlertDialogAction
+   842→              className="rounded-2xl bg-destructive text-white hover:bg-destructive/90"
+   843→              onClick={() =>
+   844→                voidTarget && voidMutation.mutate(voidTarget.id)
+   845→              }
+   846→              disabled={voidMutation.isPending}
+   847→            >
+   848→              {voidMutation.isPending ? "Voiding…" : "Void Bill"}
+   849→            </AlertDialogAction>
+   850→          </AlertDialogFooter>
+   851→        </AlertDialogContent>
+   852→      </AlertDialog>
+   853→
+   854→      {/* Delete single bill confirm */}
+   855→      <AlertDialog
+   856→        open={!!deleteTarget}
+   857→        onOpenChange={(o) => !o && setDeleteTarget(null)}
+   858→      >
+   859→        <AlertDialogContent className="rounded-3xl">
+   860→          <AlertDialogHeader>
+   861→            <AlertDialogTitle className="flex items-center gap-2">
+   862→              <AlertTriangle className="h-5 w-5 text-destructive" />
+   863→              Delete this bill?
+   864→            </AlertDialogTitle>
+   865→            <AlertDialogDescription>
+   866→              {deleteTarget && (
+   867→                <>
+   868→                  This will schedule the bill for{" "}
+   869→                  <span className="font-medium text-foreground">
+   870→                    {deleteTarget.user.name}
+   871→                  </span>{" "}
+   872→                  ({formatMonthYear(deleteTarget.periodMonth, deleteTarget.periodYear)}) for deletion.
+   873→                  It will be permanently removed after{" "}
+   874→                  <span className="font-medium text-foreground">7 days</span>.
+   875→                </>
+   876→              )}
+   877→            </AlertDialogDescription>
+   878→          </AlertDialogHeader>
+   879→          <GlassTextarea
+   880→            label="Reason (optional)"
+   881→            rows={2}
+   882→            placeholder="Why is this bill being deleted?"
+   883→            value={deleteReason}
+   884→            onChange={(e) => setDeleteReason(e.target.value)}
+   885→          />
+   886→          <AlertDialogFooter>
+   887→            <AlertDialogCancel className="rounded-2xl">Cancel</AlertDialogCancel>
+   888→            <AlertDialogAction
+   889→              className="rounded-2xl bg-destructive text-white hover:bg-destructive/90"
+   890→              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+   891→              disabled={deleteMutation.isPending}
+   892→            >
+   893→              {deleteMutation.isPending ? "Deleting…" : "Delete Bill"}
+   894→            </AlertDialogAction>
+   895→          </AlertDialogFooter>
+   896→        </AlertDialogContent>
+   897→      </AlertDialog>
+   898→
+   899→      {/* Delete all bills confirm */}
+   900→      <AlertDialog
+   901→        open={deleteAllOpen}
+   902→        onOpenChange={setDeleteAllOpen}
+   903→      >
+   904→        <AlertDialogContent className="rounded-3xl">
+   905→          <AlertDialogHeader>
+   906→            <AlertDialogTitle className="flex items-center gap-2">
+   907→              <AlertTriangle className="h-5 w-5 text-destructive" />
+   908→              Delete all bills for {MONTHS[selectedMonth]} {selectedYear}?
+   909→            </AlertDialogTitle>
+   910→            <AlertDialogDescription>
+   911→              This will schedule ALL {bills.length} bills for{" "}
+   912→              {MONTHS[selectedMonth]} {selectedYear} for deletion. The bills will
+   913→              be permanently removed after <span className="font-medium text-foreground">7 days</span>.
+   914→              You can restore them before the 7-day period expires. Do you want to continue?
+   915→            </AlertDialogDescription>
+   916→          </AlertDialogHeader>
+   917→          <GlassTextarea
+   918→            label="Reason (optional)"
+   919→            rows={2}
+   920→            placeholder="Why are these bills being deleted?"
+   921→            value={deleteAllReason}
+   922→            onChange={(e) => setDeleteAllReason(e.target.value)}
+   923→          />
+   924→          <AlertDialogFooter>
+   925→            <AlertDialogCancel className="rounded-2xl">Cancel</AlertDialogCancel>
+   926→            <AlertDialogAction
+   927→              className="rounded-2xl bg-destructive text-white hover:bg-destructive/90"
+   928→              onClick={() => deleteAllMutation.mutate()}
+   929→              disabled={deleteAllMutation.isPending}
+   930→            >
+   931→              {deleteAllMutation.isPending ? "Deleting…" : `Delete All (${bills.length})`}
+   932→            </AlertDialogAction>
+   933→          </AlertDialogFooter>
+   934→        </AlertDialogContent>
+   935→      </AlertDialog>
+   936→    </StaggerGroup>
+   937→  );
+   938→}
+   939→
+   940→// ─────────────────────────────────────────────────────────────
+   941→// Sub-components
+   942→// ─────────────────────────────────────────────────────────────
+   943→
+   944→function KpiCard({
+   945→  label,
+   946→  value,
+   947→  icon,
+   948→  color,
+   949→  prefix,
+   950→}: {
+   951→  label: string;
+   952→  value: number;
+   953→  icon: React.ReactNode;
+   954→  color: "primary" | "success" | "warning" | "danger" | "info";
+   955→  prefix?: string;
+   956→}) {
+   957→  const colorVar =
+   958→    color === "primary"
+   959→      ? "var(--primary)"
+   960→      : color === "success"
+   961→        ? "var(--success)"
+   962→        : color === "warning"
+   963→          ? "var(--warning)"
+   964→          : color === "danger"
+   965→            ? "var(--destructive)"
+   966→            : "var(--info)";
+   967→  return (
+   968→    <GlassCard className="p-4 md:p-5" glow={color === "danger" ? "danger" : color === "warning" ? "warning" : color === "success" ? "success" : "primary"}>
+   969→      <div className="flex items-start justify-between mb-3">
+   970→        <div
+   971→          className="grid place-items-center h-10 w-10 rounded-2xl"
+   972→          style={{
+   973→            background: `color-mix(in oklch, ${colorVar} 15%, transparent)`,
+   974→            color: colorVar,
+   975→          }}
+   976→        >
+   977→          {icon}
+   978→        </div>
+   979→      </div>
+   980→      <p className="text-xs text-muted-foreground">{label}</p>
+   981→      <div className="text-2xl md:text-3xl font-bold tracking-tight tabular-nums">
+   982→        <AnimatedCounter value={value} prefix={prefix || ""} />
+   983→      </div>
+   984→    </GlassCard>
+   985→  );
+   986→}
+   987→
+   988→function BillCard({
+   989→  bill,
+   990→  isAdmin,
+   991→  onView,
+   992→  onVoid,
+   993→  onDelete,
+   994→  onRestore,
+   995→}: {
+   996→  bill: Bill;
+   997→  isAdmin: boolean;
+   998→  onView: () => void;
+   999→  onVoid: () => void;
+  1000→  onDelete: () => void;
+  1001→  onRestore?: () => void;
+  1002→}) {
+  1003→  const isDeleted = !!bill.deletedAt;
+  1004→  return (
+  1005→    <motion.div
+  1006→      whileTap={{ scale: 0.99 }}
+  1007→      className={cn("glass rounded-3xl p-4", isDeleted ? "cursor-default opacity-75" : "cursor-pointer")}
+  1008→      onClick={isDeleted ? undefined : onView}
+  1009→    >
+  1010→      <div className="flex items-start justify-between gap-3 mb-3">
+  1011→        <div className="flex items-center gap-3 min-w-0 flex-1">
+  1012→          <Avatar className="h-10 w-10 rounded-2xl shrink-0">
+  1013→            {bill.user.avatarUrl && <AvatarImage src={bill.user.avatarUrl} alt={bill.user.name} />}
+  1014→            <AvatarFallback className={cn("rounded-2xl bg-gradient-to-br text-white font-semibold text-xs", gradientFor(bill.user.name))}>
+  1015→              {initials(bill.user.name) || "U"}
+  1016→            </AvatarFallback>
+  1017→          </Avatar>
+  1018→          <div className="min-w-0">
+  1019→            <p className="font-semibold truncate">{bill.user.name}</p>
+  1020→            <p className="text-xs text-muted-foreground truncate">
+  1021→              {bill.user.room ? `Room ${bill.user.room}` : bill.user.email}
+  1022→            </p>
+  1023→            <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+  1024→              <Calendar className="h-3 w-3" />
+  1025→              {formatMonthYear(bill.periodMonth, bill.periodYear)}
+  1026→            </p>
+  1027→          </div>
+  1028→        </div>
+  1029→        {isDeleted ? (
+  1030→          <Badge variant="outline" className="text-[10px] bg-destructive/15 text-destructive border-destructive/30 shrink-0">
+  1031→            <Clock className="h-2.5 w-2.5" /> {formatDeletionCountdown(new Date(bill.deletedAt!))}
+  1032→          </Badge>
+  1033→        ) : (
+  1034→          <BillStatusBadge status={bill.status} />
+  1035→        )}
+  1036→      </div>
+  1037→      <div className="grid grid-cols-3 gap-2 text-center">
+  1038→        <div className="glass-soft rounded-2xl py-2">
+  1039→          <p className="text-[10px] text-muted-foreground uppercase">Total</p>
+  1040→          <p className="text-sm font-semibold tabular-nums">
+  1041→            {formatINR(bill.totalAmount)}
+  1042→          </p>
+  1043→        </div>
+  1044→        <div className="glass-soft rounded-2xl py-2">
+  1045→          <p className="text-[10px] text-muted-foreground uppercase">Paid</p>
+  1046→          <p className="text-sm font-semibold text-success tabular-nums">
+  1047→            {formatINR(bill.paidAmount)}
+  1048→          </p>
+  1049→        </div>
+  1050→        <div className="glass-soft rounded-2xl py-2">
+  1051→          <p className="text-[10px] text-muted-foreground uppercase">Due</p>
+  1052→          <p className="text-sm font-semibold text-warning tabular-nums">
+  1053→            {formatINR(bill.dueAmount)}
+  1054→          </p>
+  1055→        </div>
+  1056→      </div>
+  1057→      <div className="flex items-center justify-between mt-3">
+  1058→        {isDeleted ? (
+  1059→          <div className="flex flex-col gap-0.5">
+  1060→            <span className="text-xs text-destructive/80 flex items-center gap-1">
+  1061→              <AlertTriangle className="h-3 w-3" />
+  1062→              Scheduled for deletion
+  1063→            </span>
+  1064→            {bill.deletionReason && (
+  1065→              <span className="text-[10px] text-destructive/60 truncate max-w-[150px]">
+  1066→                Reason: {bill.deletionReason}
+  1067→              </span>
+  1068→            )}
+  1069→          </div>
+  1070→        ) : (
+  1071→          <span className="text-xs text-muted-foreground flex items-center gap-1">
+  1072→            <Clock className="h-3 w-3" />
+  1073→            Due {formatDate(bill.dueDate)}
+  1074→          </span>
+  1075→        )}
+  1076→        <div className="flex items-center gap-1">
+  1077→          {isDeleted ? (
+  1078→            isAdmin && onRestore && (
+  1079→              <GlassButton
+  1080→                variant="ghost"
+  1081→                size="sm"
+  1082→                className="text-success hover:text-success"
+  1083→                onClick={(e) => { e.stopPropagation(); onRestore(); }}
+  1084→              >
+  1085→                <RotateCcw className="h-3.5 w-3.5" /> Restore
+  1086→              </GlassButton>
+  1087→            )
+  1088→          ) : (
+  1089→            <>
+  1090→              <GlassButton variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); onView(); }}>
+  1091→                <Eye className="h-3.5 w-3.5" /> View
+  1092→              </GlassButton>
+  1093→              {isAdmin && bill.status !== "VOID" && (
+  1094→                <GlassButton
+  1095→                  variant="ghost"
+  1096→                  size="sm"
+  1097→                  className="text-destructive"
+  1098→                  onClick={(e) => { e.stopPropagation(); onVoid(); }}
+  1099→                >
+  1100→                  <Ban className="h-3.5 w-3.5" />
+  1101→                </GlassButton>
+  1102→              )}
+  1103→              {isAdmin && (
+  1104→                <GlassButton
+  1105→                  variant="ghost"
+  1106→                  size="sm"
+  1107→                  className="text-destructive"
+  1108→                  onClick={(e) => { e.stopPropagation(); onDelete(); }}
+  1109→                >
+  1110→                  <Trash2 className="h-3.5 w-3.5" />
+  1111→                </GlassButton>
+  1112→              )}
+  1113→            </>
+  1114→          )}
+  1115→        </div>
+  1116→      </div>
+  1117→    </motion.div>
+  1118→  );
+  1119→}
+  1120→
+  1121→function BillDetail({ bill, isAdmin }: { bill: Bill; isAdmin: boolean }) {
+  1122→  const { data: payments = [] } = useQuery({
+  1123→    queryKey: ["bill", bill.id, "payments"],
+  1124→    queryFn: async () => {
+  1125→      const r = await api.get<
+  1126→        ApiResponse<{
+  1127→          id: string;
+  1128→          payments: Array<{
+  1129→            id: string;
+  1130→            amount: number;
+  1131→            method: string;
+  1132→            status: string;
+  1133→            reference: string | null;
+  1134→            createdAt: string;
+  1135→          }>;
+  1136→        }>
+  1137→      >(`/bills/${bill.id}`);
+  1138→      return r.data.payments || [];
+  1139→    },
+  1140→    enabled: isAdmin,
+  1141→  });
+  1142→
+  1143→  const rows = [
+  1144→    { label: "Meal Charges", value: bill.mealCharges, icon: <IndianRupee className="h-3.5 w-3.5" /> },
+  1145→    { label: "Other Charges", value: bill.otherCharges, icon: <IndianRupee className="h-3.5 w-3.5" /> },
+  1146→    {
+  1147→      label: "Adjustments",
+  1148→      value: bill.adjustments,
+  1149→      icon: <IndianRupee className="h-3.5 w-3.5" />,
+  1150→    },
+  1151→  ];
+  1152→
+  1153→  return (
+  1154→    <div>
+  1155→      <div className="flex items-center justify-between mb-4">
+  1156→        <div>
+  1157→          <p className="text-xs text-muted-foreground uppercase tracking-wide">
+  1158→            Bill Breakdown
+  1159→          </p>
+  1160→          <h3 className="text-lg font-semibold">{bill.user.name}</h3>
+  1161→          <p className="text-xs text-muted-foreground">
+  1162→            {formatMonthYear(bill.periodMonth, bill.periodYear)} · Room{" "}
+  1163→            {bill.user.room || "—"}
+  1164→          </p>
+  1165→        </div>
+  1166→        <BillStatusBadge status={bill.status} />
+  1167→      </div>
+  1168→
+  1169→      <div className="space-y-2 mb-4">
+  1170→        {rows.map((r) => (
+  1171→          <div
+  1172→            key={r.label}
+  1173→            className="flex items-center justify-between glass-soft rounded-2xl px-4 py-2.5"
+  1174→          >
+  1175→            <span className="text-sm text-muted-foreground flex items-center gap-2">
+  1176→              {r.icon}
+  1177→              {r.label}
+  1178→            </span>
+  1179→            <span className="text-sm font-medium tabular-nums">
+  1180→              {formatINR(r.value)}
+  1181→            </span>
+  1182→          </div>
+  1183→        ))}
+  1184→      </div>
+  1185→
+  1186→      <div className="glass-strong rounded-2xl p-4 mb-4">
+  1187→        <div className="flex items-center justify-between mb-2">
+  1188→          <span className="text-sm text-muted-foreground">Total Amount</span>
+  1189→          <span className="text-base font-semibold tabular-nums">
+  1190→            {formatINR(bill.totalAmount)}
+  1191→          </span>
+  1192→        </div>
+  1193→        <div className="flex items-center justify-between mb-2">
+  1194→          <span className="text-sm text-success flex items-center gap-1">
+  1195→            <CheckCircle2 className="h-3.5 w-3.5" /> Paid
+  1196→          </span>
+  1197→          <span className="text-sm font-medium text-success tabular-nums">
+  1198→            {formatINR(bill.paidAmount)}
+  1199→          </span>
+  1200→        </div>
+  1201→        <div className="flex items-center justify-between pt-2 border-t border-border/40">
+  1202→          <span className="text-sm text-warning flex items-center gap-1">
+  1203→            <AlertCircle className="h-3.5 w-3.5" /> Outstanding
+  1204→          </span>
+  1205→          <span className="text-base font-bold text-warning tabular-nums">
+  1206→            {formatINR(bill.dueAmount)}
+  1207→          </span>
+  1208→        </div>
+  1209→      </div>
+  1210→
+  1211→      <div className="text-xs text-muted-foreground flex items-center gap-2 mb-4">
+  1212→        <Clock className="h-3.5 w-3.5" />
+  1213→        Due {formatDate(bill.dueDate)} · Generated {formatDate(bill.generatedAt)}
+  1214→      </div>
+  1215→
+  1216→      {isAdmin && (
+  1217→        <div>
+  1218→          <p className="text-xs font-medium text-muted-foreground mb-2 ml-1 uppercase tracking-wide">
+  1219→            Payment History ({payments.length})
+  1220→          </p>
+  1221→          {payments.length === 0 ? (
+  1222→            <div className="glass-soft rounded-2xl p-4 text-center text-sm text-muted-foreground">
+  1223→              No payments recorded yet.
+  1224→            </div>
+  1225→          ) : (
+  1226→            <div className="max-h-48 overflow-y-auto no-scrollbar space-y-2">
+  1227→              {payments.map((p) => (
+  1228→                <div
+  1229→                  key={p.id}
+  1230→                  className="flex items-center justify-between glass-soft rounded-2xl px-4 py-2.5"
+  1231→                >
+  1232→                  <div>
+  1233→                    <p className="text-sm font-medium tabular-nums">
+  1234→                      {formatINR(p.amount)}
+  1235→                    </p>
+  1236→                    <p className="text-xs text-muted-foreground">
+  1237→                      {p.method} · {formatDate(p.createdAt)}
+  1238→                      {p.reference ? ` · Ref ${p.reference}` : ""}
+  1239→                    </p>
+  1240→                  </div>
+  1241→                  <Badge variant="outline" className="rounded-full">
+  1242→                    {p.status}
+  1243→                  </Badge>
+  1244→                </div>
+  1245→              ))}
+  1246→            </div>
+  1247→          )}
+  1248→        </div>
+  1249→      )}
+  1250→    </div>
+  1251→  );
+  1252→}
+  1253→
+  1254→// Small inline icon (sparkle) to avoid extra import cost
+  1255→function Sparkles({ className }: { className?: string }) {
+  1256→  return (
+  1257→    <svg
+  1258→      className={className}
+  1259→      viewBox="0 0 24 24"
+  1260→      fill="none"
+  1261→      stroke="currentColor"
+  1262→      strokeWidth="2"
+  1263→      strokeLinecap="round"
+  1264→      strokeLinejoin="round"
+  1265→      aria-hidden="true"
+  1266→    >
+  1267→      <path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3L12 3z" />
+  1268→    </svg>
+  1269→  );
+  1270→}
+  1271→

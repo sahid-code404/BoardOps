@@ -1,0 +1,898 @@
+     1→// BoardOps — Configurable Operational Management Platform
+     2→// Database schema (SQLite via Prisma)
+     3→
+     4→generator client {
+     5→  provider = "prisma-client-js"
+     6→}
+     7→
+     8→datasource db {
+     9→  provider = "sqlite"
+    10→  url      = env("DATABASE_URL")
+    11→}
+    12→
+    13→// ─────────────────────────────────────────────────────────────
+    14→// AUTH, ROLES & PERMISSIONS
+    15→// ─────────────────────────────────────────────────────────────
+    16→
+    17→model User {
+    18→  id              String         @id @default(cuid())
+    19→  name            String
+    20→  email           String         @unique
+    21→  phone           String?        @unique
+    22→  passwordHash    String
+    23→  role            String         @default("USER") // SUPER_ADMIN | ADMIN | MANAGER | USER
+    24→  status          String         @default("PENDING") // PENDING | ACTIVE | INACTIVE | SUSPENDED | ARCHIVED
+    25→  avatarUrl       String?
+    26→  room            String?
+    27→  gender          String?
+    28→  emergencyContact String?
+    29→  theme           String         @default("system")
+    30→  language        String         @default("en")
+    31→  timezone        String         @default("UTC")
+    32→  adminNotes      String?
+    33→  rejectionReason String?
+    34→  twoFactorEnabled Boolean       @default(false)
+    35→  twoFactorSecret String?
+    36→  twoFactorBackupCodes String?  // JSON array of hashed backup codes
+    37→  // Password reset (PRD 03.12 — Forgot Password flow)
+    38→  resetOtpHash     String?     // SHA-256 hash of the reset OTP
+    39→  resetOtpExpires  DateTime?   // OTP expiry time
+    40→  // Email verification + Institution fields (PRD Module 03 — DEC-015/016/017)
+    41→  institutionName     String?   // configurable; pre-filled for single-institution deployments
+    42→  institutionUserId   String?   // roll no / employee id / etc. Unique per institution (for v1, just unique)
+    43→  emailVerified       Boolean   @default(false)
+    44→  emailVerifyToken    String?   // hashed OTP token (sha256 hex)
+    45→  emailVerifyExpires  DateTime?
+    46→  changesRequested    String?   // JSON array of fields requiring correction, set by admin
+    47→  changesRequestReason String?  // admin's reason for requesting changes
+    48→  changesRequestedAt  DateTime?
+    49→  changesRequestedBy  String?
+    50→  lastLoginAt     DateTime?
+    51→  createdAt       DateTime       @default(now())
+    52→  updatedAt       DateTime       @updatedAt
+    53→  deletedAt       DateTime?
+    54→  deletedBy       String?
+    55→  deletionReason  String?
+    56→
+    57→  sessions         UserSession[]
+    58→  mealEntries      MealEntry[]
+    59→  mealOverrides    MealOverride[]
+    60→  bills            Bill[]
+    61→  payments         Payment[]
+    62→  expenses         Expense[]
+    63→  purchases        Purchase[]
+    64→  refunds          Refund[]
+    65→  adjustments      Adjustment[]
+    66→  adjustmentsMade  Adjustment[] @relation("AdjustmentCreator")
+    67→  ledgerEntries    LedgerEntry[]
+    68→  restrictions     Restriction[]
+    69→  announcements    Announcement[]
+    70→  notifications    Notification[]
+    71→  backgroundTasks  BackgroundTask[]
+    72→  auditLogs        AuditLog[]      @relation("AuditActor")
+    73→  leaveApplications LeaveApplication[]
+    74→  guestMeals       GuestMeal[]
+    75→  staffRecords     StaffRecord[]
+    76→  formulaVersions  FormulaVersion[]
+    77→  loginHistory     LoginHistory[]
+    78→  registrationRequests RegistrationRequest[]
+    79→}
+    80→
+    81→// ─────────────────────────────────────────────────────────────
+    82→// REGISTRATION REQUESTS — Review history (one row per cycle)
+    83→// PRD Module 03 — DEC-015: Resident approval Review → Approve/Reject/Request Changes workflow
+    84→// ─────────────────────────────────────────────────────────────
+    85→
+    86→model RegistrationRequest {
+    87→  id          String   @id @default(cuid())
+    88→  userId      String
+    89→  cycle       Int      @default(1)  // 1 = first submission, 2 = after resubmit, etc.
+    90→  status      String   // PENDING_REVIEW | APPROVED | REJECTED | CHANGES_REQUESTED | RESUBMITTED
+    91→  fields      String?  // JSON: snapshot of submitted fields for this cycle
+    92→  reason      String?  // admin reason (for reject / request changes)
+    93→  fieldsNeedingCorrection String? // JSON array of field keys the admin wants corrected
+    94→  reviewedBy  String?
+    95→  reviewedAt  DateTime?
+    96→  createdAt   DateTime @default(now())
+    97→  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+    98→
+    99→  @@index([userId])
+   100→}
+   101→
+   102→model UserSession {
+   103→  id           String   @id @default(cuid())
+   104→  userId       String
+   105→  token        String   @unique
+   106→  userAgent    String?
+   107→  ipAddress    String?
+   108→  expiresAt    DateTime
+   109→  revokedAt    DateTime?
+   110→  createdAt    DateTime @default(now())
+   111→  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   112→
+   113→  @@index([userId])
+   114→}
+   115→
+   116→model LoginHistory {
+   117→  id        String   @id @default(cuid())
+   118→  userId    String
+   119→  success   Boolean
+   120→  ipAddress String?
+   121→  userAgent String?
+   122→  reason    String?
+   123→  createdAt DateTime @default(now())
+   124→  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   125→
+   126→  @@index([userId])
+   127→}
+   128→
+   129→model Role {
+   130→  id          String   @id @default(cuid())
+   131→  name        String   @unique
+   132→  description String?
+   133→  isSystem    Boolean  @default(false)
+   134→  createdAt   DateTime @default(now())
+   135→  updatedAt   DateTime @updatedAt
+   136→
+   137→  permissions RolePermission[]
+   138→}
+   139→
+   140→model Permission {
+   141→  id          String   @id @default(cuid())
+   142→  feature     String   // e.g. "meals", "billing"
+   143→  action      String   // create | read | update | delete | approve | export | configure | override
+   144→  description String?
+   145→  createdAt   DateTime @default(now())
+   146→
+   147→  roles       RolePermission[]
+   148→}
+   149→
+   150→model RolePermission {
+   151→  roleId       String
+   152→  permissionId String
+   153→  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+   154→  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+   155→
+   156→  @@id([roleId, permissionId])
+   157→}
+   158→
+   159→// ─────────────────────────────────────────────────────────────
+   160→// MEAL CONFIGURATION ENGINE
+   161→// ─────────────────────────────────────────────────────────────
+   162→
+   163→model MealConfiguration {
+   164→  id             String   @id @default(cuid())
+   165→  name           String
+   166→  displayName    String
+   167→  description    String?
+   168→  icon           String   @default("🍽️")
+   169→  color          String   @default("#8b5cf6")
+   170→  mealType       String   @default("REGULAR") // REGULAR | SPECIAL | GUEST_ONLY | FESTIVAL | CUSTOM
+   171→  status         String   @default("ACTIVE") // ACTIVE | INACTIVE | ARCHIVED
+   172→  displayOrder   Int      @default(0)
+   173→  defaultState   String   @default("ON") // ON | OFF
+   174→  defaultVisibility String @default("VISIBLE") // VISIBLE | HIDDEN
+   175→  cutoffStrategy String   @default("SAME_DAY") // PREVIOUS_DAY | SAME_DAY | CUSTOM_OFFSET
+   176→  cutoffOffsetMinutes Int @default(0)
+   177→  cutoffTime     String   @default("16:00") // HH:mm
+   178→  startTime      String   @default("08:00")
+   179→  endTime        String   @default("10:00")
+   180→  notes          String?
+   181→  createdAt      DateTime @default(now())
+   182→  updatedAt      DateTime @updatedAt
+   183→
+   184→  entries     MealEntry[]
+   185→  history     MealHistory[]
+   186→  overrides   MealOverride[]
+   187→  guestMeals  GuestMeal[]
+   188→  presets     MealPresetItem[]
+   189→
+   190→  @@index([status, displayOrder])
+   191→}
+   192→
+   193→model MealEntry {
+   194→  id              String   @id @default(cuid())
+   195→  userId          String
+   196→  mealId          String
+   197→  serviceDate     DateTime
+   198→  status          String   @default("ON") // ON | OFF | LOCKED — current state
+   199→  originalState   String   @default("ON") // ON | OFF — the system default state, never changes after creation
+   200→  editableUntil   DateTime
+   201→  locked          Boolean  @default(false)
+   202→  overrideFlag    Boolean  @default(false) // computed: status !== originalState
+   203→  notes           String?
+   204→  updatedBy       String?
+   205→  createdAt       DateTime @default(now())
+   206→  updatedAt       DateTime @updatedAt
+   207→
+   208→  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+   209→  meal            MealConfiguration @relation(fields: [mealId], references: [id], onDelete: Cascade)
+   210→  history         MealHistory[]
+   211→
+   212→  @@unique([userId, mealId, serviceDate])
+   213→  @@index([userId, serviceDate])
+   214→  @@index([mealId, serviceDate])
+   215→  @@index([status])
+   216→}
+   217→
+   218→model MealHistory {
+   219→  id          String   @id @default(cuid())
+   220→  mealEntryId String
+   221→  mealId      String?
+   222→  oldStatus   String?
+   223→  newStatus   String?
+   224→  changedBy   String?
+   225→  reason      String?
+   226→  triggerSource String @default("MANUAL") // MANUAL | AUTO | PRESET | LEAVE | OVERRIDE
+   227→  createdAt   DateTime @default(now())
+   228→  mealEntry   MealEntry         @relation(fields: [mealEntryId], references: [id], onDelete: Cascade)
+   229→  meal        MealConfiguration? @relation(fields: [mealId], references: [id], onDelete: SetNull)
+   230→
+   231→  @@index([mealEntryId])
+   232→}
+   233→
+   234→model MealOverride {
+   235→  id          String   @id @default(cuid())
+   236→  mealId      String
+   237→  userId      String?
+   238→  serviceDate DateTime
+   239→  action      String   // TURN_ON | TURN_OFF | LOCK | UNLOCK | FORCE_STATUS
+   240→  reason      String
+   241→  adminId     String
+   242→  createdAt   DateTime @default(now())
+   243→  meal        MealConfiguration @relation(fields: [mealId], references: [id], onDelete: Cascade)
+   244→  user        User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+   245→
+   246→  @@index([mealId, serviceDate])
+   247→}
+   248→
+   249→model MealPreset {
+   250→  id          String   @id @default(cuid())
+   251→  name        String
+   252→  description String?
+   253→  isSystem    Boolean  @default(false)
+   254→  createdAt   DateTime @default(now())
+   255→  updatedAt   DateTime @updatedAt
+   256→  items       MealPresetItem[]
+   257→}
+   258→
+   259→model MealPresetItem {
+   260→  id          String   @id @default(cuid())
+   261→  presetId    String
+   262→  mealId      String
+   263→  state       String   @default("ON")
+   264→  preset      MealPreset        @relation(fields: [presetId], references: [id], onDelete: Cascade)
+   265→  meal        MealConfiguration @relation(fields: [mealId], references: [id], onDelete: Cascade)
+   266→}
+   267→
+   268→model LeaveApplication {
+   269→  id          String   @id @default(cuid())
+   270→  userId      String
+   271→  startDate   DateTime
+   272→  endDate     DateTime
+   273→  reason      String
+   274→  status      String   @default("PENDING") // PENDING | APPROVED | REJECTED
+   275→  approvedBy  String?
+   276→  createdAt   DateTime @default(now())
+   277→  updatedAt   DateTime @updatedAt
+   278→  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   279→
+   280→  @@index([userId, status])
+   281→}
+   282→
+   283→model GuestMeal {
+   284→  id          String   @id @default(cuid())
+   285→  mealId      String
+   286→  userId      String?  // host user
+   287→  guestName   String
+   288→  guestCount  Int      @default(1)
+   289→  serviceDate DateTime
+   290→  notes       String?
+   291→  createdAt   DateTime @default(now())
+   292→  meal        MealConfiguration @relation(fields: [mealId], references: [id], onDelete: Cascade)
+   293→  user        User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+   294→
+   295→  @@index([mealId, serviceDate])
+   296→}
+   297→
+   298→// ─────────────────────────────────────────────────────────────
+   299→// VARIABLE ENGINE & FORMULA ENGINE
+   300→// ─────────────────────────────────────────────────────────────
+   301→
+   302→model Variable {
+   303→  id          String   @id @default(cuid())
+   304→  key         String   @unique
+   305→  name        String
+   306→  description String?
+   307→  type        String   @default("NUMBER") // NUMBER | CURRENCY | PERCENTAGE | TEXT | BOOLEAN
+   308→  value       String
+   309→  unit        String?
+   310→  category    String   @default("GENERAL")
+   311→  isSystem    Boolean  @default(false)
+   312→  isProtected Boolean  @default(false)
+   313→  status      String   @default("ACTIVE")
+   314→  createdAt   DateTime @default(now())
+   315→  updatedAt   DateTime @updatedAt
+   316→}
+   317→
+   318→model Formula {
+   319→  id          String   @id @default(cuid())
+   320→  name        String
+   321→  key         String   @unique
+   322→  description String?
+   323→  expression  String
+   324→  returnType  String   @default("CURRENCY")
+   325→  category    String   @default("BILLING")
+   326→  status      String   @default("ACTIVE")
+   327→  version     Int      @default(1)
+   328→  createdAt   DateTime @default(now())
+   329→  updatedAt   DateTime @updatedAt
+   330→  versions    FormulaVersion[]
+   331→}
+   332→
+   333→model FormulaVersion {
+   334→  id          String   @id @default(cuid())
+   335→  formulaId   String
+   336→  version     Int
+   337→  expression  String
+   338→  changedBy   String?
+   339→  changeNote  String?
+   340→  createdAt   DateTime @default(now())
+   341→  formula     Formula  @relation(fields: [formulaId], references: [id], onDelete: Cascade)
+   342→  user        User?    @relation(fields: [changedBy], references: [id], onDelete: SetNull)
+   343→
+   344→  @@index([formulaId, version])
+   345→}
+   346→
+   347→// ─────────────────────────────────────────────────────────────
+   348→// MONTHLY CLOSING ENGINE (PRD Module 13 — Monthly Closing Engine)
+   349→// ─────────────────────────────────────────────────────────────
+   350→
+   351→model BillingCycle {
+   352→  id              String    @id @default(cuid())
+   353→  periodMonth     Int       // 0-indexed (0 = January)
+   354→  periodYear      Int
+   355→  status          String    @default("OPEN") // OPEN | PREPARING | SNAPSHOT_CREATED | BILLS_GENERATED | SETTLED | CLOSED | FAILED
+   356→  // Readiness checklist results (stored when the admin runs the pre-closing review)
+   357→  readiness       String?   // JSON: { meals: "ready"|"warning"|"error", expenses, variables, formula, payments, ... }
+   358→  // Snapshot reference
+   359→  snapshotId      String?   @unique
+   360→  // Closing metadata
+   361→  startedBy       String?
+   362→  startedAt       DateTime?
+   363→  closedBy        String?
+   364→  closedAt        DateTime?
+   365→  // Summary stats (populated after closing)
+   366→  totalExpenses   Float     @default(0)
+   367→  totalMeals      Int       @default(0)
+   368→  totalGuestMeals Int       @default(0)
+   369→  mealCharge      Float     @default(0)
+   370→  billsGenerated  Int       @default(0)
+   371→  refundQueueTotal Float    @default(0)
+   372→  outstandingDue  Float     @default(0)
+   373→  // Error info (if status=FAILED)
+   374→  errorMessage    String?
+   375→  createdAt       DateTime  @default(now())
+   376→  updatedAt       DateTime  @updatedAt
+   377→
+   378→  snapshot        MonthlySnapshot?
+   379→  bills           Bill[]
+   380→
+   381→  @@unique([periodMonth, periodYear])
+   382→  @@index([status])
+   383→}
+   384→
+   385→model MonthlySnapshot {
+   386→  id              String    @id @default(cuid())
+   387→  billingCycleId  String    @unique
+   388→  // Frozen JSON blobs — immutable after creation
+   389→  mealsData       String    // JSON: per-resident meal counts, guest meals, overrides
+   390→  expensesData    String    // JSON: all approved expenses + purchases with items
+   391→  variablesData   String    // JSON: all active variable key→value pairs
+   392→  formulaData     String    // JSON: formula key→{expression, version} for every active formula
+   393→  // Computed totals (denormalized for quick access)
+   394→  totalExpenses   Float
+   395→  totalResidentMeals Int
+   396→  totalGuestMeals Int
+   397→  guestRevenue    Float
+   398→  mealCharge      Float     // the calculated per-meal charge
+   399→  createdAt       DateTime  @default(now())
+   400→  billingCycle    BillingCycle @relation(fields: [billingCycleId], references: [id], onDelete: Cascade)
+   401→
+   402→  @@index([billingCycleId])
+   403→}
+   404→
+   405→// ─────────────────────────────────────────────────────────────
+   406→// BILLING, PAYMENTS & EXPENSES
+   407→// ─────────────────────────────────────────────────────────────
+   408→
+   409→model Bill {
+   410→  id           String   @id @default(cuid())
+   411→  billNumber   String?  // Human-readable reference (e.g. BILL-2026-0001). Configurable format (DEC-031).
+   412→  userId       String
+   413→  periodMonth  Int
+   414→  periodYear   Int
+   415→  mealCharges  Float    @default(0)
+   416→  otherCharges Float    @default(0)
+   417→  adjustments  Float    @default(0)
+   418→  totalAmount  Float    @default(0)
+   419→  paidAmount   Float    @default(0)
+   420→  dueAmount    Float    @default(0)
+   421→  previousDue  Float    @default(0) // PRD DEC-027: previous outstanding carried separately (not added to totalAmount)
+   422→  status       String   @default("DRAFT") // DRAFT | GENERATED | PARTIALLY_PAID | PAID | OVERDUE | VOID | DELETED
+   423→  generatedAt  DateTime?
+   424→  dueDate      DateTime?
+   425→  snapshot     String?  // JSON snapshot of calculation
+   426→  billingCycleId String? // links to the BillingCycle that generated this bill (null for legacy bills)
+   427→  // Formula snapshot — the exact formula version + expression used to generate this bill (PRD DEC-012)
+   428→  formulaKey       String?  // e.g. "formula.mealCharges"
+   429→  formulaVersion   Int?     // version number at generation time
+   430→  formulaExpression String? // the expression text (fully reproducible)
+   431→  deletedAt    DateTime? // Soft-delete: scheduled for permanent deletion after 7 days
+   432→  deletedBy    String?
+   433→  deletionReason String?
+   434→  createdAt    DateTime @default(now())
+   435→  updatedAt    DateTime @updatedAt
+   436→  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   437→  billingCycle BillingCycle? @relation(fields: [billingCycleId], references: [id], onDelete: SetNull)
+   438→  payments     Payment[]
+   439→  refunds      Refund[]
+   440→
+   441→  @@unique([userId, periodMonth, periodYear])
+   442→  @@index([status])
+   443→  @@index([deletedAt])
+   444→  @@index([billNumber])
+   445→}
+   446→
+   447→model Payment {
+   448→  id              String   @id @default(cuid())
+   449→  userId          String
+   450→  billId          String?
+   451→  amount          Float
+   452→  method          String   @default("CASH") // CASH | UPI | CARD | BANK_TRANSFER | WALLET
+   453→  status          String   @default("PENDING") // PENDING | APPROVED | REJECTED | REFUNDED | VOID | DELETED
+   454→  reference       String?
+   455→  notes           String?
+   456→  approvedBy      String?
+   457→  // PRD: Effective billing cycle — auto-determined when the payment is approved.
+   458→  // If the current period's billing cycle is already CLOSED, the payment applies
+   459→  // to the NEXT cycle. Otherwise it applies to the current cycle.
+   460→  effectiveMonth  Int?     // 0-indexed
+   461→  effectiveYear   Int?
+   462→  deletedAt       DateTime? // Soft-delete: scheduled for permanent deletion after 7 days
+   463→  deletedBy       String?
+   464→  deletionReason  String?
+   465→  createdAt       DateTime @default(now())
+   466→  updatedAt       DateTime @updatedAt
+   467→  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   468→  bill            Bill?    @relation(fields: [billId], references: [id], onDelete: SetNull)
+   469→  ledgerEntries   LedgerEntry[]
+   470→
+   471→  @@index([userId, status])
+   472→  @@index([deletedAt])
+   473→  @@index([effectiveMonth, effectiveYear])
+   474→}
+   475→
+   476→model Expense {
+   477→  id              String   @id @default(cuid())
+   478→  title           String   // Item name
+   479→  description     String?  // Notes (optional)
+   480→  category        String   @default("GENERAL")
+   481→  quantity        Float    @default(1)
+   482→  unit            String   @default("piece") // kg | gm | piece | litre | custom
+   483→  amount          Float    // total cost
+   484→  currency        String   @default("INR")
+   485→  expenseDate     DateTime
+   486→  paidTo          String?
+   487→  receiptUrl      String?
+   488→  status          String   @default("APPROVED") // APPROVED | LOCKED | DELETED
+   489→  createdBy       String?
+   490→  lockedAt        DateTime? // PRD DEC-030: set when the monthly snapshot freezes this expense. Locked expenses are immutable.
+   491→  lockedByCycleId String?  // links to the BillingCycle that locked this expense
+   492→  deletedAt       DateTime? // Soft-delete: scheduled for permanent deletion after 7 days
+   493→  deletedBy       String?
+   494→  deletionReason  String?
+   495→  createdAt       DateTime @default(now())
+   496→  updatedAt       DateTime @updatedAt
+   497→  user            User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+   498→  purchase        Purchase?
+   499→
+   500→  @@index([category, expenseDate])
+   501→  @@index([deletedAt])
+   502→}
+   503→
+   504→// ─────────────────────────────────────────────────────────────
+   505→// PRODUCT CATALOG, UNITS & PURCHASES (PRD Module: Purchase & Expense Engine)
+   506→// ─────────────────────────────────────────────────────────────
+   507→
+   508→model Unit {
+   509→  id        String   @id @default(cuid())
+   510→  name      String   @unique  // kg, gm, litre, ml, piece, packet, bottle, sack, bundle, dozen
+   511→  category  String   @default("QUANTITY")  // WEIGHT | VOLUME | QUANTITY | OTHER
+   512→  isActive  Boolean  @default(true)
+   513→  createdAt DateTime @default(now())
+   514→  updatedAt DateTime @updatedAt
+   515→
+   516→  products      Product[]
+   517→}
+   518→
+   519→model Product {
+   520→  id            String   @id @default(cuid())
+   521→  name          String   @unique
+   522→  slug          String   @unique
+   523→  category      String   @default("GENERAL")  // Non-Veg | Veg | Grains | Oil | Dairy | etc.
+   524→  defaultUnitId String?
+   525→  defaultUnit   Unit?    @relation(fields: [defaultUnitId], references: [id])
+   526→  isActive      Boolean  @default(true)
+   527→  archivedAt    DateTime?
+   528→  createdAt     DateTime @default(now())
+   529→  updatedAt     DateTime @updatedAt
+   530→
+   531→  purchaseItems PurchaseItem[]
+   532→
+   533→  @@index([category])
+   534→  @@index([isActive])
+   535→}
+   536→
+   537→model Purchase {
+   538→  id              String   @id @default(cuid())
+   539→  vendor          String
+   540→  purchaseDate    DateTime
+   541→  totalAmount     Float
+   542→  receiptUrl      String?
+   543→  notes           String?
+   544→  expenseId       String?  @unique // links to the Expense record (so existing totals/reports still work)
+   545→  expense         Expense? @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+   546→  createdBy       String?
+   547→  user            User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+   548→  status          String   @default("APPROVED")  // APPROVED | LOCKED | DELETED (mirrors Expense)
+   549→  deletedAt       DateTime?
+   550→  deletedBy       String?
+   551→  deletionReason  String?
+   552→  createdAt       DateTime @default(now())
+   553→  updatedAt       DateTime @updatedAt
+   554→  items           PurchaseItem[]
+   555→
+   556→  @@index([purchaseDate])
+   557→  @@index([deletedAt])
+   558→}
+   559→
+   560→model PurchaseItem {
+   561→  id          String   @id @default(cuid())
+   562→  purchaseId  String
+   563→  purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+   564→  productId   String?
+   565→  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+   566→  productName String   // snapshot of product name at purchase time
+   567→  category    String   @default("GENERAL")  // snapshot
+   568→  quantity    Float
+   569→  unit        String   // snapshot (kg, gm, piece, etc.) — not a FK so historical purchases don't break if unit is renamed
+   570→  rate        Float    @default(0)  // unit price
+   571→  total       Float    // quantity * rate
+   572→  notes       String?
+   573→  createdAt   DateTime @default(now())
+   574→
+   575→  @@index([purchaseId])
+   576→  @@index([productId])
+   577→}
+   578→
+   579→// ─────────────────────────────────────────────────────────────
+   580→// REFUNDS & ADJUSTMENTS (PRD Module: Resident Fund Engine + Billing Engine v2)
+   581→// ─────────────────────────────────────────────────────────────
+   582→
+   583→// PRD DEC-029: Partial refunds supported. A Refund tracks the full refund amount,
+   584→// how much has been paid so far, and the remaining amount. Multiple partial
+   585→// payments can be recorded until the refund is fully completed.
+   586→model Refund {
+   587→  id              String   @id @default(cuid())
+   588→  refundNumber    String?  // Human-readable reference (e.g. REF-2026-0001)
+   589→  userId          String
+   590→  billId          String?  // the bill that triggered this refund (null for direct/unlinked)
+   591→  billingCycleId  String?  // the cycle that generated this refund
+   592→  // Full refund amount (the total the resident is owed)
+   593→  amount          Float
+   594→  // How much has been paid out so far (sum of all partial refund payments)
+   595→  paidAmount      Float    @default(0)
+   596→  // Remaining = amount - paidAmount (computed, but stored for query convenience)
+   597→  remainingAmount Float    @default(0)
+   598→  status          String   @default("PENDING") // PENDING | PARTIALLY_PAID | COMPLETED | CANCELLED
+   599→  method          String?  // UPI | CASH | BANK_TRANSFER | CHEQUE
+   600→  reference       String?  // transaction reference number
+   601→  notes           String?
+   602→  processedBy     String?
+   603→  processedAt     DateTime?
+   604→  completedAt     DateTime?
+   605→  createdAt       DateTime @default(now())
+   606→  updatedAt       DateTime @updatedAt
+   607→  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   608→  bill            Bill?    @relation(fields: [billId], references: [id], onDelete: SetNull)
+   609→  transactions    RefundTransaction[]
+   610→
+   611→  @@index([userId, status])
+   612→  @@index([billingCycleId])
+   613→}
+   614→
+   615→// Individual partial refund payments (DEC-029). Each partial payment is recorded
+   616→// here — the sum of these equals Refund.paidAmount.
+   617→model RefundTransaction {
+   618→  id          String   @id @default(cuid())
+   619→  refundId    String
+   620→  amount      Float    // this partial payment amount
+   621→  method      String?  // UPI | CASH | BANK_TRANSFER | CHEQUE
+   622→  reference   String?  // transaction reference
+   623→  notes       String?
+   624→  processedBy String?
+   625→  createdAt   DateTime @default(now())
+   626→  refund      Refund   @relation(fields: [refundId], references: [id], onDelete: Cascade)
+   627→
+   628→  @@index([refundId])
+   629→}
+   630→
+   631→// PRD DEC-033 / AP-007: Adjustment Entries — correct historical financial records
+   632→// WITHOUT editing or deleting them. An adjustment is a separate record that
+   633→// references the original entity and records the correction amount + reason.
+   634→// Approved financial transactions are immutable; corrections use adjustments.
+   635→model Adjustment {
+   636→  id              String   @id @default(cuid())
+   637→  adjustmentNumber String? // Human-readable reference (e.g. ADJ-2026-0001)
+   638→  userId          String?  // affected resident (null for institution-level adjustments)
+   639→  // What entity is being adjusted
+   640→  entityType      String   // Payment | Refund | Bill | Expense
+   641→  entityId        String
+   642→  // The correction
+   643→  amount          Float    // positive = adds to balance, negative = subtracts
+   644→  reason          String   // mandatory
+   645→  notes           String?
+   646→  // Who and when
+   647→  createdBy       String?
+   648→  createdAt       DateTime @default(now())
+   649→  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+   650→  creator         User?    @relation("AdjustmentCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+   651→
+   652→  @@index([userId])
+   653→  @@index([entityType, entityId])
+   654→}
+   655→
+   656→// ─────────────────────────────────────────────────────────────
+   657→// FINANCIAL LEDGER (PRD: Resident Ledger — accounting backbone)
+   658→// Every financial event creates a ledger entry. Balances are derived
+   659→// from the sum of entries, never stored directly. This is the single
+   660→// source of truth for a resident's financial position.
+   661→// ─────────────────────────────────────────────────────────────
+   662→
+   663→model LedgerEntry {
+   664→  id              String   @id @default(cuid())
+   665→  userId          String
+   666→  // What type of event
+   667→  type            String   // DEPOSIT | BILL_SETTLEMENT | REFUND | ADJUSTMENT | PURCHASE | EXPENSE
+   668→  // Credit/debit (from the resident's perspective)
+   669→  // DEPOSIT: credit (+) — money in
+   670→  // BILL_SETTLEMENT: debit (-) — money out (bill deducted)
+   671→  // REFUND: debit (-) — money returned to resident
+   672→  // ADJUSTMENT: credit or debit depending on sign
+   673→  amount          Float    // positive = credit (adds to balance), negative = debit
+   674→  // Running balance after this entry (for quick display — the authoritative
+   675→  // balance is always the sum of all entries, but storing the running balance
+   676→  // avoids re-summing on every query)
+   677→  runningBalance  Float    @default(0)
+   678→  // Reference to the source entity
+   679→  entityType      String   // Payment | Bill | Refund | Adjustment | Expense | Purchase
+   680→  entityId        String?
+   681→  // Description for the human-readable ledger
+   682→  description     String
+   683→  // Billing cycle this entry applies to
+   684→  billingMonth    Int?
+   685→  billingYear     Int?
+   686→  createdAt       DateTime @default(now())
+   687→  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   688→  payment         Payment? @relation(fields: [entityId], references: [id], onDelete: SetNull)
+   689→
+   690→  @@index([userId, createdAt])
+   691→  @@index([entityType, entityId])
+   692→  @@index([billingMonth, billingYear])
+   693→}
+   694→
+   695→// ─────────────────────────────────────────────────────────────
+   696→// RESTRICTION ENGINE (PRD Module: Restriction Engine — DEC-008)
+   697→// Controls resident access based on financial or administrative conditions.
+   698→// Financial restrictions are auto-applied when balance falls below threshold
+   699→// and the grace period expires. Admins can manually apply/exempt restrictions.
+   700→// ─────────────────────────────────────────────────────────────
+   701→
+   702→model Restriction {
+   703→  id              String    @id @default(cuid())
+   704→  userId          String
+   705→  type            String    // FINANCIAL | ADMINISTRATIVE
+   706→  reason          String    // mandatory
+   707→  source          String    @default("AUTOMATIC") // AUTOMATIC | MANUAL
+   708→  status          String    @default("ACTIVE") // ACTIVE | LIFTED | EXEMPTED | EXPIRED
+   709→  appliedBy       String?   // null for automatic
+   710→  appliedAt       DateTime  @default(now())
+   711→  expiresAt       DateTime? // null = indefinite
+   712→  liftedBy        String?
+   713→  liftedAt        DateTime?
+   714→  liftReason      String?
+   715→  createdAt       DateTime  @default(now())
+   716→  updatedAt       DateTime  @updatedAt
+   717→  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+   718→
+   719→  @@index([userId, status])
+   720→  @@index([type, status])
+   721→}
+   722→
+   723→// ─────────────────────────────────────────────────────────────
+   724→// INSTITUTION CANDAR (PRD Module 19 — Institution Calendar)
+   725→// Centralized scheduler for holidays, festival closures, special meal days,
+   726→// billing dates, refund dates, and maintenance windows. Every module reads
+   727→// from this calendar. Holidays automatically disable meals.
+   728→// ─────────────────────────────────────────────────────────────
+   729→
+   730→model Holiday {
+   731→  id              String   @id @default(cuid())
+   732→  name            String   // e.g. "Durga Puja", "Independence Day"
+   733→  description     String?
+   734→  type            String   @default("HOLIDAY") // HOLIDAY | FESTIVAL | SPECIAL_MEAL | BILLING_DAY | REFUND_DAY | MAINTENANCE
+   735→  startDate       DateTime
+   736→  endDate         DateTime
+   737→  mealsDisabled   Boolean  @default(true) // PRD DEC-024: holidays automatically make meals unavailable
+   738→  status          String   @default("ACTIVE") // ACTIVE | ARCHIVED
+   739→  createdBy       String?
+   740→  createdAt       DateTime @default(now())
+   741→  updatedAt       DateTime @updatedAt
+   742→
+   743→  @@index([startDate, endDate])
+   744→  @@index([type, status])
+   745→}
+   746→
+   747→// ─────────────────────────────────────────────────────────────
+   748→// NOTIFICATIONS & AUDIT
+   749→// ─────────────────────────────────────────────────────────────
+   750→
+   751→model Notification {
+   752→  id          String   @id @default(cuid())
+   753→  userId      String
+   754→  title       String
+   755→  description String?
+   756→  type        String   @default("INFO") // INFO | SUCCESS | WARNING | DANGER
+   757→  priority    String   @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
+   758→  route       String?
+   759→  readAt      DateTime?
+   760→  createdAt   DateTime @default(now())
+   761→  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+   762→
+   763→  @@index([userId, readAt])
+   764→}
+   765→
+   766→// ─────────────────────────────────────────────────────────────
+   767→// ANNOUNCEMENTS (PRD Module 16 — Notification & Announcement Engine)
+   768→// Institution-wide communication, separate from personal notifications.
+   769→// Pinned on resident dashboards until expiry. Targeted delivery.
+   770→// ─────────────────────────────────────────────────────────────
+   771→
+   772→model Announcement {
+   773→  id              String    @id @default(cuid())
+   774→  title           String
+   775→  body            String
+   776→  type            String    @default("INFO") // INFO | WARNING | MAINTENANCE | EVENT
+   777→  priority        String    @default("NORMAL") // NORMAL | HIGH | URGENT
+   778→  // Targeting: ALL | RESIDENTS | ADMINS
+   779→  targetAudience  String    @default("ALL")
+   780→  // Pinned on dashboards until expiry
+   781→  isPinned        Boolean   @default(true)
+   782→  // Lifecycle
+   783→  status          String    @default("PUBLISHED") // DRAFT | SCHEDULED | PUBLISHED | EXPIRED | ARCHIVED
+   784→  publishedAt     DateTime?
+   785→  expiresAt       DateTime? // null = indefinite
+   786→  // Author
+   787→  createdBy       String?
+   788→  createdAt       DateTime  @default(now())
+   789→  updatedAt       DateTime  @updatedAt
+   790→  user            User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+   791→
+   792→  @@index([status, publishedAt])
+   793→  @@index([targetAudience, status])
+   794→}
+   795→
+   796→model AuditLog {
+   797→  id           String   @id @default(cuid())
+   798→  actorId      String?
+   799→  action       String
+   800→  entity       String
+   801→  entityId     String?
+   802→  oldValue     String?
+   803→  newValue     String?
+   804→  ipAddress    String?
+   805→  userAgent    String?
+   806→  reason       String?
+   807→  createdAt    DateTime @default(now())
+   808→  actor        User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+   809→
+   810→  @@index([entity, entityId])
+   811→  @@index([actorId])
+   812→}
+   813→
+   814→// ─────────────────────────────────────────────────────────────
+   815→// BACKGROUND TASK ENGINE (PRD Engineering Improvement)
+   816→// Tracks async operations: monthly closing, large exports, session
+   817→// cleanup, scheduled announcements. Each task has status, progress,
+   818→// error info, and retry tracking.
+   819→// ─────────────────────────────────────────────────────────────
+   820→
+   821→model BackgroundTask {
+   822→  id           String    @id @default(cuid())
+   823→  type         String    // MONTHLY_CLOSING | REPORT_EXPORT | SESSION_CLEANUP | ANNOUNCEMENT_SCHEDULE | BILL_GENERATION
+   824→  status       String    @default("QUEUED") // QUEUED | RUNNING | COMPLETED | FAILED | CANCELLED
+   825→  progress     Int       @default(0) // 0-100
+   826→  // Payload (JSON) — the task parameters
+   827→  payload      String?
+   828→  // Result (JSON) — the task output on completion
+   829→  result       String?
+   830→  // Error info
+   831→  errorMessage String?
+   832→  // Retry tracking
+   833→  retryCount   Int       @default(0)
+   834→  maxRetries   Int       @default(3)
+   835→  // Scheduling
+   836→  scheduledFor DateTime?
+   837→  startedAt    DateTime?
+   838→  finishedAt   DateTime?
+   839→  // Trigger
+   840→  triggeredBy  String?
+   841→  createdAt    DateTime  @default(now())
+   842→  updatedAt    DateTime  @updatedAt
+   843→  user         User?     @relation(fields: [triggeredBy], references: [id], onDelete: SetNull)
+   844→
+   845→  @@index([status, scheduledFor])
+   846→  @@index([type, status])
+   847→}
+   848→
+   849→// ─────────────────────────────────────────────────────────────
+   850→// STAFF / HR
+   851→// ─────────────────────────────────────────────────────────────
+   852→
+   853→model StaffRecord {
+   854→  id            String   @id @default(cuid())
+   855→  userId        String?  @unique
+   856→  name          String
+   857→  designation   String
+   858→  department    String?
+   859→  salary        Float    @default(0)
+   860→  joiningDate   DateTime @default(now())
+   861→  status        String   @default("ACTIVE") // ACTIVE | ON_LEAVE | TERMINATED
+   862→  contactNumber String?
+   863→  createdAt     DateTime @default(now())
+   864→  updatedAt     DateTime @updatedAt
+   865→  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+   866→}
+   867→
+   868→// ─────────────────────────────────────────────────────────────
+   869→// SETTINGS / FEATURE FLAGS / INSTITUTION
+   870→// ─────────────────────────────────────────────────────────────
+   871→
+   872→model Setting {
+   873→  id          String   @id @default(cuid())
+   874→  key         String   @unique
+   875→  value       String
+   876→  category    String   @default("GENERAL")
+   877→  type        String   @default("TEXT") // TEXT | NUMBER | BOOLEAN | JSON
+   878→  description String?
+   879→  isPublic    Boolean  @default(false)
+   880→  createdAt   DateTime @default(now())
+   881→  updatedAt   DateTime @updatedAt
+   882→}
+   883→
+   884→model Institution {
+   885→  id          String   @id @default(cuid())
+   886→  name        String
+   887→  type        String   @default("HOSTEL") // HOSTEL | PG | COLLEGE | COMPANY_ACCOMMODATION | NGO | TRAINING_INSTITUTE | RESIDENTIAL_SCHOOL | BOARDING_HOUSE | UNIVERSITY
+   888→  address     String?
+   889→  contactEmail String?
+   890→  contactPhone String?
+   891→  currency    String   @default("INR")
+   892→  timezone    String   @default("UTC")
+   893→  logoUrl     String?
+   894→  isActive    Boolean  @default(true)
+   895→  createdAt   DateTime @default(now())
+   896→  updatedAt   DateTime @updatedAt
+   897→}
+   898→

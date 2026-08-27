@@ -1,0 +1,701 @@
+Task ID: 10
+Agent: main (orchestrator)
+Task: 10/10 UX polish — remove all duplicates, clutter, and inconsistencies
+
+Work Log:
+- Comprehensive VLM audit of all views identified systemic issues:
+  1. Every view had a duplicate title header (big h2 in a GlassCard) that repeated the TopBar's page title
+  2. Dashboard had duplicate "Open Calendar" CTAs (button in welcome + "View calendar" in meals section)
+  3. Dashboard meal cards had redundant ON/OFF/Locked badges (the colored background already indicated state)
+  4. Profile page repeated email, status, role, member-since, 2FA across 4 different cards
+  5. Settings page repeated the category label as both a tab and a section header
+  6. Notifications filter tabs were cramped and "Alerts" was truncated
+  7. Inconsistent card padding (p-5 md:p-6 vs p-4 md:p-6)
+
+- Fixed dashboard:
+  - Removed duplicate "Open Calendar" CTA from welcome section (meal cards already route to calendar)
+  - Simplified welcome section (compact p-4, no flex-row, no big CTA button)
+  - Cleaned meal cards: removed ON/OFF/Locked badges, using opacity (0.5 for OFF) + colored gradient for ON + small 🔒 emoji for locked
+  - Unified section headers to font-semibold (not text-lg) with inline "· subtitle" format
+  - Consistent p-4 md:p-6 padding across all cards
+  - Fixed KPI icon colors to use CSS variables dynamically
+
+- Fixed profile:
+  - Removed entire "Account" card (all its info was already in the header: role, status, 2FA, member-since)
+  - Removed "Email" from Contact card (already in header)
+  - Removed "Status" from Preferences card (already in header)
+  - Moved "Last Login" to Preferences card (was in Account card)
+  - Removed subtitle prop from InfoCard component (was redundant with title)
+  - Tightened InfoCard: p-4 md:p-6, h-9 w-9 icons (was h-10 w-10), text-sm title
+
+- Dispatched subagent (Task UX-1) to remove duplicate title headers from 9 views:
+  users, notifications, settings, variables, kitchen, meals, calendar, payments, expenses
+  - Each now starts with either a compact action bar (just the button + short hint) or directly with content
+  - TopBar is the single source of truth for page titles
+
+- Fixed settings: removed per-tab section header (icon + label + description) since the tab itself already shows the label
+
+- Fixed notifications filters: removed GlassCard wrapper, made tabs scrollable with whitespace-nowrap, smaller padding (px-2.5)
+
+Agent Browser + VLM Final Verification (all views rated):
+- Dashboard (mobile): 4/10 → 8/10 (full scroll: 9/10) — "No duplicates, clean, well-organized"
+- Profile (mobile): 4/10 → 8/10 — "No duplicate information between header and info cards"
+- Billing (mobile): 4/10 → 8/10 — "No duplicate title"
+- Users (mobile): 8/10 — "Not title-duplicated, clean"
+- Notifications (mobile): 8/10 — "All filter tabs fully visible, clean"
+- Settings (mobile): 7/10 → 8/10 — "Duplicate header removed, clean"
+- Variables: 8/10 — "Clean, organized"
+- Kitchen: 8/10 — "No duplicate headers"
+- Calendar: 8/10 — "Clean, clutter-free"
+- Meals: 8/10 — "No duplicate headers or clutter"
+- Payments: 8/10 — "Clean, organized"
+- Expenses: 8/10 — "Clean, organized"
+- Desktop dashboard: 8/10 — "Minimal clutter, no duplicate headers"
+
+Stage Summary:
+- ALL duplicate title headers removed (TopBar is the single source of truth)
+- Dashboard: removed duplicate CTA, simplified meal cards, unified spacing
+- Profile: eliminated 4 duplicate data points across cards, removed entire Account card
+- Settings: removed per-tab section headers
+- Notifications: fixed cramped/truncated filter tabs
+- All card padding unified to p-4 md:p-6
+- Lint clean (0 errors)
+- Every view rated 8-9/10 by VLM (up from 4/10)
+
+---
+Task ID: EXP-REWRITE
+Agent: expenses-rewrite-agent
+Task: Rewrite the Expenses view — restructure layout, add Edit flow + quantity/unit fields + lock logic
+
+Work Log:
+- Read full worklog.md (563 lines) + 3 prior agent records in /agent-ctx/ for context
+- Inspected existing /api/expenses (POST) and /api/expenses/[id] (PUT/DELETE) routes — backend already supports quantity/unit fields and enforces past-month lock server-side (status LOCKED or expense year-month < today's year-month returns 422)
+
+Changes to `src/components/features/billing/expenses-view.tsx`:
+1. Layout: swapped the first two StaggerItems so the month picker now renders ABOVE the admin Add-Expense action bar (was: action bar → month picker → KPIs → … ; now: month picker → action bar → KPIs → Top Categories → Search+Filters → List). All other sections preserved.
+2. Type: extended `Expense` with `quantity: number` and `unit: string`. Added `ExpensePayload` alias + `UNIT_OPTIONS = ["piece","kg","gm","litre","metre","box","dozen"]` + `formatQuantity(qty, unit)` (e.g. "5 kg") + `isExpenseLocked(expense)` (status LOCKED OR year-month strictly < today's).
+3. Edit flow: added `editTarget` state + `openAddForm/openEditForm/closeForm` helpers + `editMutation` using `api.put('/expenses/${id}', payload)`. Added `handleSubmit(payload, id?)` dispatcher that routes to editMutation when an id is passed, otherwise to addMutation. Both mutations toast, invalidate `["expenses"]`, and close the form on success.
+4. Form rewrite: split `AddExpenseSheet` into `ExpenseFormSheet` (wrapper) + `ExpenseFormBody` (state + fields). The wrapper passes `key={expense ? 'edit-${id}' : 'add'}` so the body remounts on every target change; combined with Radix Sheet unmounting content when closed, this gives fresh state on every open via `useState` initializers — no useEffect sync (which would trip the react-hooks/set-state-in-effect rule).
+   - Fields in order: Item (text, was "title"), Category (Select with CUSTOM option + custom-name input — preserved), Quantity (number) + Unit (Select with 7 predefined units + CUSTOM option + custom-unit input), Cost (number, was "amount"), Date (date picker), Notes (textarea, was "description").
+   - Removed the Paid To field entirely. Removed the now-unused `User` lucide import and the `useEffect` import.
+   - Title and submit button copy switch between "Add Expense"/"Edit Expense" and "Add Expense"/"Save Changes"; submit icon swaps Plus ↔ PencilLine.
+   - Submit payload shape: `{ title, category, quantity, unit, amount, description?, expenseDate }` (+ `id` passed separately when editing) — exactly as requested.
+5. Cards + table rows: mobile `ExpenseCard` now shows Qty block (right side) via `formatQuantity()`, renamed "Amount"→"Cost"; desktop table replaced the "Paid To" column with a "Qty" column and renamed "Title"→"Item", "Amount"→"Cost".
+6. Edit + Delete affordances only render when admin AND `!isExpenseLocked(expense)`. For locked rows (past month or status LOCKED), show a "🔒 Locked" badge instead — applied consistently to both mobile cards and desktop table rows.
+7. Minor cleanup: collapsed redundant `isAdmin || isAdmin` to a single check.
+
+Verification:
+- `bun run lint` → 0 errors (1 pre-existing informational warning in variables-view.tsx from a prior task, unrelated)
+- dev.log shows clean recompilation (`✓ Compiled in 200ms`) and `GET /api/expenses?month=5&year=2026&limit=500 200` succeeding
+- Did NOT modify any other files (API routes, page.tsx, other views, lib, stores, prisma schema untouched)
+
+Stage Summary:
+- Expenses page now supports full Add + Edit lifecycle with quantity/unit tracking
+- Past-month expenses are visibly locked (no edit/delete buttons, 🔒 badge shown) — mirrors the server-side enforcement in PUT/DELETE /api/expenses/[id]
+- Month picker is the first thing the user sees, making month navigation the primary action before adding expenses
+- Lint clean (0 errors)
+
+---
+Task ID: BILL-FIX
+Agent: billing-fix-agent
+Task: Add month picker + expenses-style filter redesign to Billing page
+
+Work Log:
+- Read worklog.md + /agent-ctx/ records for context. Inspected existing billing-view.tsx (898 lines), expenses-view.tsx (1128 lines) for the canonical month picker + filter pill pattern, and the existing /api/bills GET/POST route.
+
+Changes to `src/components/features/billing/billing-view.tsx`:
+1. Imports: added `ChevronLeft` + `ChevronRight` to the lucide-react block (`Calendar` was already imported — reused for both the new picker and existing BillCard).
+2. State: added `now`, `selectedMonth` (defaults to `now.getMonth()`), `selectedYear` (defaults to `now.getFullYear()`).
+3. Query: changed `queryKey` from `["bills"]` to `["bills", { month: selectedMonth, year: selectedYear }]`. `queryFn` now sends `params: { month: selectedMonth, year: selectedYear }` to `/api/bills`.
+4. Layout: inserted a NEW month-picker StaggerItem as the FIRST element (above the existing admin action bar). Centered `flex items-center justify-center gap-4`:
+   - Left circular `motion.button` (h-10 w-10 rounded-full glass-strong ring-1 ring-border/40 hover:ring-primary/40) with ChevronLeft — onClick does `new Date(selectedYear, selectedMonth - 1, 1)` and sets both states.
+   - Center capsule: `glass-soft rounded-full px-6 py-2.5` with Calendar icon + two-line stack (top: month name `text-sm font-bold text-primary`; bottom: year `text-[11px] text-muted-foreground`). Uses `toLocaleDateString("en-US", { month: "long" })`.
+   - Right circular `motion.button` with ChevronRight — onClick does `new Date(selectedYear, selectedMonth + 1, 1)`.
+5. Replaced the old GlassCard-wrapped search/filter bar with the expenses-style design:
+   - Full-width `GlassInput` (Search icon, "Search by name, email, room…") in a `space-y-3` div.
+   - Below it: horizontally scrollable filter pills (`flex items-center gap-2 overflow-x-auto no-scrollbar`). Each pill: `inline-flex items-center gap-1 h-8 px-2.5 rounded-xl text-[11px] font-medium whitespace-nowrap transition-all`. Active = `bg-primary text-primary-foreground shadow-md shadow-primary/30`. Inactive = `glass-soft text-muted-foreground hover:text-foreground`. Pills: All, Generated, Partially Paid, Paid, Overdue, Void.
+6. KPIs already derive from `bills` via `useMemo([bills])`, so they automatically reflect the month-filtered data — no other change needed.
+
+Changes to `src/app/api/bills/route.ts` GET handler:
+- Switched from `where = user.role === "USER" ? { userId } : undefined` to a mutable `where: Record<string, unknown>`. Still gates `userId` for USER role.
+- Reads `month` and `year` from `url.searchParams`. If both provided (`month !== null && year`), sets `where.periodMonth = Number(month)` and `where.periodYear = Number(year)`.
+- Backward compatible: when params are absent, the query behaves exactly as before (returns all bills subject to the existing `take: limit` default of 20).
+
+Preserved (no changes):
+- Generate Bills dialog (month/year selects + Sparkles submit icon)
+- Void confirm AlertDialog
+- Bill detail Dialog with payment history (admin-only)
+- Mobile BillCard + desktop Table rendering
+- KpiCard component + glow colors
+- `formatINR`, `formatMonthYear`, `formatDate`, `BILL_STATUS_STYLES`, `BillStatusBadge` helpers
+
+Verification:
+- `bun run lint` → 0 errors (1 pre-existing informational warning in variables-view.tsx from a prior task, unrelated)
+- `dev.log` shows clean recompilation (`✓ Compiled in 197ms`) and `GET /api/bills 200` succeeding
+
+Stage Summary:
+- Billing page now opens with a centered month-picker capsule identical to the expenses page, making month navigation the primary action
+- Bills API now filters by `periodMonth` + `periodYear` when those params are passed, so KPIs and the list reflect only the selected billing period
+- Search/filter bar matches the expenses page exactly (full-width GlassInput + scrollable h-8 px-2.5 rounded-xl text-[11px] pills) for visual consistency across the Finance section
+- All existing functionality (generate, void, detail dialog, payment history, RBAC gating) preserved
+- Lint clean (0 errors)
+
+---
+Task ID: PAY-FIX
+Agent: payments-fix-agent
+Task: Add Day Picker + expenses-style filter redesign + date-filtered KPIs to Payments page
+
+Work Log:
+- Read worklog.md (641 lines) + /agent-ctx/ records (EXP-REWRITE, UX-1, 5d-billing) for context. Inspected existing payments-view.tsx (989 lines), kitchen-view.tsx (for the canonical Day Picker + getDatePickerLabels helper), and expenses-view.tsx (for the canonical search + filter pills pattern). Also read existing /api/payments GET route.
+
+Changes to `src/components/features/billing/payments-view.tsx`:
+1. Imports: added `addDays, format, isSameDay` from `date-fns` and `ChevronLeft, ChevronRight, Calendar, RotateCcw` from `lucide-react`.
+2. Helper: copied `getDatePickerLabels(d)` verbatim from kitchen-view.tsx — returns `{ top, bottom }` where today/yesterday/tomorrow map to relative labels + "EEE, d MMM", and far dates show "d MMM" on top + "EEE" on the bottom (no duplicate day name).
+3. State: added `selectedDate` (`useState<Date>(new Date())`). Derived `dateStr` (YYYY-MM-DD via the exact pattern the task spec gave), `datePickerLabels`, and `isToday` (via `isSameDay`).
+4. Query: changed `queryKey` from `["payments"]` to `["payments", dateStr]`. `queryFn` now sends `params: { date: dateStr }` to `GET /api/payments`. Kept `isLoading` for the skeleton state.
+5. KPIs: removed the redundant month filter inside the KPI memo (was filtering approved payments by `now.getMonth/getFullYear` — no longer needed since `payments` is already filtered to the selected day). Replaced the 4th KPI card "This Month" (₹) with "Refunded" (count, RotateCcw icon, info color) so the 4 KPIs map cleanly to the 4 status filter pills (excluding All).
+6. Layout: inserted a NEW Day Picker StaggerItem as the FIRST element (above the existing action bar). Centered `flex items-center justify-center gap-4`:
+   - Left circular `motion.button` (h-10 w-10 rounded-full glass-strong ring-1 ring-border/40 hover:ring-primary/40) with ChevronLeft — `setSelectedDate((d) => addDays(d, -1))`.
+   - Center glass-soft capsule button (max-w-[280px] rounded-full px-6 py-2.5) with `Calendar` icon + two-line stack (top: relative label/day, `text-sm font-bold text-primary`; bottom: "EEE, d MMM" or day name, `text-[11px] text-muted-foreground`). Clicking it jumps back to today unless already on today — a small `RotateCcw` icon appears as a hint when not on today.
+   - Right circular `motion.button` with ChevronRight — `setSelectedDate((d) => addDays(d, 1))`.
+7. Replaced the old GlassCard-wrapped search/filter bar (which had a GlassInput + status pills + a Method `Select` dropdown) with the expenses-style design:
+   - Full-width `GlassInput` (Search icon, "Search by name, email, reference…") in a `space-y-3` div.
+   - Below it: horizontally scrollable filter pills (`flex items-center gap-2 overflow-x-auto no-scrollbar`). Each pill uses the exact classes requested: `inline-flex items-center h-8 px-2.5 rounded-xl text-[11px] gap-1 font-medium whitespace-nowrap transition-all`. Active = `bg-primary text-primary-foreground shadow-md shadow-primary/30`. Inactive = `glass-soft text-muted-foreground hover:text-foreground` (same as expenses-view).
+   - 5 pills in the requested order: All, Pending, Approved, Rejected, Refunded.
+8. Removed the now-unused `methodFilter` state and the Method `Select` dropdown from the filter bar (the Select component import is retained — it's still used inside `SubmitPaymentDialog` for Method and bill selection).
+
+Changes to `src/app/api/payments/route.ts` GET handler:
+- Typed `where` as `{ userId?: string; createdAt?: { gte: Date; lte: Date } }` (was previously untyped `userId | undefined`).
+- Reads `date` from `url.searchParams`. If present, parses it and sets `where.createdAt = { gte: start, lte: end }` where start = 00:00:00.000 and end = 23:59:59.999 of that calendar day (using `d.getFullYear/getMonth/getDate` — exact pattern from the task spec).
+- Backward compatible: when `date` is omitted, `where.createdAt` stays undefined and the query returns all payments (subject to the existing `take: limit` default of 20).
+- Preserved the existing USER-scope rule (`where.userId = user.id` for residents) — composes cleanly with the new createdAt filter.
+
+Preserved (no changes):
+- Submit Payment dialog (amount/method/bill/reference/notes fields, outstanding-bills Select)
+- Approve/Reject AlertDialog confirm with success/destructive variants
+- Admin Pending Approvals card with inline Approve/Reject buttons (now scoped to the selected day)
+- Mobile PaymentCard + desktop Table rendering
+- KpiCard component + glow colors
+- `formatINR`, `formatDate`, `formatDateTime`, `STATUS_STYLES`, `METHOD_META` helpers
+- POST `/api/payments` and PATCH `/api/payments/[id]` routes (no date logic needed there)
+
+Verification:
+- `bun run lint` → 0 errors (1 pre-existing informational warning in variables-view.tsx from a prior task, unrelated)
+- dev.log shows clean recompilations and the new date filter working end-to-end:
+  - `GET /api/payments?date=2026-06-28 200 in 13ms`
+  - `GET /api/payments?date=2026-06-27 200` (previous day)
+  - `GET /api/payments?date=2026-06-29 200` (next day)
+
+Stage Summary:
+- Payments page now opens with a centered Day Picker capsule identical to the kitchen page, making day navigation the primary action
+- Payments API now filters by `createdAt` calendar-day range when `date` is passed, so KPIs and the list reflect only the selected day's transactions
+- Search/filter bar matches the expenses page exactly (full-width GlassInput + scrollable h-8 px-2.5 rounded-xl text-[11px] pills) for visual consistency across the Finance section
+- KPIs simplified to remove the redundant in-month filter and now show 4 distinct status counts/sums for the selected day
+- All existing functionality (submit, approve/reject, RBAC gating, pending approvals card, dialog/sheet forms) preserved
+- Lint clean (0 errors)
+
+---
+Task ID: BILL-ROWS
+Agent: billing-rows-agent
+Task: Replace Billing list dual mobile/desktop split with a single Users-style BillRow list
+
+Work Log:
+- Read worklog.md (695 lines) tail for recent context (BILL-FIX, PAY-FIX, EXP-REWRITE, UX-1) — understood prior agents left a `md:hidden` mobile BillCard + `hidden md:block` desktop `<Table>` split on the Billing view that needed unification.
+- Studied the canonical Users row pattern in users-view.tsx lines 469-521 (list wrapper: `<div className="space-y-3">` + `<AnimatePresence mode="popLayout">` + per-row `motion.div` with `layout` + spring `initial/animate/exit`) and lines 779-921 (UserRow: `GlassCard p-4 md:p-5 hover={false}` + `flex items-start gap-3 md:gap-4` + avatar + name/badges/meta + MoreVertical `DropdownMenu` with `align="end" className="w-44 rounded-2xl"` + `DropdownMenuLabel`/`DropdownMenuSeparator` + mapped `DropdownMenuItem`).
+- Read billing-view.tsx end-to-end (1271 lines) to map imports, the list block (lines 588-725), the `BillCard` component (lines 988-1119), and confirm `BillDetail`, `KpiCard`, `Sparkles`, `BILL_STATUS_STYLES`, `BillStatusBadge` must be preserved.
+
+Changes to `src/components/features/billing/billing-view.tsx` (only file modified):
+1. Imports:
+   - Updated `import { motion } from "framer-motion";` → `import { motion, AnimatePresence } from "framer-motion";`
+   - Added `Mail`, `DoorOpen`, `MoreVertical` to the lucide-react block (inserted after `Clock`, before `IndianRupee`).
+   - Removed the `Table, TableBody, TableCell, TableHead, TableHeader, TableRow` import from `@/components/ui/table` (no longer used).
+   - Added the `DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel` import from `@/components/ui/dropdown-menu` (replacing the Table block).
+2. Replaced the dual list block (the `<>` fragment with `md:hidden` StaggerGroup of `BillCard` + `hidden md:block` GlassCard-wrapped `<Table>`) with a SINGLE unified list: `<div className="space-y-3">` → `<AnimatePresence mode="popLayout">` → `motion.div` per-row wrapper (layout + initial `{opacity:0,y:12,scale:0.98}` + animate `{opacity:1,y:0,scale:1}` + exit `{opacity:0,scale:0.95}` + spring transition `{type:"spring",stiffness:280,damping:26}`) → `<BillRow>`. No `md:hidden` / `hidden md:block` split remains.
+3. Deleted the old `BillCard` component (132 lines) and replaced it with a new `BillRow` component that mirrors `UserRow` exactly:
+   - Same outer `GlassCard className="p-4 md:p-5" hover={false}` + `flex items-start gap-3 md:gap-4`.
+   - Avatar `h-12 w-12 md:h-14 md:w-14 rounded-2xl shrink-0` with `AvatarImage` + `AvatarFallback` gradient (`gradientFor(bill.user.name)`) + `initials(bill.user.name)`.
+   - Header line: `<h3>` name (line-through + muted when deleted) + status `Badge` (`BILL_STATUS_STYLES[bill.status]`) + period `Badge` (Calendar icon + `formatMonthYear`). For deleted bills, replaces both with a destructive countdown badge (`formatDeletionCountdown`).
+   - Meta line: Mail icon + email + DoorOpen icon + Room + Clock icon + Due date (only when not deleted).
+   - Inline KPI strip: Total (foreground) / Paid (success) / Due (warning) using `formatINR` with `tabular-nums`, plus deletion reason (`AlertTriangle` icon) when applicable.
+   - Right side: `DropdownMenu` with `DropdownMenuTrigger asChild` wrapping `GlassButton variant="ghost" size="icon"` with `MoreVertical`, content `align="end" className="w-44 rounded-2xl"`, `DropdownMenuLabel` "Actions" + `DropdownMenuSeparator` + mapped `DropdownMenuItem` (rounded-xl cursor-pointer, `variant="destructive"` for Void/Delete). Actions array: View Details (always for non-deleted); Void Bill (admin + non-VOID, destructive); Delete Bill (admin, destructive); Restore Bill (admin + deleted).
+   - Dropdown only renders when `actions.length > 0` — so residents on a deleted bill (no admin rights) get no trigger, exactly like Users.
+4. Preserved unchanged: month picker, KPIs, search/filter pills (with the Delete All + Restore All action buttons), Generate Dialog, Bill Detail Dialog, void AlertDialog, delete-single AlertDialog, delete-all AlertDialog, `BillDetail` component, `Sparkles` helper, `KpiCard` component, `BILL_STATUS_STYLES`/`BillStatusBadge`/`formatINR`/`formatMonthYear`/`formatDate` helpers. The `BillStatusBadge` is still used inside `BillDetail`.
+
+Verification:
+- `bun run lint` → 0 errors (1 pre-existing informational warning in variables-view.tsx from a prior task, unrelated — react-hooks/incompatible-library on `form.watch`)
+- dev.log shows clean recompilation (`✓ Compiled in 723ms`) and successful `GET /api/bills?month=5&year=2026` + `GET /api/bills?month=5&year=2026&includeDeleted=true` 200 responses — no compile errors
+- File size: 1271 → 1162 lines (the unified BillRow is more compact than the dual mobile-card + desktop-table block it replaced)
+
+Stage Summary:
+- Billing list now uses the EXACT same row pattern as the Users list: single `space-y-3` + `AnimatePresence mode="popLayout"` + springy `motion.div` per-row wrapper + `GlassCard p-4 md:p-5 hover={false}` row + MoreVertical dropdown holding every per-row action
+- The `md:hidden` mobile cards vs. `hidden md:block` desktop `<Table>` split is GONE — no Table import remains in this file
+- All actions (View / Void / Delete / Restore) live inside the MoreVertical dropdown; no inline view/void/delete buttons remain — matches Users exactly
+- RBAC gating preserved: residents never see admin actions; deleted bills show only Restore (admin) and nothing else; VOID bills hide the Void action
+- All other Billing functionality (month picker, KPIs, filters, generate dialog, void/delete/delete-all AlertDialogs, Bill detail dialog with payment history) preserved unchanged
+- Lint clean (0 errors)
+
+---
+Task ID: EXP-ROWS
+Agent: expenses-rows-agent
+Task: Replace Expenses list dual mobile/desktop split with a single Users-style ExpenseRow list
+
+Work Log:
+- Read worklog.md tail (Tasks EXP-REWRITE, BILL-FIX, PAY-FIX, UX-1, 10) for prior context on the Expenses view and the canonical Users row pattern.
+- Read `src/components/features/users/users-view.tsx` lines 469-521 (list wrapper: `<div className="space-y-3">` + `<AnimatePresence mode="popLayout">` + per-row `motion.div` with layout/initial/animate/exit + spring transition) and lines 779-921 (`UserRow` component: `GlassCard p-4 md:p-5 hover={false}`, top-level `flex items-start gap-3 md:gap-4`, left Avatar h-12 w-12 md:h-14 md:w-14 rounded-2xl, middle meta stack, right DropdownMenu with MoreVertical trigger + GlassButton ghost size="icon" + content w-44 rounded-2xl with DropdownMenuLabel + DropdownMenuSeparator + mapped DropdownMenuItem entries).
+- Read full `src/components/features/billing/expenses-view.tsx` (1128 lines) to identify the exact dual list block (lines 547-667) and the old `ExpenseCard` component (lines 758-843).
+
+Changes to `src/components/features/billing/expenses-view.tsx` (only file modified):
+1. Imports:
+   - Updated `import { motion } from "framer-motion"` → `import { motion, AnimatePresence } from "framer-motion"`.
+   - Added `MoreVertical` to the lucide-react import block.
+   - Removed the entire `Table, TableBody, TableCell, TableHead, TableHeader, TableRow` import (no longer used — desktop table is gone).
+   - Added a new `DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel` import block from `@/components/ui/dropdown-menu`.
+2. Added a `CATEGORY_ICON_COMPONENTS: Record<string, typeof Boxes>` lookup map (GROCERY→ShoppingBag, UTILITIES→Zap, SALARY→Users, MAINTENANCE→Wrench, GENERAL→Boxes, CUSTOM→Plus) immediately after `CATEGORY_ORDER`. Needed because the existing `CATEGORY_META.icon` entries are pre-rendered JSX elements sized `h-3.5 w-3.5` for inline badge use; the new row tile wants the icon at `h-5 w-5` so a component reference (not a frozen element) is required.
+3. Replaced the dual list block (`<>` fragment containing the `md:hidden` mobile StaggerGroup of `ExpenseCard`s + the `hidden md:block` GlassCard-wrapped `<Table>`) with a single unified list:
+   ```
+   <div className="space-y-3">
+     <AnimatePresence mode="popLayout">
+       {filtered.map((exp) => (
+         <motion.div key={exp.id} layout initial={{opacity:0,y:12,scale:0.98}} animate={{opacity:1,y:0,scale:1}} exit={{opacity:0,scale:0.95}} transition={{type:"spring",stiffness:280,damping:26}}>
+           <ExpenseRow expense={exp} canManage={isAdmin} onEdit={() => openEditForm(exp)} onDelete={() => setDeleteTarget(exp)} />
+         </motion.div>
+       ))}
+     </AnimatePresence>
+   </div>
+   ```
+   The empty-state GlassCard above it was preserved unchanged.
+4. Deleted the old `ExpenseCard` component (was lines 758-843) and replaced it with a new `ExpenseRow` component that mirrors `UserRow` exactly:
+   - Outer `<GlassCard className="p-4 md:p-5" hover={false}>` with top-level `<div className="flex items-start gap-3 md:gap-4">`.
+   - Left: category-colored icon tile `h-12 w-12 md:h-14 md:w-14 rounded-2xl shrink-0` using `color-mix(in oklch, ${meta.colorVar} 15%, transparent)` for background and `meta.colorVar` for color. Icon rendered at `h-5 w-5` via the `CATEGORY_ICON_COMPONENTS` lookup (falls back to `Boxes`).
+   - Middle: `<h3 className="font-semibold truncate">` (muted when locked) + category `Badge variant="outline"` (uses `meta.className`) + optional `🔒 Locked` badge + meta row (Calendar/Boxes/Users icons with date, qty, user name) + optional description `line-clamp-1` + inline Cost line with `formatINR()` tabular-nums.
+   - Right: `DropdownMenu` with `DropdownMenuTrigger asChild` wrapping `GlassButton variant="ghost" size="icon"` with `MoreVertical`; `DropdownMenuContent align="end" className="w-44 rounded-2xl"` with `DropdownMenuLabel` "Actions" + `DropdownMenuSeparator` then `actions.map(...)` rendering `DropdownMenuItem` (Edit Expense → PencilLine, Delete Expense → Trash2 variant="destructive"). The dropdown only renders when `actions.length > 0` (i.e., `canManage && !locked`), matching the Users pattern where the menu is the single source of per-row actions.
+5. All other sections preserved unchanged: month picker, admin action bar, KPIs, Top Categories chart, search + filter pills, ExpenseFormSheet, ExpenseFormBody, helpers (`formatINR`, `formatDate`, `formatQuantity`, `isExpenseLocked`, `getCatMeta`), `KpiCard`, Add/Edit mutations, Delete AlertDialog, and RBAC gating.
+
+Verification:
+- `bun run lint` → 0 errors (1 pre-existing informational warning in `variables-view.tsx` from a prior task, unrelated).
+- `tail -30 /home/z/my-project/dev.log` shows multiple clean `✓ Compiled in XXXms` entries after the edit (712ms, 193ms, 163ms, 399ms, 109ms, 723ms) — Next.js picked up the file change and recompiled successfully with no errors.
+- grep confirmed no orphan references to `ExpenseCard`, `Table`, `TableRow`, `TableCell`, `TableHead`, `TableBody`, `TableHeader`, `md:hidden`, or `hidden md:block` remain in the file.
+
+Stage Summary:
+- Expenses list is now a single unified list of `GlassCard` rows identical in pattern to the Users list: same `space-y-3` wrapper, same `AnimatePresence mode="popLayout"` + per-row `motion.div` (layout/initial/animate/exit + spring transition), same `GlassCard p-4 md:p-5 hover={false}` row card, same `MoreVertical` dropdown holding every per-row action.
+- The mobile (`md:hidden`) cards + desktop (`hidden md:block`) `<Table>` split is GONE entirely — one list renders on every breakpoint.
+- All per-row actions (Edit, Delete) live inside the dropdown menu; no inline edit/delete buttons remain. When `locked` is true OR `canManage` is false, the dropdown simply doesn't render (the `🔒 Locked` badge in the row header communicates state).
+- Category icon tile replaces the user Avatar — same sizing (`h-12 w-12 md:h-14 md:w-14 rounded-2xl`) but tinted with the category's `colorVar` via `color-mix(in oklch, … 15%, transparent)` instead of a name-gradient.
+- All existing functionality (Add/Edit sheet, lock logic, RBAC gating, mutations, delete confirm, KPIs, Top Categories chart, month picker, search/filter pills) preserved unchanged.
+- Only `src/components/features/billing/expenses-view.tsx` was modified — no API routes, prisma schema, stores, or other views touched.
+- Lint clean (0 errors).
+
+---
+Task ID: PAY-ROWS
+Agent: payments-rows-agent
+Task: Replace Payments list dual mobile/desktop split with a single Users-style PaymentRow list
+
+Work Log:
+- Read worklog.md tail (Tasks BILL-ROWS, EXP-ROWS, EXP-REWRITE, BILL-FIX, PAY-FIX, UX-1, 10) for prior context — confirmed BILL-ROWS + EXP-ROWS already established the exact pattern (unified `space-y-3` + `AnimatePresence mode="popLayout"` + springy `motion.div` per-row wrapper + `GlassCard p-4 md:p-5 hover={false}` row + MoreVertical dropdown holding every per-row action). This task applies the same to Payments.
+- Read `src/components/features/users/users-view.tsx` lines 469-521 (list wrapper) and 779-921 (`UserRow` component) — confirmed canonical pattern: `GlassCard p-4 md:p-5 hover={false}` + top-level `flex items-start gap-3 md:gap-4` + Avatar `h-12 w-12 md:h-14 md:w-14 rounded-2xl` + middle meta stack + right `DropdownMenu` with `GlassButton variant="ghost" size="icon"` MoreVertical trigger + `DropdownMenuContent align="end" className="w-44 rounded-2xl"` + `DropdownMenuLabel` + `DropdownMenuSeparator` + mapped `DropdownMenuItem`.
+- Read `src/components/features/billing/billing-view.tsx` `BillRow` (lines 878-1011) for the closest analog (also has `user.name` + `user.email`) — used as the template for `PaymentRow`.
+- Read full `src/components/features/billing/payments-view.tsx` (1047 lines) — mapped the imports block (lines 1-76), the dual list block to replace (lines 524-604), the `PendingRow` component (lines 741-803) to preserve, and the old `PaymentCard` component (lines 805-866) to delete.
+
+Changes to `src/components/features/billing/payments-view.tsx` (only file modified):
+1. Imports:
+   - Updated `import { motion } from "framer-motion";` → `import { motion, AnimatePresence } from "framer-motion";`.
+   - Added `MoreVertical`, `Mail` to the lucide-react import block (appended after `RotateCcw`).
+   - Added `import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";` right after the `Badge` import.
+   - Removed the `Table, TableBody, TableCell, TableHead, TableHeader, TableRow` import block from `@/components/ui/table` (no longer used — desktop table is gone).
+   - Added a new `DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel` import block from `@/components/ui/dropdown-menu` (placed in the same spot the Table import used to occupy, between Select and AlertDialog).
+2. Added the `AVATAR_GRADIENTS` constant + `gradientFor(name)` + `initials(name)` helpers immediately after `formatDateTime` (before the existing `getDatePickerLabels` JSDoc comment). Exact same code as in users-view.tsx / billing-view.tsx.
+3. Replaced the dual list block (the `<>` fragment containing `{/* Mobile cards */}` `md:hidden` StaggerGroup of `PaymentCard` + `{/* Desktop table */}` `hidden md:block` GlassCard-wrapped `<Table>`) with a SINGLE unified list:
+   ```
+   <div className="space-y-3">
+     <AnimatePresence mode="popLayout">
+       {filtered.map((p) => (
+         <motion.div key={p.id} layout
+           initial={{opacity:0,y:12,scale:0.98}} animate={{opacity:1,y:0,scale:1}}
+           exit={{opacity:0,scale:0.95}} transition={{type:"spring",stiffness:280,damping:26}}>
+           <PaymentRow payment={p} isAdmin={isAdmin}
+             onApprove={() => setActionTarget({ payment: p, action: "APPROVE" })}
+             onReject={() => setActionTarget({ payment: p, action: "REJECT" })} />
+         </motion.div>
+       ))}
+     </AnimatePresence>
+   </div>
+   ```
+   No `md:hidden` / `hidden md:block` split remains. The empty-state GlassCard above the list is preserved unchanged.
+4. Deleted the old `PaymentCard` component (62 lines — `motion.div whileTap` + `glass rounded-3xl p-4` layout with method-icon tile + amount + notes) and replaced it with a new `PaymentRow` component that mirrors `UserRow` / `BillRow` exactly:
+   - Outer `<GlassCard className="p-4 md:p-5" hover={false}>` with top-level `<div className="flex items-start gap-3 md:gap-4">`.
+   - Left: `<Avatar className="h-12 w-12 md:h-14 md:w-14 rounded-2xl shrink-0">` with `<AvatarFallback>` using `gradientFor(payment.user.name)` + `initials(payment.user.name) || "U"`. (No AvatarImage — the `Payment.user` type only carries `name` + `email`, no `avatarUrl`.)
+   - Middle: `<h3 className="font-semibold truncate">` showing `payment.user.name` for admins or `methodMeta.label` for non-admins (matching the old PaymentCard's behavior). Followed by `<Badge variant="outline">` status (uses `STATUS_STYLES[payment.status]`) + `<Badge variant="outline">` method (uses `METHOD_META[payment.method]`), both at `text-[10px]`.
+   - Meta line `flex flex-col sm:flex-row sm:items-center gap-x-3 gap-y-0.5 mt-1.5 text-xs text-muted-foreground`: Mail icon + email (admin only) + Clock icon + `formatDateTime(createdAt)` + ArrowUpRight icon + "Ref {reference}" (only when present).
+   - Amount line `flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-muted-foreground`: "Amount ₹X" with `font-semibold text-foreground tabular-nums`, plus optional notes (`·` separator + truncated `max-w-[280px]`).
+   - Right: `DropdownMenu` with `DropdownMenuTrigger asChild` wrapping `GlassButton variant="ghost" size="icon" shrink-0 aria-label="Payment actions"` with `MoreVertical`. `DropdownMenuContent align="end" className="w-44 rounded-2xl"` with `DropdownMenuLabel` "Actions" + `DropdownMenuSeparator` + mapped `DropdownMenuItem` (rounded-xl cursor-pointer, `variant="destructive"` for Reject).
+   - Actions array: `Approve Payment` (CheckCircle2) + `Reject Payment` (XCircle, destructive). ONLY pushed when `isAdmin && payment.status === "PENDING"`. APPROVED / REJECTED / REFUNDED payments get an empty actions array → no dropdown trigger renders → matches the existing behavior where non-pending historical records had no per-row actions.
+   - Non-admin users: actions array is always empty (the `isAdmin` guard) → no dropdown trigger renders → matches the existing behavior where regular users couldn't act on their own payments.
+5. Preserved unchanged: Day Picker (centered capsule + circular ChevronLeft/Right arrows), action bar, KPIs (Total Approved / Pending Approvals / Rejected / Refunded), Admin Pending Approvals card with `PendingRow` (separate compact `glass-soft rounded-2xl p-3` UX with inline Approve/Reject buttons — intentional, NOT touched), search + filter pills, Submit Payment Dialog, Approve/Reject AlertDialog, `KpiCard`, `PendingRow`, `SubmitPaymentDialog`, `formatMonthLabel`, `formatINR`, `formatDate`, `formatDateTime`, `STATUS_STYLES`, `METHOD_META` helpers.
+
+Verification:
+- `bun run lint` → 0 errors (1 pre-existing informational warning in `variables-view.tsx` from a prior task, unrelated — react-hooks/incompatible-library on `form.watch`).
+- `tail -30 /home/z/my-project/dev.log` shows multiple clean `✓ Compiled in 162ms` / `207ms` / `74ms` / `139ms` / `137ms` entries after the edit plus successful `GET /api/payments 200` + `GET /api/payments?date=2026-06-28 200` requests — no compile errors.
+- grep confirmed no orphan references to `PaymentCard`, `Table`, `TableRow`, `TableCell`, `TableHead`, `TableBody`, `TableHeader`, `md:hidden`, or `hidden md:block` remain in the file.
+- File size: 1047 → 1088 lines (the new `PaymentRow` is slightly larger than the old `PaymentCard`; the unified list block is more compact than the dual list — net +41 lines).
+
+Stage Summary:
+- Payments list is now a single unified list of `GlassCard` rows identical in pattern to the Users / Billing / Expenses lists: same `space-y-3` wrapper, same `AnimatePresence mode="popLayout"` + per-row `motion.div` (layout/initial/animate/exit + spring transition), same `GlassCard p-4 md:p-5 hover={false}` row card, same `MoreVertical` dropdown holding every per-row action.
+- The mobile (`md:hidden`) cards + desktop (`hidden md:block`) `<Table>` split is GONE entirely — one list renders on every breakpoint. No `Table` import remains in this file.
+- For admins, the MoreVertical dropdown renders ONLY for PENDING payments (Approve / Reject actions); APPROVED / REJECTED / REFUNDED payments have no row-level actions and the dropdown trigger doesn't render. For non-admin users, the dropdown never renders (no row-level actions exist for them). This matches the old UI's behavior where admins could act only on pending items, and regular users couldn't act on their own payments.
+- The separate Admin "Pending Approvals" card at the top of the page (using the compact `PendingRow` with inline Approve/Reject buttons) is preserved unchanged — that's a distinct UX surface, not part of the main list.
+- All other functionality (Day Picker, KPIs, search/filter pills, Submit Payment Dialog, Approve/Reject AlertDialog, mutations, RBAC gating, `pendingPayments` derivation for KPIs + Admin card) preserved unchanged.
+- Only `src/components/features/billing/payments-view.tsx` was modified — no API routes, prisma schema, stores, or other views touched.
+- Lint clean (0 errors).
+
+---
+Task ID: PAY-BACKEND
+Agent: payments-backend-agent
+Task: Extend Payment model with soft-delete + VOID + edit; add DELETE/PUT/restore routes
+
+Work Log:
+- Read worklog.md tail (Tasks PAY-ROWS, BILL-ROWS, EXP-ROWS, EXP-REWRITE, BILL-FIX, PAY-FIX, UX-1, 10, 1-4) — confirmed BILL-ROWS already established the soft-delete pattern (deletedAt/deletedBy/deletionReason + @@index([deletedAt])) and that payments-view.tsx was already rewritten as a unified PaymentRow list (no API contract changes in that prior task — purely visual).
+- Studied reference patterns: read prisma/schema.prisma lines 307-351 (Bill model has deletedAt/deletedBy/deletionReason + @@index([deletedAt]); Payment model only had PENDING|APPROVED|REJECTED|REFUNDED status enum); src/lib/user-cleanup.ts (purgeExpiredUsers, purgeExpiredBills, getDeletionDate, formatDeletionCountdown all present); src/app/api/bills/route.ts (GET does `await purgeExpiredBills()` then builds `where: Record<string, unknown>` with `deletedAt = null` default or `{ not: null }` when includeDeleted=true, plus userId/periodMonth/periodYear compose cleanly); src/app/api/bills/[id]/route.ts (DELETE soft-deletes a single bill with getDeletionDate + deletionReason); src/app/api/bills/[id]/restore/route.ts (POST clears deletedAt/deletedBy and reverts status to GENERATED); src/app/api/payments/route.ts (GET had typed `where: { userId?: string; createdAt?: { gte: Date; lte: Date } }` which couldn't accept a deletedAt key — needed widening to Record<string, unknown>; POST unchanged); src/app/api/payments/[id]/route.ts (only had PATCH for approve/reject; needed DELETE + PUT added).
+- Updated prisma/schema.prisma `model Payment` block: added 3 new fields `deletedAt DateTime?`, `deletedBy String?`, `deletionReason String?` (mirroring Bill model field-by-field), expanded status comment to `PENDING | APPROVED | REJECTED | REFUNDED | VOID | DELETED`, and added `@@index([deletedAt])` alongside the existing `@@index([userId, status])`. Re-aligned field column widths (id/userId/billId/amount/method/status/reference/notes/approvedBy all padded to 14-char field column; deletedAt/deletedBy/deletionReason/createdAt/updatedAt padded to 14-char column; user/bill relations padded).
+- Ran `cd /home/z/my-project && bun run db:push` — Prisma applied the additive column changes (deletedAt, deletedBy, deletionReason + the new @@index) to the SQLite DB non-destructively; Prisma Client regenerated in 290ms.
+- Added `purgeExpiredPayments` export to src/lib/user-cleanup.ts after `purgeExpiredBills`. Mirrors `purgeExpiredBills` exactly but targets `db.payment.deleteMany({ where: { deletedAt: { not: null, lt: now } } })`. Returns count of purged rows; try/catch returns 0 on failure. Existing functions (purgeExpiredUsers, purgeExpiredBills, getDeletionDate, formatDeletionCountdown) left untouched.
+- Updated src/app/api/payments/route.ts GET handler: added `import { purgeExpiredPayments } from "@/lib/user-cleanup"`; inserted `await purgeExpiredPayments();` as the first statement in the try block (before requireAuth — mirrors bills route ordering); read `includeDeleted = url.searchParams.get("includeDeleted") === "true"`; widened `where` type from `{ userId?: string; createdAt?: { gte: Date; lte: Date } }` to `Record<string, unknown>` so the deletedAt key can be added; built the deletedAt clause (`where.deletedAt = null` when !includeDeleted, `where.deletedAt = { not: null }` when includeDeleted); kept the existing `userId` (USER role) filter and `date` (createdAt gte/lte) filter composing on top. POST handler left unchanged.
+- Rewrote src/app/api/payments/[id]/route.ts to add DELETE + PUT handlers around the existing PATCH (PATCH logic is unchanged — only added a `payment.deletedAt` guard returning 422 "Payment is scheduled for deletion"). New imports: `getDeletionDate` from `@/lib/user-cleanup` and `z` from `zod`. New `editSchema` validates `{ action?: "EDIT" | "VOID", amount?: positive number, method?: enum, reference?: string|null, notes?: string|null }`. PUT handler: 404 if not found, 422 if already soft-deleted, then branches on `data.action === "VOID"` (refuses if already VOID/DELETED, reverses bill paidAmount/dueAmount/status if existing.status === "APPROVED" && billId present, sets status="VOID", sends WARNING notification to owner, audit-logs PAYMENT_VOID) vs default EDIT branch (refuses if VOID/DELETED, refuses amount edits on APPROVED+billId-linked payments to avoid desync, assembles updateData only with provided fields, 422 if no fields, audits PAYMENT_EDIT). DELETE handler: 404 if not found, 422 if already deletedAt-set, computes deletionDate via getDeletionDate(), sets deletedAt/deletedBy/status="DELETED"/deletionReason, audits PAYMENT_SOFT_DELETE, returns `{ success: true, permanentDeletion: ISO string }`.
+- Created new file src/app/api/payments/[id]/restore/route.ts mirroring src/app/api/bills/[id]/restore/route.ts exactly: POST handler, requireRole("ADMIN"), 404 if not found, 422 if `!payment.deletedAt`, clears deletedAt/deletedBy/deletionReason and reverts status to PENDING (safer than assuming APPROVED — re-approving would re-apply paidAmount to bills and the admin can re-approve if needed), includes `user: { select: { name, email } }` in the returned record, audits PAYMENT_RESTORE. Did NOT clear deletionReason in the bills variant (bills variant doesn't have that field), but payments variant does clear it.
+- Verification: `bun run db:push` succeeded (Prisma Client regenerated, DB in sync). `bun run lint` → 0 errors, 1 pre-existing warning in variables-view.tsx (react-hooks/incompatible-library on form.watch — unrelated, predates this task). `tail -30 dev.log` shows clean `✓ Compiled in 139ms` plus ongoing successful `GET / 200` + `GET /api/notifications?unread=true 200` requests — no compile errors. `curl -s -o /dev/null http://localhost:3000/api/payments` returns 401 (correct — unauthenticated request rejected by requireAuth).
+- Did NOT touch: payments-view.tsx (frontend — separate task), POST handler in /api/payments/route.ts, PATCH handler logic in /api/payments/[id]/route.ts, User/Bill/Expense models, any other API route, any other view.
+
+Stage Summary:
+- Payment model now supports soft-delete (deletedAt/deletedBy/deletionReason + @@index([deletedAt])) and two new statuses (VOID, DELETED) on top of the existing PENDING/APPROVED/REJECTED/REFUNDED.
+- New helper `purgeExpiredPayments()` in src/lib/user-cleanup.ts permanently deletes payments whose 7-day grace period has expired; called on every GET /api/payments.
+- GET /api/payments now: (1) purges expired soft-deletes, (2) accepts `includeDeleted=true` query param to view the deletion queue (only returns soft-deleted payments in that mode), (3) excludes soft-deleted payments by default. Existing `userId` (USER role) and `date` filters compose cleanly on top.
+- New API contract (all admin-only):
+  - `DELETE /api/payments/[id]` — body `{ reason?: string }`, response `{ success: true, permanentDeletion: <ISO date 7 days out> }`. Soft-deletes; sets status="DELETED". 422 if already scheduled.
+  - `POST /api/payments/[id]/restore` — no body, response is the restored Payment (with `user: { name, email }` included). Clears deletedAt/deletedBy/deletionReason and reverts status to PENDING. 422 if not in the deletion queue.
+  - `PUT /api/payments/[id]` with `{ action: "VOID" }` — no other fields needed. Sets status="VOID"; if the payment was APPROVED and linked to a bill, reverses the bill's paidAmount/dueAmount/status (back to GENERATED if paidAmount hits 0, else PARTIALLY_PAID). Sends a WARNING notification to the payment owner. 422 if already VOID or DELETED.
+  - `PUT /api/payments/[id]` with `{ action: "EDIT", amount?, method?, reference?, notes? }` — updates only the provided fields. 422 if VOID or DELETED; 422 if trying to edit `amount` on an APPROVED payment linked to a bill (must void + resubmit instead — prevents bill desync); 422 if no editable fields provided. Audits PAYMENT_EDIT.
+- PATCH /api/payments/[id] (approve/reject) is unchanged in logic but now also refuses to act on soft-deleted payments (422 "Payment is scheduled for deletion").
+- Audit log actions emitted: PAYMENT_APPROVED, PAYMENT_REJECTED (existing PATCH), PAYMENT_EDIT, PAYMENT_VOID, PAYMENT_SOFT_DELETE, PAYMENT_RESTORE (new).
+- Notifications emitted to payment owner: APPROVED (SUCCESS), REJECTED (WARNING) — existing; VOIDED (WARNING, "Payment voided") — new. Soft-delete and restore do NOT notify the owner (admin maintenance action).
+- Frontend agent can now wire up: deletion-queue view (GET /api/payments?includeDeleted=true), restore button (POST /api/payments/[id]/restore), void action (PUT /api/payments/[id] { action: "VOID" }), edit dialog (PUT /api/payments/[id] { action: "EDIT", ... }), per-row delete (DELETE /api/payments/[id] { reason }). All four new endpoints require ADMIN role.
+
+---
+Task ID: PAY-FRONTEND
+Agent: payments-frontend-agent
+Task: Add edit/delete/void/restore + deletion queue filter pill to Payments view
+
+Work Log:
+- Read worklog.md tail (Tasks PAY-ROWS, PAY-BACKEND) — confirmed PAY-BACKEND added the full backend contract (GET ?includeDeleted=true, DELETE [id] {reason?}, POST [id]/restore, PUT [id] {action:"VOID"|"EDIT",...}) with deletedAt/deletedBy/deletionReason fields + VOID/DELETED statuses on the Payment model; PAY-ROWS had already rewritten the list as a unified PaymentRow component mirroring UserRow/BillRow.
+- Studied canonical patterns: read billing-view.tsx lines 144-183 (BILL_STATUS_STYLES with VOID=`bg-muted text-muted-foreground border-border` + DELETED=`bg-destructive/15 text-destructive border-destructive/30`), lines 880-985 (BillRow with isDeleted branch: Restore-only actions, line-through name, deletion countdown Badge using `formatDeletionCountdown(new Date(bill.deletedAt!))`, inline AlertTriangle deletion-reason span), lines 706-787 (Void AlertDialog + single-Delete AlertDialog with GlassTextarea reason field, both using `bg-destructive text-white` AlertDialogAction). Read expenses-view.tsx lines 840-875 (ExpenseFormSheet key-based remount pattern: `bodyKey = expense ? edit-${expense.id} : "add"` on the inner FormBody) — mirrored exactly for PaymentEditSheet/PaymentEditBody. Confirmed GlassInput supports `disabled` + `hint` props (glass-input.tsx lines 13/17/72-73) needed for the amount-locked UX.
+- Read the full current payments-view.tsx (1089 lines) end-to-end to map all anchor points before editing: imports block (lines 8-29 lucide, 31-33 lib, 35-43 glass, 45-79 ui), Payment type (lines 85-98), STATUS_STYLES (lines 115-135), PaymentsView state + queries + mutations (lines 229-332), filter pills (lines 496-525), list render with PaymentRow invocation (lines 545-572), Approve/Reject AlertDialog (lines 583-652), PaymentRow component (lines 772-907), SubmitPaymentDialog + formatMonthLabel (lines 913-1088).
+
+Changes to `src/components/features/billing/payments-view.tsx` (only file modified — 1089 → 1594 lines, +505):
+1. Imports:
+   - Added `PencilLine, Trash2, AlertTriangle, Ban` to the lucide-react block (after `Mail`).
+   - Added `import { formatDeletionCountdown } from "@/lib/user-cleanup";` (mirrors billing-view line 35).
+   - Added `Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle` import block from `@/components/ui/sheet` (after the existing AlertDialog import).
+2. Types — widened `PaymentStatus` to `"PENDING" | "APPROVED" | "REJECTED" | "REFUNDED" | "VOID" | "DELETED"`; added `deletedAt: string | null` + `deletionReason: string | null` to the `Payment` type (mirrors the Bill type and the PAY-BACKEND Prisma schema).
+3. STATUS_STYLES — added two new entries mirroring BILL_STATUS_STYLES: `VOID: { className: "bg-muted text-muted-foreground border-border", label: "Void" }` and `DELETED: { className: "bg-destructive/15 text-destructive border-destructive/30", label: "Deleted" }`.
+4. PaymentsView component state:
+   - Widened `statusFilter` from `PaymentStatus | "ALL"` to `PaymentStatus | "ALL" | "DELETED"`.
+   - Added 5 new state hooks: `editTarget`/`editOpen` (Sheet), `deleteTarget`/`deleteReason` (AlertDialog + textarea), `voidTarget` (AlertDialog).
+5. PaymentsView component queries:
+   - Added `deletedPayments` useQuery hitting `GET /api/payments?includeDeleted=true` (queryKey `["payments","deleted",dateStr]`), `enabled: isAdmin`. Returns only soft-deleted payments per the PAY-BACKEND contract.
+6. PaymentsView component mutations — added 4 new useMutation hooks mirroring the billing-view patterns:
+   - `editMutation` → `PUT /api/payments/[id]` with `{ action: "EDIT", ...payload }`; on success toast "Payment updated", close Sheet, invalidate `["payments"]`.
+   - `voidMutation` → `PUT /api/payments/[id]` with `{ action: "VOID" }`; on success toast "Payment voided", clear voidTarget, invalidate `["payments"]` + `["bills"]` (since voiding an APPROVED+bill-linked payment reverses the bill's paidAmount).
+   - `deleteMutation` → `DELETE /api/payments/[id]` with body `{ reason: reason || undefined }`; on success toast "Payment scheduled for deletion — permanently removed in 7 days", clear deleteTarget + deleteReason, invalidate `["payments"]`.
+   - `restoreMutation` → `POST /api/payments/[id]/restore`; on success toast "Payment restored successfully", invalidate `["payments"]`.
+7. PaymentsView component helpers — added `openEditForm(p)` and `closeEditForm()` to manage the edit Sheet state in one place (mirrors expenses-view's `openForm`/`closeForm`).
+8. Filtered list derivation — introduced `sourcePayments = statusFilter === "DELETED" ? deletedPayments : payments`; updated the `filtered` useMemo to (a) read from `sourcePayments`, (b) skip the status match when `statusFilter === "DELETED"` (since deleted payments all have status "DELETED" anyway and we want to show them all). Updated deps to `[sourcePayments, search, statusFilter]`.
+9. Filter pills — replaced the `["ALL","PENDING","APPROVED","REJECTED","REFUNDED"]` array with `["ALL","PENDING","APPROVED","REJECTED","REFUNDED", ...(isAdmin ? (["DELETED"] as const) : [])]`. Per-pill `label` now branches: `"DELETED"` → "Deletion Queue", `"ALL"` → "All", else `STATUS_STYLES[s].label`. Per-pill `badge` now branches: `s === "DELETED" && deletedPayments.length > 0` → `deletedPayments.length`, else existing `PENDING` kpis.pending logic. Per-pill badge color: queue badge gets `bg-destructive text-white` (when inactive) to signal urgency, others stay `bg-warning text-white`, active stays `bg-primary-foreground/20 text-primary-foreground`.
+10. List render — extended the `<PaymentRow>` invocation with 4 new props: `onEdit={() => openEditForm(p)}`, `onDelete={() => setDeleteTarget(p)}`, `onVoid={() => setVoidTarget(p)}`, `onRestore={() => restoreMutation.mutate(p.id)}`. (Approve/Reject wiring unchanged.)
+11. PaymentRow component — widened signature with 4 new optional-on-the-type-but-always-passed props (`onEdit`, `onDelete`, `onVoid`, `onRestore`). Added `isDeleted = !!payment.deletedAt`. Rewrote the actions array:
+    - If `isDeleted`: only `Restore Payment` (RotateCcw), and only when `isAdmin`.
+    - Else: `Approve Payment` + `Reject Payment` (only when `isAdmin && status === "PENDING"` — unchanged), `Edit Payment` (PencilLine) + `Void Payment` (Ban, destructive) (only when `isAdmin && status !== "VOID"` — can't re-void or edit a VOID row), `Delete Payment` (Trash2, destructive) (always for admins on non-deleted rows).
+    JSX changes:
+    - Name `<h3>` now uses `cn("font-semibold truncate", isDeleted && "text-muted-foreground line-through")` to mirror BillRow.
+    - Status+method Badge pair is now wrapped in `isDeleted ? <deletion-countdown Badge> : <status Badge + method Badge>`. The deletion countdown Badge uses `bg-destructive/15 text-destructive border-destructive/30` + `<Clock className="h-2.5 w-2.5" />` + `formatDeletionCountdown(new Date(payment.deletedAt!))` — identical to BillRow.
+    - Added an inline `isDeleted && payment.deletionReason` block inside the Amount row showing `<AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" /> Reason: {payment.deletionReason}` (mirrors BillRow lines 969-974).
+12. New AlertDialogs (inserted after the existing Approve/Reject AlertDialog, before `</StaggerGroup>`):
+    - Delete Payment AlertDialog: `open={!!deleteTarget}`, AlertDialogTitle with `<AlertTriangle className="h-5 w-5 text-destructive" />`, description naming the amount (formatINR) + user.name + "permanently removed after 7 days", a `GlassTextarea` for the reason (label "Reason (optional)", rows 2, value=deleteReason), AlertDialogAction "Delete Payment" calling `deleteMutation.mutate({ id, reason })`, destructive button color.
+    - Void Payment AlertDialog: `open={!!voidTarget}`, AlertDialogTitle with `<Ban className="h-5 w-5 text-destructive" />`, description naming the amount + user.name, plus a conditional extra sentence when `voidTarget.status === "APPROVED" && voidTarget.billId` ("Since this payment was approved and linked to a bill, the bill's paid amount will be reduced accordingly."), AlertDialogAction "Void Payment" calling `voidMutation.mutate(voidTarget.id)`, destructive button color.
+13. PaymentEditSheet + PaymentEditBody (appended at the end of the file, after formatMonthLabel):
+    - `PaymentEditSheet` is a thin wrapper around `<Sheet>` + `<SheetContent side="right" className="w-full sm:max-w-md flex flex-col gap-0 p-0">`. Uses `bodyKey = payment ? edit-${payment.id} : "edit"` on the inner `<PaymentEditBody key={bodyKey} ... />` — exact same key-based remount pattern as `ExpenseFormSheet`. This means each open starts with fresh useState initialized from the `payment` prop, no useEffect sync needed (avoids the react-hooks cascading-render footgun).
+    - `PaymentEditBody` holds 5 useState hooks (`amount`, `method`, `reference`, `notes`, `errors`) all initialized from `payment`. Computes `amountLocked = payment?.status === "APPROVED" && !!payment?.billId` — when true, the amount `<GlassInput>` is rendered with `disabled={amountLocked}` + a `hint` explaining "Amount locked — this approved payment is linked to a bill. Void it and submit a new payment to change the amount." (the backend will 422 amount edits on APPROVED+bill-linked payments per PAY-BACKEND contract). The `handleSubmit` validates amount only when `!amountLocked`, builds the payload always including `method`/`reference`/`notes` and including `amount` only when `!amountLocked`, then calls `onSubmit(payment.id, payload)`.
+    - Layout mirrors ExpenseFormBody: `<SheetHeader className="px-6 pt-6 pb-2">` with title `<PencilLine className="h-5 w-5 text-primary" /> Edit Payment` + description "Update the details of this payment from {payment?.user.name}.", scrollable body `<div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 no-scrollbar">` containing the amount GlassInput + Method Select (using METHOD_META) + Reference GlassInput + Notes GlassTextarea (rows 3), and `<SheetFooter className="px-6 py-4 border-t border-border/40 flex-row gap-2">` with Cancel (ghost, flex-1) + Save Changes (primary, flex-1, with PencilLine icon, loading state).
+14. Wired the Sheet into the main view via `<PaymentEditSheet open={editOpen} onOpenChange={(o) => !o && closeEditForm()} onSubmit={(id, payload) => editMutation.mutate({ id, payload })} loading={editMutation.isPending} payment={editTarget} />` — placed alongside the other dialogs, before `</StaggerGroup>`.
+15. Preserved unchanged: Day Picker, action bar, KPIs (Total Approved / Pending Approvals / Rejected / Refunded), Admin "Pending Approvals" card with `PendingRow` (separate compact UX with inline Approve/Reject buttons — intentional, NOT touched), search input, Submit Payment Dialog, Approve/Reject AlertDialog, `KpiCard`, `PendingRow`, `SubmitPaymentDialog`, `formatMonthLabel`, `formatINR`, `formatDate`, `formatDateTime`, `STATUS_STYLES` (existing entries), `METHOD_META` helpers. The `kpis` memo still derives from `allPayments` (not from `sourcePayments`) — so the KPI strip and the admin Pending Approvals card remain unchanged.
+
+Verification:
+- `bun run lint` → 0 errors, 1 pre-existing informational warning in `variables-view.tsx` (react-hooks/incompatible-library on `form.watch` — unrelated, predates this task).
+- Discovered during verification: the dev server (PID 25342) had a stale in-memory Prisma Client cache from before PAY-BACKEND's `db:push` regenerated the client — it was returning `400 Unknown argument deletedAt` on every `GET /api/payments?...` request (both `?date=` and `?includeDeleted=true`). This was a pre-existing runtime issue (PAY-BACKEND verified compile success but apparently never exercised the `?includeDeleted=true` path at runtime). Fix: ran `bun run db:push` to ensure the on-disk Prisma Client was current (it already was — `PaymentWhereInput` in `node_modules/.prisma/client/index.d.ts` correctly includes `deletedAt?: DateTimeNullableFilter<"Payment"> | Date | string | null`), then cleared `.next/dev/cache/turbopack` and restarted the dev server via `setsid bash -c './node_modules/.bin/next dev -p 3000 >> dev.log 2>&1' </dev/null >/dev/null 2>&1 &` to fully evict the stale module cache.
+- After restart: `tail -15 dev.log` shows `✓ Ready in 830ms` + `GET / 200 in 5.7s` + `GET /api/payments 200` + `GET /api/payments?date=2026-06-28 200` + `GET /api/payments?includeDeleted=true 200` + `GET /api/notifications?unread=true 200` — all 200s, no compile errors, no runtime errors. The new `?includeDeleted=true` query (used by the deletion queue pill) is now working end-to-end.
+- File size: 1089 → 1594 lines (+505). The growth comes from: 4 new mutations (~95 lines), PaymentRow rewrite (~80 lines added for isDeleted branch + new actions), Delete + Void AlertDialogs (~95 lines), PaymentEditSheet + PaymentEditBody (~180 lines), filter pill branching (~25 lines), state + helpers + imports (~30 lines).
+
+Stage Summary:
+- Payments view now matches the Billing view's full admin action surface: per-row Edit / Void / Delete in the MoreVertical dropdown, Restore in the dropdown for soft-deleted rows, "Deletion Queue" filter pill (admin-only, with red count badge) that swaps the list source to `deletedPayments`, deletion countdown Badge + strikethrough name + inline AlertTriangle deletion-reason on deleted rows, and a Sheet-based Edit form with key-based remount (mirrors ExpenseFormSheet).
+- The amount field in the Edit Sheet is locked (disabled + hint) when the payment is APPROVED + bill-linked — matches the PAY-BACKEND 422 rule that forbids amount edits on such payments to prevent bill desync. Admins can still edit method/reference/notes on those rows; to change the amount they must void + resubmit (hint explains this).
+- VOID status badge uses `bg-muted text-muted-foreground border-border` (mirrors BILL_STATUS_STYLES.VOID). DELETED status badge uses `bg-destructive/15 text-destructive border-destructive/30` (mirrors BILL_STATUS_STYLES.DELETED). The deletion queue pill's count badge uses `bg-destructive text-white` when inactive to signal urgency (vs `bg-warning text-white` for the pending-approvals pill).
+- All four new admin actions are wired to the PAY-BACKEND API contract: Edit → `PUT /api/payments/[id] { action: "EDIT", ... }`, Void → `PUT /api/payments/[id] { action: "VOID" }`, Delete → `DELETE /api/payments/[id] { reason? }`, Restore → `POST /api/payments/[id]/restore`. Toasts mirror the billing-view copy ("Payment updated", "Payment voided", "Payment scheduled for deletion — permanently removed in 7 days", "Payment restored successfully"). Void + Restore invalidate `["bills"]` as well since both can affect bill paidAmount.
+- The existing admin "Pending Approvals" card (compact PendingRow with inline Approve/Reject buttons) is preserved unchanged — it remains a distinct UX surface for fast triage. The main list's PaymentRow is the only place that gained Edit/Delete/Void/Restore actions, all behind the MoreVertical dropdown (no inline buttons added).
+- Non-admin users see no row-level actions at all (the actions array is empty for them in every branch), matching the pre-existing behavior.
+- Only `src/components/features/billing/payments-view.tsx` was modified. No API routes, prisma schema, stores, or other views touched. (Did run `bun run db:push` once and restarted the dev server once — both environment operations, no source files changed outside payments-view.tsx.)
+- Lint clean (0 errors). Dev server running healthy with all payment API endpoints returning 200.
+
+---
+Task ID: EXP-BACKEND
+Agent: expenses-backend-agent
+Task: Extend Expense model with soft-delete + DELETED status; convert DELETE to soft-delete; add restore route; add purgeExpiredExpenses
+
+Work Log:
+- Read worklog.md tail (Tasks 1-4, 10, UX-1, PAY-FRONTEND, PAY-BACKEND, PAY-ROWS, BILL-ROWS, EXP-ROWS, EXP-REWRITE, BILL-FIX, PAY-FIX) for recent context — confirmed PAY-BACKEND did the exact same conversion for Payments and its worklog entry documents the runtime stale-Prisma-client gotcha that also bit this task.
+- Studied reference patterns line-for-line: prisma/schema.prisma Bill (307-333) and Payment (335-355) soft-delete fields + @@index([deletedAt]); src/lib/user-cleanup.ts purgeExpiredBills/purgeExpiredPayments + getDeletionDate/formatDeletionCountdown; src/app/api/bills/route.ts GET (purge then includeDeleted filter); src/app/api/bills/[id]/route.ts DELETE (soft-delete w/ getDeletionDate + deletionReason + logAudit BILL_SOFT_DELETE); src/app/api/bills/[id]/restore/route.ts POST (clear deletedAt/deletedBy, revert status); src/app/api/payments/[id]/route.ts (PUT deletedAt guard + DELETE soft-delete with PAYMENT_SOFT_DELETE); src/app/api/payments/[id]/restore/route.ts (PAYMENT_RESTORE, reverts status to PENDING); current src/app/api/expenses/route.ts (GET + POST) and src/app/api/expenses/[id]/route.ts (PUT + hard-DELETE).
+- Edited prisma/schema.prisma Expense model (lines 357-380): added `deletedAt DateTime?`, `deletedBy String?`, `deletionReason String?` after `createdBy`; widened `status` comment to `// APPROVED | LOCKED | DELETED`; added `@@index([deletedAt])` after the existing `@@index([category, expenseDate])`. Aligned column widths to match the Bill/Payment style.
+- Appended `purgeExpiredExpenses` to src/lib/user-cleanup.ts (after purgeExpiredPayments): mirrors purgeExpiredBills/purgeExpiredPayments exactly — `db.expense.deleteMany({ where: { deletedAt: { not: null, lt: now } } })` wrapped in try/catch that returns 0 on error and console.errors. Did NOT modify any existing function.
+- Updated src/app/api/expenses/route.ts GET handler: added `import { purgeExpiredExpenses } from "@/lib/user-cleanup";`; added JSDoc; inserted `await purgeExpiredExpenses();` as the first statement inside try (before requireAuth — same pattern as bills route); read `includeDeleted = url.searchParams.get("includeDeleted") === "true"`; set `where.deletedAt = null` (default) or `where.deletedAt = { not: null }` (deletion queue) — composing cleanly with the existing `category`, `month`/`year`, and `status` (USER role → APPROVED) filters. POST handler left unchanged.
+- Rewrote src/app/api/expenses/[id]/route.ts: PUT handler unchanged in logic but now starts with `if (existing.deletedAt) return err("Expense is scheduled for deletion", 422);` immediately after the not-found check (mirrors payments PUT guard). DELETE converted from hard-delete to soft-delete: now reads `body.reason` (via `req.json().catch(() => ({}))`), refuses if already `deletedAt` set (422), keeps the existing LOCKED + past-month guards, then `db.expense.update({ data: { deletedAt: deletionDate, deletedBy: user.id, status: "DELETED", deletionReason: reason || null } })` + `logAudit({ action: "EXPENSE_SOFT_DELETE", ... })` + returns `{ success: true, permanentDeletion: <ISO 7 days out> }`. Imported `getDeletionDate` from `@/lib/user-cleanup`.
+- Created src/app/api/expenses/[id]/restore/route.ts (new file): POST handler mirrors payments restore exactly but targets `db.expense`, clears `deletedAt`/`deletedBy`/`deletionReason`, reverts `status: "APPROVED"` (Expense default operational state — NOT PENDING like Payment, since Expense has no approval workflow), includes `user: { select: { name: true } }` in the response, audits `EXPENSE_RESTORE`. 422 if the expense isn't in the deletion queue.
+
+Verification:
+- `cd /home/z/my-project && bun run db:push` → succeeded ("Your database is now in sync with your Prisma schema. Done in 40ms", Prisma Client v6.19.2 regenerated in 298ms).
+- `bun run lint` → 0 errors, 1 pre-existing informational warning in variables-view.tsx (react-hooks/incompatible-library on `form.watch` — unrelated, predates this task).
+- Initial `tail dev.log` after the edits showed the expected runtime gotcha (same one PAY-BACKEND hit): `Unknown argument deletedAt. Available options are marked with ?.` from `purgeExpiredExpenses (src/lib/user-cleanup.ts:99:20)` — caused by the running dev server (PID from before db:push) holding a stale in-memory Prisma Client cache. The on-disk client was already correct (`db:push` regenerated it); only the running Node process was stale.
+- Fix: killed the old `next dev` process (pgrep -af "next dev" → PIDs 30872/30874 → kill), then restarted via `(nohup ./node_modules/.bin/next dev -p 3000 >> dev.log 2>&1 &)` from /home/z/my-project. New server PID 1480 came up ("✓ Ready in 885ms").
+- Post-restart probe: `curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/expenses` → 401 (correct — unauthenticated, requireAuth rejected AFTER purgeExpiredExpenses ran). `curl ...?includeDeleted=true` → 401. dev.log shows `GET /api/expenses 401 in 133ms (compile: 122ms, render: 10ms)` and `GET /api/expenses?includeDeleted=true 401 in 9ms` with NO `Unknown argument deletedAt` error and NO `Failed to purge expired expenses` console.error — confirming the fresh Prisma Client has `deletedAt` on `ExpenseWhereInput` and the purge path is exercised cleanly on every GET.
+- Did NOT touch: expenses-view.tsx (frontend — separate task EXP-FRONTEND will handle it), POST handler in /api/expenses/route.ts, PUT handler logic in /api/expenses/[id]/route.ts (only added the deletedAt guard at the top), User/Bill/Payment models, any other API route, any other view.
+
+Stage Summary:
+- Expense model now supports soft-delete with `deletedAt`/`deletedBy`/`deletionReason` fields + `@@index([deletedAt])`, and a new `DELETED` status on top of the existing `APPROVED`/`LOCKED`. New column widths in schema align with Bill/Payment style.
+- New helper `purgeExpiredExpenses()` in src/lib/user-cleanup.ts permanently deletes expenses whose 7-day grace period has expired; called on every GET /api/expenses (idempotent — wrapped in try/catch returning 0 on failure, so the route never 500s on purge).
+- New API contract (all admin-only):
+  - `GET /api/expenses` — unchanged shape, but now (1) purges expired soft-deletes first, (2) accepts `includeDeleted=true` query param to view the deletion queue (only returns soft-deleted expenses in that mode), (3) excludes soft-deleted expenses by default. Existing `category`, `month`/`year`, and USER-role `status=APPROVED` filters compose cleanly on top.
+  - `DELETE /api/expenses/[id]` — body `{ reason?: string }`, response `{ success: true, permanentDeletion: <ISO date 7 days out> }`. Soft-deletes; sets status="DELETED" and stamps `deletedAt`/`deletedBy`/`deletionReason`. 422 if already scheduled for deletion, if LOCKED, or if the expense's month is in the past (those are locked because bills may have been generated against them). Audits `EXPENSE_SOFT_DELETE`.
+  - `POST /api/expenses/[id]/restore` — no body, response is the restored Expense (with `user: { name }` included). Clears `deletedAt`/`deletedBy`/`deletionReason` and reverts status to `APPROVED` (the Expense default operational state — NOT LOCKED, since LOCKED is set by a separate billing-cycle process; NOT PENDING like Payment, since Expense has no approval workflow). 422 if the expense isn't in the deletion queue. Audits `EXPENSE_RESTORE`.
+  - `PUT /api/expenses/[id]` — unchanged in logic, but now refuses with 422 "Expense is scheduled for deletion" if `existing.deletedAt` is set (can't edit something in the deletion queue). The existing LOCKED + past-month guards remain. Audits `UPDATE` (unchanged).
+  - `POST /api/expenses` (create) — unchanged. New expenses always start with `deletedAt: null` and `status: "APPROVED"`. Audits `CREATE` (unchanged).
+- Audit log actions emitted by Expense routes now: `CREATE`, `UPDATE` (existing), `EXPENSE_SOFT_DELETE`, `EXPENSE_RESTORE` (new). No notifications emitted (admin maintenance action — same as Bill/Payment soft-delete/restore).
+- Frontend agent (EXP-FRONTEND) can now wire up: deletion-queue view (`GET /api/expenses?includeDeleted=true`), per-row delete (`DELETE /api/expenses/[id] { reason? }`), restore button (`POST /api/expenses/[id]/restore`), and add a `deletedAt`/`deletionReason` field to the Expense type. The existing Edit (`PUT /api/expenses/[id]`) contract is unchanged for non-deleted rows. All four admin actions require ADMIN role.
+- Lint clean (0 errors). Dev server running healthy (PID 1480) with both `/api/expenses` and `/api/expenses?includeDeleted=true` returning 401 to unauthenticated requests — confirming the routes compile and the Prisma Client has the new `deletedAt` field.
+
+---
+Task ID: EXP-FRONTEND
+Agent: expenses-frontend-agent
+Task: Add deletion queue + restore + reason textarea to Expenses view
+
+Work Log:
+- Read worklog.md tail (Tasks EXP-REWRITE, BILL-FIX, PAY-FIX, PAY-FRONTEND) — confirmed PAY-FRONTEND did the exact same conversion for Payments and is the canonical mirror: 4 new mutations, `sourcePayments = statusFilter === "DELETED" ? deletedPayments : payments`, DELETED entry in STATUS_STYLES array, deletion countdown Badge using `formatDeletionCountdown`, Restore-only actions array on deleted rows, single-Delete AlertDialog with `GlassTextarea` reason field + "scheduled for deletion — permanently removed in 7 days" toast.
+- Studied canonical patterns: read billing-view.tsx (lines 285-323 for `deleteMutation` with `body: JSON.stringify({ reason: reason || undefined })` + `restoreMutation` POST `[id]/restore`, lines 315-323; lines 880-985 for BillRow `isDeleted` branch with Restore-only actions + `line-through` name + `<Clock/> + formatDeletionCountdown` deletion Badge using `bg-destructive/15 text-destructive border-destructive/30`; lines 769-775 for GlassTextarea with `label="Reason (optional)"` rows=2). Read payments-view.tsx PAY-FRONTEND diff in worklog (lines 880-942) for the same pattern. Confirmed `formatDeletionCountdown` is exported from `@/lib/user-cleanup` (line 1 of that file) and accepts a `Date` argument returning strings like "7 days left".
+- Read the full current expenses-view.tsx (1118 lines) end-to-end before editing to map all anchor points: imports (lines 7-24 lucide, 26-28 lib, 30-38 glass, 40-73 ui), Expense type (lines 87-100), CATEGORY_META + helpers (lines 119-238), ExpensesView state + queries + mutations (lines 244-354), filter pills (lines 512-540), list render (lines 545-585), Delete AlertDialog (lines 597-629), ExpenseRow component (lines 690-834), ExpenseFormSheet + ExpenseFormBody (lines 840-1114, preserved unchanged).
+
+Changes to `src/components/features/billing/expenses-view.tsx` (only file modified — 1118 → 1255 lines, +137):
+1. Imports:
+   - Added `RotateCcw, AlertTriangle, Clock` to the lucide-react block (after `MoreVertical`).
+   - Added `import { formatDeletionCountdown } from "@/lib/user-cleanup";` immediately after the `cn` import (mirrors billing-view.tsx line 35).
+2. Types — added `deletedAt: string | null` + `deletionReason: string | null` to the `Expense` type (mirrors the Bill type and the EXP-BACKEND Prisma schema). The `status` field stays as `string` so it can naturally hold `"DELETED"` without a union widening.
+3. `isExpenseLocked` helper — added `if (expense.deletedAt) return true;` early-return. Deleted expenses are locked for edit purposes (the backend will 422 any PUT on a DELETED row); the existing past-month check (bills may have been generated against it) is preserved.
+4. ExpensesView state — added two new useState hooks alongside the existing ones: `deleteReason` (string, used by the Delete AlertDialog's GlassTextarea) and `showDeleted` (boolean, toggles the list source between live expenses and the deletion queue).
+5. ExpensesView queries — added `deletedExpenses` useQuery hitting `GET /api/expenses?includeDeleted=true&month=M&year=Y&limit=500` (queryKey `["expenses","deleted",{month,year}]`), `enabled: isAdmin`. The backend returns ONLY soft-deleted rows when `includeDeleted=true` is set (per EXP-BACKEND contract), so no client-side filtering is needed.
+6. ExpensesView mutations:
+   - Rewrote `deleteMutation` from `(id: string) => api.delete(url)` to `({ id, reason }) => api.delete(url, { body: JSON.stringify({ reason: reason || undefined }) })`. Toast updated from "Expense deleted" → "Expense scheduled for deletion — permanently removed in 7 days". `onSuccess` now also clears `deleteReason` (in addition to `deleteTarget`).
+   - Added `restoreMutation` → `POST /api/expenses/[id]/restore`; on success toast "Expense restored successfully", invalidate `["expenses"]`.
+7. Filtered list derivation — introduced `sourceExpenses = showDeleted ? deletedExpenses : expenses`. Updated the `filtered` useMemo to read from `sourceExpenses` and to skip the category match when `showDeleted` is true (deleted rows can be of any category; the queue is a flat review surface). Updated deps to `[sourceExpenses, categoryFilter, search, showDeleted]`. The KPIs memo (lines 370-382) is preserved unchanged — it derives from `expenses` (non-deleted, current month) so the totals + Top Categories chart correctly exclude soft-deleted rows.
+8. Filter pills — added a new admin-only row AFTER the category pills containing the "Deletion Queue" pill (Trash2 icon + count badge). The badge uses `bg-destructive text-white` when inactive (signals urgency) and `bg-primary-foreground/20 text-primary-foreground` when active — mirrors billing-view's pill styling. Updated the category pill `onClick` to also call `setShowDeleted(false)` before `setCategoryFilter(c)`, so clicking a category exits the deletion-queue view and the category filter takes effect immediately (avoids the confusion of having `showDeleted=true` while a category appears "active"). Updated the per-pill `active` computation to `!showDeleted && categoryFilter === c` so no category pill shows as active while the queue is shown.
+9. Empty state — branched the message: `showDeleted ? "No expenses in the deletion queue." : isAdmin ? "Add your first expense to start tracking spending." : "There are no expenses in this category yet."`.
+10. List render — extended the `<ExpenseRow>` invocation with `onRestore={() => restoreMutation.mutate(exp.id)}` (alongside the existing `onEdit`/`onDelete`).
+11. Delete AlertDialog — replaced the old "Permanently delete … cannot be undone" hard-delete dialog with a soft-delete dialog: AlertDialogTitle with `<AlertTriangle className="h-5 w-5 text-destructive" /> "Delete this expense?"`, AlertDialogDescription naming the title + formatINR(amount) + "permanently removed after 7 days. You can restore it from the Deletion Queue before then.", a `GlassTextarea` (label "Reason (optional)", rows 2, placeholder "Why is this expense being deleted?", value=deleteReason), AlertDialogAction "Delete Expense" calling `deleteMutation.mutate({ id, reason: deleteReason })` with destructive button color. `onOpenChange` now resets both `deleteTarget` and `deleteReason` when the dialog closes (so a previously-typed reason doesn't leak into the next delete).
+12. ExpenseRow component — widened signature with `onRestore: () => void`. Added `isDeleted = !!expense.deletedAt`. Rewrote the `actions` array:
+    - If `isDeleted`: only `Restore Expense` (RotateCcw), and only when `canManage` (admin). No Edit/Delete in the queue (the backend would 422 them anyway).
+    - Else: `Edit Expense` (PencilLine) + `Delete Expense` (Trash2, destructive) — only when `canManage && !locked` (unchanged gating).
+    JSX changes:
+    - Name `<h3>` now uses `cn("font-semibold truncate", (locked || isDeleted) && "text-muted-foreground", isDeleted && "line-through")` to mirror BillRow/PaymentRow.
+    - Category + locked Badge pair is now wrapped in `isDeleted ? <deletion-countdown Badge> : <category Badge + locked Badge>`. The deletion countdown Badge uses `bg-destructive/15 text-destructive border-destructive/30` + `<Clock className="h-2.5 w-2.5" />` + `formatDeletionCountdown(new Date(expense.deletedAt!))` — identical to BillRow/PaymentRow.
+    - Added a new `isDeleted && expense.deletionReason` block below the inline Cost strip showing `<AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" /> Reason: {expense.deletionReason}` (mirrors BillRow lines 969-974 / PaymentRow).
+13. Preserved unchanged: ExpenseFormSheet + ExpenseFormBody (Add/Edit form), KpiCard, Day Picker, action bar, KPIs memo (Total Expenses / Total Entries), Top Categories chart, search input, all CATEGORY_META + CATEGORY_ORDER + helpers, the `api.delete` / `api.post` return-type shapes. The ExpenseFormSheet's key-based remount pattern (`bodyKey = expense ? edit-${expense.id} : "add"`) is untouched — it already handles the edit flow correctly.
+
+Verification:
+- `bun run lint` → 0 errors, 1 pre-existing informational warning in `variables-view.tsx` (react-hooks/incompatible-library on `form.watch` — unrelated, predates this task, called out as acceptable in the task spec).
+- Dev server (port 3000, shared with EXP-BACKEND running in parallel) was already running. After my edits I hit `http://localhost:3000/` (the home page renders ExpensesView) — returned HTTP 200 with `compile: 6ms, render: 51ms` (no compile errors, no runtime errors). The dev.log tail shows healthy `GET / 200` and `GET /api/expenses 401` (the 401 is from an unauthenticated curl, not a code issue — the route handler compiled and ran cleanly). Saw `GET /api/expenses?includeDeleted=true 401` in the dev.log too, confirming the new `deletedExpenses` query path is being exercised (likely by the parallel EXP-BACKEND agent testing their endpoint, since my `enabled: isAdmin` gate would suppress the call for an unauthenticated user).
+- File size: 1118 → 1255 lines (+137). The growth comes from: 2 new mutations (~35 lines), deletedExpenses query (~17 lines), filter pill branching + Deletion Queue pill (~45 lines), ExpenseRow isDeleted branch + reason block + line-through name (~25 lines), Delete AlertDialog rewrite with reason textarea (~25 lines), state + helpers + imports (~10 lines).
+
+Stage Summary:
+- Expenses view now matches the Billing + Payments views' full admin deletion surface: per-row Delete in the MoreVertical dropdown sends an optional reason to `DELETE /api/expenses/[id]` and shows a 7-day-grace-period toast (not a hard-delete confirm); "Deletion Queue" filter pill (admin-only, with red count badge) swaps the list source to `deletedExpenses`; deleted rows render with a destructive-red deletion-countdown Badge + strikethrough title + inline AlertTriangle deletion-reason; the row's dropdown in the queue offers a single Restore action wired to `POST /api/expenses/[id]/restore`.
+- The new actions appear ONLY in the ExpenseRow MoreVertical dropdown — no inline buttons added. Non-admin users see no row-level actions at all (the actions array is empty for them in every branch), matching the pre-existing behavior.
+- Category pills auto-exit the deletion-queue view when clicked (`setShowDeleted(false)` + `setCategoryFilter(c)`), so the user immediately sees the category filter take effect rather than being stuck on the queue view with no category appearing active.
+- The DELETED badge (in the deletion queue list) uses `bg-destructive/15 text-destructive border-destructive/30` (mirrors BILL_STATUS_STYLES.DELETED and PAY STATUS_STYLES.DELETED). The deletion-queue pill's count badge uses `bg-destructive text-white` when inactive (signals urgency, same as billing-view). The deletion countdown uses `formatDeletionCountdown` from `@/lib/user-cleanup` (same helper as billing-view and payments-view) — returns human strings like "7 days left" / "5 hours left" / "Expiring soon".
+- `isExpenseLocked` now treats `deletedAt` as a lock condition (so the Edit action is correctly hidden for deleted rows); the existing past-month lock is preserved (those expenses can't be edited because bills may have been generated against them).
+- The KPIs memo and Top Categories chart are unchanged — they derive from the `expenses` query (current month, non-deleted), so soft-deleted expenses correctly do NOT count toward the current month's totals or category breakdown.
+- Only `src/components/features/billing/expenses-view.tsx` was modified. No API routes, prisma schema, stores, or other views touched. The ExpenseFormSheet + ExpenseFormBody were preserved verbatim — the edit flow is unchanged.
+- Lint clean (0 errors). Dev server running healthy with no compile errors after the edit.
+
+---
+Task ID: MOBILE-FIRST-B
+Agent: mobile-first-agent-b
+Task: Convert users + meals + kitchen + notifications views to mobile-first (remove all md:/lg:/sm: layout breakpoints)
+
+Work Log:
+- Read worklog.md tail (PAY-BACKEND, EXP-BACKEND, EXP-FRONTEND) for recent context — confirmed the AppShell now wraps content in `<div className="mx-auto w-full max-w-md">` (verified by reading src/components/layout/app-shell.tsx lines 27-28), so the desktop sidebar is gone and the bottom nav shows on ALL screens. The mobile-first design means all `md:`/`lg:`/`sm:` layout breakpoints must collapse to their mobile-equivalent classes since the container is capped at 448px (max-w-md) — `sm:` triggers at 640px so it never applies.
+- Ran `grep -n "md:\|lg:\|sm:"` on each of the 4 target files to enumerate every responsive class. Counts: users-view.tsx → 9 lines; meals-config-view.tsx → 17 lines; kitchen-view.tsx → 16 lines; notifications-view.tsx → 5 lines. Then read surrounding context for each match to ensure unique anchors before editing.
+
+Changes to `src/components/features/users/users-view.tsx` (921 lines, 6 edits):
+- Root `StaggerGroup` wrapper: `space-y-4 md:space-y-6 pb-6` → `space-y-4 pb-6`.
+- KPI grid: `grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4` → `grid grid-cols-2 gap-3` (KPI cards stay 2×2 on all screens).
+- Filter pills: collapsed `<span className="sm:hidden">{f.short}</span><span className="hidden sm:inline">{f.label}</span>` → `<span>{f.short}</span>` (always show the short label).
+- KpiCard component: `p-4 md:p-5` → `p-4`; `text-2xl md:text-3xl` → `text-2xl`.
+- UserRow card: `p-4 md:p-5` → `p-4`; avatar `h-12 w-12 md:h-14 md:w-14` → `h-12 w-12`; flex `gap-3 md:gap-4` → `gap-3`.
+- UserRow contact line: `flex flex-col sm:flex-row sm:items-center gap-x-3 gap-y-0.5 mt-1.5` → `flex flex-col gap-y-0.5 mt-1.5` (always vertical email/phone stack).
+
+Changes to `src/components/features/meals/meals-config-view.tsx` (1289 lines, 13 edits + 1 import cleanup):
+- MealFormBody grids (4 occurrences, lines 319/421/481/540): each `grid grid-cols-1 md:grid-cols-2 gap-3` → `grid grid-cols-1 gap-3` (single-column form on all screens).
+- Emoji picker grid: `grid grid-cols-8 sm:grid-cols-10 gap-1.5 mt-2 max-h-32 overflow-y-auto no-scrollbar` → `grid grid-cols-8 gap-1.5 mt-2 max-h-32 overflow-y-auto no-scrollbar` (kept the mobile 8-column layout; `sm:grid-cols-10` removed since sm: never triggers inside max-w-md).
+- MealConfigCard: `p-4 md:p-5 h-full flex flex-col relative overflow-hidden` → `p-4 h-full flex flex-col relative overflow-hidden`.
+- ConfigSkeleton grid: `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4` → `grid grid-cols-1 gap-4`.
+- Filter bar wrapper: `flex flex-col md:flex-row gap-3 md:items-center` → `flex flex-col gap-3` (always vertical: search on top, then the two Select dropdowns side-by-side beneath).
+- Removed the decorative `<Filter className="h-4 w-4 text-muted-foreground hidden md:block" />` icon entirely (it was desktop-only decoration; mobile is now the only layout). Also removed the now-unused `Filter` import from the lucide-react block to keep lint clean.
+- Two Select triggers: `w-full md:w-40` / `w-full md:w-36` → `w-full` for both (the Selects now stretch full-width inside the always-vertical filter bar — they sit side-by-side in the inner `flex items-center gap-2` row beneath the search input, sharing the row's width equally).
+- Root `StaggerGroup` wrapper: `space-y-4 md:space-y-5 pb-6` → `space-y-4 pb-6`.
+- Filter card padding: `p-3 md:p-4` → `p-3`.
+- Error-state GlassCard: `p-8 md:p-12` → `p-8`.
+- Empty-state GlassCard: `p-10 md:p-14` → `p-10`.
+- Main meal grid: `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4` → `grid grid-cols-1 gap-4` (cards now stack single-column on all screens, matching the AppShell's mobile-first philosophy).
+
+Changes to `src/components/features/kitchen/kitchen-view.tsx` (415 lines, 8 edits):
+- Root `StaggerGroup` wrapper: `space-y-4 md:space-y-6` → `space-y-4`.
+- KPI grid: `grid grid-cols-3 gap-3 md:gap-4` → `grid grid-cols-3 gap-3` (3 KPIs stay in one row — they fit comfortably within 448px).
+- Empty-state GlassCard: `p-10 md:p-14` → `p-10`.
+- Per-meal cards grid: `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4` → `grid grid-cols-1 gap-3` (MealCards stack single-column on all screens).
+- KpiCard component: `p-4 md:p-5 relative overflow-hidden` → `p-4 relative overflow-hidden`; icon container `h-9 w-9 md:h-10 md:w-10 rounded-2xl` → `h-9 w-9 rounded-2xl`; icon `h-4 w-4 md:h-5 md:w-5` → `h-4 w-4` (collapsed responsive icon size to its mobile base); label `text-[11px] md:text-xs` → `text-[11px]`; value `text-2xl md:text-3xl` → `text-2xl`; sub `text-[10px] md:text-[11px]` → `text-[10px]`.
+- AccessRestricted GlassCard: `p-8 md:p-10` → `p-8`; heading `text-xl md:text-2xl` → `text-xl`.
+- KitchenSkeleton: `space-y-4 md:space-y-6` → `space-y-4`; main skeleton `h-32 md:h-28` → `h-32` (kept mobile height); KPI skeleton row `grid grid-cols-3 gap-3 md:gap-4` → `grid grid-cols-3 gap-3` with each `h-28 md:h-32` → `h-28`; final meal-cards skeleton grid `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4` → `grid grid-cols-1 gap-3`.
+
+Changes to `src/components/features/notifications/notifications-view.tsx` (325 lines, 4 edits):
+- Root `StaggerGroup` wrapper: `space-y-4 md:space-y-6 pb-6` → `space-y-4 pb-6`.
+- Refresh button: removed `<span className="hidden sm:inline">Refresh</span>` entirely — the button is now icon-only (`<RefreshCw className="h-4 w-4" />` + `aria-label="Refresh"`) on all screens, matching the rule "remove the span entirely (icon-only button)".
+- Filter pills: collapsed `<span className="sm:hidden">{f.short}</span><span className="hidden sm:inline">{f.label}</span>` → `<span>{f.short}</span>` (always show the short label).
+- EmptyState GlassCard: `p-10 md:p-16` → `p-10`.
+
+Verification:
+- `bun run lint` → 0 errors, 1 pre-existing informational warning in `variables-view.tsx` (react-hooks/incompatible-library on `form.watch` — called out as acceptable in the task spec, predates this task, unrelated to these 4 views).
+- `grep -n "md:\|lg:\|sm:"` on all 4 edited files → 0 matches each. No responsive layout breakpoints remain in users-view.tsx, meals-config-view.tsx, kitchen-view.tsx, or notifications-view.tsx.
+- `tail -25 dev.log` shows healthy `✓ Compiled in Nms` lines + `GET /api/notifications?unread=true 200` + `GET /api/kitchen?date=2026-06-28 200` — no compile errors, no runtime errors. The 4 edited views compile cleanly on the running dev server (Next.js compiled them lazily on the next request after edits).
+- Did NOT touch: component logic, state, mutations, queries, actual content/text of badges/labels/buttons, icon sizes that were already static (h-3 w-3, h-4 w-4, h-5 w-5, h-7 w-7, h-8 w-8 etc.), color classes, animation classes, `shrink-0` / `whitespace-nowrap` / `overflow-x-auto` on filter pill rows, or any `safe-top` / `safe-bottom` / `safe-x` classes. No other files were modified.
+
+Stage Summary:
+- All 4 views (users, meals-config, kitchen, notifications) are now fully mobile-first: every `md:`/`lg:`/`sm:` layout breakpoint has been removed or collapsed to its mobile-equivalent class. Inside the AppShell's 448px `max-w-md` container, the layouts are now identical on phone, tablet, and desktop — no dual-layout desktop view exists anywhere in these 4 files.
+- KPI grids: users (4 KPIs) renders as 2×2, kitchen (3 KPIs) renders as 1×3 (all three fit on one row at 448px), meals-config has no top-level KPI grid (no change there), notifications has no KPI grid (no change there).
+- Multi-column content grids: meals-config meal cards (was 1/2/3 cols) → 1 col; kitchen per-meal cards (was 1/2/3 cols) → 1 col; meals-config ConfigSkeleton (was 1/2/3 cols) → 1 col; meals-config MealFormBody sub-grids (was 1/2 cols, 4 occurrences) → 1 col; meals-config emoji picker (was 8/10 cols) → 8 cols (mobile only).
+- Filter bars: meals-config filter bar is now always vertical (search on top, type + status Selects in a horizontal row beneath — both `w-full` so they share the row equally). Notifications refresh button is icon-only on all screens (the "Refresh" text span was `hidden sm:inline` so it was desktop-only and is now removed).
+- Filter pills: users + notifications filter pills now always render the `f.short` label (the `f.label` long-form was `hidden sm:inline` desktop-only and is now removed).
+- Padding on GlassCards collapsed to mobile-only values throughout: `p-4 md:p-5` → `p-4`; `p-3 md:p-4` → `p-3`; `p-8 md:p-10` / `p-8 md:p-12` → `p-8`; `p-10 md:p-14` / `p-10 md:p-16` → `p-10`. Vertical rhythm collapsed: `space-y-4 md:space-y-5` / `space-y-4 md:space-y-6` → `space-y-4`. Gaps collapsed: `gap-3 md:gap-4` → `gap-3`.
+- Responsive text sizes collapsed to mobile base: `text-2xl md:text-3xl` → `text-2xl`; `text-xl md:text-2xl` → `text-xl`; `text-[11px] md:text-xs` → `text-[11px]`; `text-[10px] md:text-[11px]` → `text-[10px]`.
+- Responsive avatar/icon sizes collapsed: users avatar `h-12 w-12 md:h-14 md:w-14` → `h-12 w-12`; kitchen KpiCard icon container `h-9 w-9 md:h-10 md:w-10` → `h-9 w-9`; kitchen KpiCard icon `h-4 w-4 md:h-5 md:w-5` → `h-4 w-4`.
+- Removed now-unused `Filter` import from meals-config-view.tsx (the only icon import that became orphaned — every other icon is still used in JSX).
+- Lint clean (0 errors, 1 pre-existing unrelated warning). Dev server healthy with all 4 views compiling on demand.
+
+---
+Task ID: MOBILE-FIRST-A
+Agent: mobile-first-agent-a
+Task: Convert dashboard + billing + payments + expenses views to mobile-first (remove all md:/lg:/sm: layout breakpoints)
+
+Work Log:
+- Read worklog.md tail (PAY-ROWS, BILL-ROWS, EXP-REWRITE, BILL-FIX, PAY-FIX, PAY-BACKEND, EXP-BACKEND, EXP-FRONTEND) for context. Confirmed the prior work on these 4 views (admin delete/restore, deletion queue, etc.) is fully in place and that I should ONLY strip responsive layout breakpoints — not touch any logic/state/queries/mutations/content.
+- For each of the 4 target files ran `rg -n "md:|lg:|sm:" <file>` to enumerate every responsive class occurrence before editing. Counts: dashboard-view.tsx=14 occurrences, billing-view.tsx=12, payments-view.tsx=12, expenses-view.tsx=12 (50 total). After edits: re-ran the same rg on each file → 0 matches in all 4. Confirmed no `md:`/`lg:`/`sm:` survive in any of the 4 view files.
+- Edits applied (all using MultiEdit; each edit keeps the mobile/base class, drops the responsive variant):
+
+  1. `/home/z/my-project/src/components/features/dashboard/dashboard-view.tsx`:
+     - Loading skeleton grid: `grid grid-cols-2 lg:grid-cols-4 gap-3` → `grid grid-cols-2 gap-3`.
+     - Loading skeleton 3-col layout: `grid lg:grid-cols-3 gap-4` + `h-72 lg:col-span-2` → `grid grid-cols-1 gap-4` + plain `h-72` (no col-span, single column).
+     - Root StaggerGroup: `space-y-4 md:space-y-5` → `space-y-4`.
+     - Greeting card: `p-5 md:p-7` → `p-5`; date paragraph `text-sm md:text-lg` → `text-sm`; h2 `text-2xl md:text-3xl` → `text-2xl`; emoji span `text-xl md:text-2xl` → `text-xl`.
+     - KPI grid: `grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4` → `grid grid-cols-2 gap-3`.
+     - KpiCard inner GlassCard: `p-4 md:p-5 cursor-pointer` → `p-4 cursor-pointer`.
+     - KpiCard value: `text-2xl md:text-3xl` → `text-2xl`.
+     - Recent Activity card: `p-4 md:p-6` → `p-4`.
+
+  2. `/home/z/my-project/src/components/features/billing/billing-view.tsx`:
+     - Loading skeleton KPI grid: `grid grid-cols-2 lg:grid-cols-4 gap-3` → `grid grid-cols-2 gap-3`.
+     - Root StaggerGroup: `space-y-4 md:space-y-5` → `space-y-4`.
+     - KPI grid: `grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4` → `grid grid-cols-2 gap-3`.
+     - Empty-state card: `p-10 md:p-16` → `p-10`.
+     - KpiCard GlassCard: `p-4 md:p-5` → `p-4`.
+     - KpiCard value: `text-2xl md:text-3xl` → `text-2xl`.
+     - BillRow GlassCard: `p-4 md:p-5` → `p-4`; inner flex `flex items-start gap-3 md:gap-4` → `flex items-start gap-3`; Avatar `h-12 w-12 md:h-14 md:w-14` → `h-12 w-12`.
+     - BillRow meta row: `flex flex-col sm:flex-row sm:items-center gap-x-3 gap-y-0.5` → `flex flex-col gap-x-3 gap-y-0.5` (dropped `sm:flex-row sm:items-center` per rule 3; kept `gap-x-3 gap-y-0.5` since they're not breakpoints — only relevant in flex-row, harmless in flex-col).
+
+  3. `/home/z/my-project/src/components/features/billing/payments-view.tsx`:
+     - Loading skeleton KPI grid: `grid grid-cols-2 lg:grid-cols-4 gap-3` → `grid grid-cols-2 gap-3`.
+     - Root StaggerGroup: `space-y-4 md:space-y-6` → `space-y-4`.
+     - KPI grid: `grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4` → `grid grid-cols-2 gap-3`.
+     - Pending Approvals card: `p-5 md:p-6` → `p-5`.
+     - Empty-state card: `p-10 md:p-16` → `p-10`.
+     - KpiCard GlassCard (multi-line className): `p-4 md:p-5` → `p-4`.
+     - KpiCard value: `text-2xl md:text-3xl` → `text-2xl`.
+     - PaymentRow GlassCard: `p-4 md:p-5` → `p-4`; inner flex `flex items-start gap-3 md:gap-4` → `flex items-start gap-3`; Avatar `h-12 w-12 md:h-14 md:w-14` → `h-12 w-12`.
+     - PaymentRow meta row: `flex flex-col sm:flex-row sm:items-center gap-x-3 gap-y-0.5` → `flex flex-col gap-x-3 gap-y-0.5`.
+     - PaymentEditSheet SheetContent: `w-full sm:max-w-md flex flex-col gap-0 p-0` → `w-full max-w-md flex flex-col gap-0 p-0` (dropped `sm:` prefix, kept `max-w-md` always-on so the Sheet panel width stays capped at 448px to match the AppShell container — without this the side-docked Sheet would stretch to full viewport width on tablet/desktop, breaking the centered-app illusion).
+
+  4. `/home/z/my-project/src/components/features/billing/expenses-view.tsx`:
+     - Loading skeleton KPI grid: `grid grid-cols-2 lg:grid-cols-4 gap-3` → `grid grid-cols-2 gap-3`.
+     - Root StaggerGroup: `space-y-4 md:space-y-6` → `space-y-4`.
+     - KPI grid (note: already had no `lg:grid-cols-*` here, just `md:gap-4`): `grid grid-cols-2 gap-3 md:gap-4` → `grid grid-cols-2 gap-3`.
+     - Top Categories card: `p-4 md:p-6` → `p-4`.
+     - Empty-state card: `p-10 md:p-16` → `p-10`.
+     - KpiCard GlassCard (multi-line): `p-4 md:p-5` → `p-4`.
+     - KpiCard value: `text-2xl md:text-3xl` → `text-2xl`.
+     - ExpenseRow GlassCard: `p-4 md:p-5` → `p-4`; inner flex `flex items-start gap-3 md:gap-4` → `flex items-start gap-3`; category icon tile `h-12 w-12 md:h-14 md:w-14` → `h-12 w-12`.
+     - ExpenseRow meta row: `flex flex-col sm:flex-row sm:items-center gap-x-3 gap-y-0.5` → `flex flex-col gap-x-3 gap-y-0.5`.
+     - ExpenseFormSheet SheetContent: `w-full sm:max-w-md flex flex-col gap-0 p-0` → `w-full max-w-md flex flex-col gap-0 p-0` (same rationale as payments-view — keep the Sheet capped at 448px on all screens).
+
+- Did NOT modify: any component logic, state, mutations, queries, badges/labels/button text, icon sizes (`h-4 w-4`/`h-5 w-5` etc.), color classes, motion classes, `shrink-0`/`whitespace-nowrap`/`overflow-x-auto` on filter pill rows, or any `safe-top`/`safe-bottom`/`safe-x` classes. Did NOT touch any other file.
+
+Verification:
+- `cd /home/z/my-project && bun run lint` → 0 errors, 1 pre-existing informational warning in `variables-view.tsx` (react-hooks/incompatible-library on `form.watch` — unrelated, predates this task, called out as acceptable in the spec).
+- Re-ran `rg -n "md:|lg:|sm:" <file>` on each of the 4 edited files → 0 matches in all 4. (Also spot-checked that no `xl:` / `2xl:` breakpoints were introduced by the edits.)
+- `tail -25 dev.log` shows healthy dev server: repeated `✓ Compiled in <200ms` and `GET /api/notifications?unread=true 200` + `GET /api/kitchen?date=... 200` — all 200s, no compile errors, no runtime errors. The Next.js dev server hot-reloaded all 4 edited files cleanly (each file's edit triggered a `✓ Compiled in …` line in dev.log with no warnings/errors).
+- File size delta: dashboard 177→175 lines (−2: loading skeleton 3-col→1-col collapsed one div), billing 1156→1156 (net 0), payments 1590→1590 (net 0), expenses 1251→1251 (net 0). The size changes are tiny because each edit only shortened class strings, not structures — confirming no logic was added or removed.
+
+Stage Summary:
+- All 4 views (dashboard, billing, payments, expenses) now render as a pure single mobile layout on every screen size — no `md:`/`lg:`/`sm:` layout breakpoints remain anywhere in these files. On phone (≤448px) the AppShell fills the viewport; on tablet/desktop the AppShell centers the same 448px column and the bottom-nav shows on all screens, so the layout is identical across devices — only the surrounding whitespace differs.
+- KPI grids: always 2 columns (`grid-cols-2 gap-3`) on all screens. Previously `grid-cols-2 lg:grid-cols-4` (4-col on desktop) — now 2-col everywhere, with slightly wider cells on tablet/desktop since the container is still 448px max.
+- Loading skeletons: dashboard's 3-col skeleton collapsed to single column (`grid grid-cols-1`) to match the always-single-column content layout. billing/payments/expenses loading skeletons already used `grid gap-3` (no col-span) so no change there beyond the KPI grid fix.
+- StaggerGroup spacing: all four views now use `space-y-4` (was `md:space-y-5`/`md:space-y-6` on billing/payments/expenses respectively). Consistent vertical rhythm across all 4 views.
+- KpiCard component (each view has its own local KpiCard): padding is now `p-4` (was `p-4 md:p-5`), value text is `text-2xl` (was `text-2xl md:text-3xl`). Slightly tighter, fits the 448px column better.
+- Row components (BillRow, PaymentRow, ExpenseRow): card padding `p-4` (was `p-4 md:p-5`), inner flex gap `gap-3` (was `md:gap-4`), avatar/icon tile `h-12 w-12` (was `h-12 w-12 md:h-14 md:w-14`), and the email+room meta row is always `flex-col` (was `flex-col sm:flex-row sm:items-center`) — so email and room now stack vertically on all screens, which is the correct mobile reading order.
+- Empty-state cards: `p-10` everywhere (was `p-10 md:p-16`). Still generous padding for the centered icon + message.
+- Greeting card (dashboard only): `p-5` (was `p-5 md:p-7`), heading `text-2xl` (was `text-2xl md:text-3xl`), date `text-sm` (was `text-sm md:text-lg`), emoji `text-xl` (was `text-xl md:text-2xl`). The greeting no longer enlarges on desktop.
+- Sheet panels (PaymentEditSheet, ExpenseFormSheet): converted `sm:max-w-md` → `max-w-md` so the side-docked Sheet is always capped at 448px on all screens, matching the AppShell container width. Without this fix the Sheet would stretch to viewport width on tablet/desktop and break the centered-app illusion.
+- 0 lint errors. Dev server running healthy with all 4 views hot-reloading cleanly. No non-target files modified.
+
+---
+Task ID: MOBILE-FIRST-C
+Agent: mobile-first-agent-c
+Task: Convert settings + variables + profile + personalization + auth views to mobile-first
+
+Work Log:
+- Read worklog.md tail (EXP-FRONTEND, EXP-REWRITE, BILL-FIX, PAY-FIX, PAY-FRONTEND) for recent context. Read the AppShell philosophy in the task spec — AppShell wraps content in `<div className="mx-auto w-full max-w-md">`, no desktop sidebar, bottom nav on ALL screens. All `md:`/`lg:`/`sm:` layout breakpoints must be removed.
+- Read all 5 target files end-to-end: settings-view.tsx (595 lines), variables-view.tsx (944 lines), profile-view.tsx (1532 lines), personalization-view.tsx (508 lines), auth-screen.tsx (253 lines). Used `grep -n "md:|lg:|sm:"` on each to enumerate the responsive class inventory.
+- For each file, also grepped for `grid-cols-2` to find side-by-side form input pairs and applied rule 7 judgment (keep 2-col only if inputs are narrow enough to fit in 448px). Verified:
+  - settings-view.tsx line 498: Category + Type selects (single-word dropdown values) → keep grid-cols-2.
+  - variables-view.tsx line 851: Unit (short text) + Category (dropdown) → keep grid-cols-2.
+  - profile-view.tsx line 758: Phone + Room (short inputs) → keep grid-cols-2.
+  - profile-view.tsx line 792: Theme + Language (dropdowns) → keep grid-cols-2.
+  - profile-view.tsx line 1258: 2FA backup codes grid → keep grid-cols-2 (short codes).
+
+Edits to `src/components/features/settings/settings-view.tsx`:
+- `<StaggerGroup className="space-y-4 md:space-y-6 pb-6">` → `space-y-4 pb-6`.
+- `<GlassCard className="p-4 md:p-5" hover={false}>` (SettingRow) → `p-4`.
+- `<div className="flex flex-col md:flex-row md:items-end gap-3">` (SettingRow input+button container) → `flex flex-col gap-3` (rule 2).
+- `<GlassButton className="md:w-32">` (Save button) → `className="w-full"` (with flex-col stack, full-width button below input is the mobile-native pattern — judgment call like rule 7).
+- Left unchanged: AddSettingDialog's `grid grid-cols-2 gap-3` (Category + Type selects — narrow enough to fit), the `max-w-lg` on DialogContent (rule 8 — overlays are fine).
+
+Edits to `src/components/features/variables/variables-view.tsx`:
+- `<StaggerGroup className="space-y-4 md:space-y-6">` → `space-y-4`.
+- Stats bar `<div className="grid grid-cols-2 md:grid-cols-4 gap-3">` → `grid grid-cols-2 gap-3` (rule 1: KPI/multi-column grid).
+- Search+filters container `<div className="flex flex-col md:flex-row gap-3">` → `flex flex-col gap-3`.
+- Two SelectTrigger `className="w-full md:w-44 h-12 ..."` → `w-full h-12 ...` (drop the md:w-44 — selects now stack full-width below the search input).
+- Empty-state `<GlassCard className="p-10 md:p-14 text-center" hover={false}>` → `p-10 text-center` (rule 3).
+- AccordionItem `className="glass rounded-3xl overflow-hidden border-b-0 px-4 md:px-5"` → `px-4` only.
+- Accordion content `<div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pb-3 pt-1">` → `grid grid-cols-1 gap-3 pb-3 pt-1` (rule 1: variable cards now stack vertically instead of 2-per-row).
+- VariablesSkeleton: `<div className="space-y-4 md:space-y-6">` → `space-y-4`; inner `<div className="grid grid-cols-2 md:grid-cols-4 gap-3">` → `grid grid-cols-2 gap-3`.
+- Left unchanged: line 851 `grid grid-cols-2 gap-3` for Unit + Category form inputs (narrow enough).
+
+Edits to `src/components/features/auth/profile-view.tsx`:

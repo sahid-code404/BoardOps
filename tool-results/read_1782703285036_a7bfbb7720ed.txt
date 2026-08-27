@@ -1,0 +1,1604 @@
+     1→"use client";
+     2→
+     3→import { memo, useCallback, useEffect, useMemo, useState } from "react";
+     4→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     5→import { motion, AnimatePresence } from "framer-motion";
+     6→import { toast } from "sonner";
+     7→import { isSameMonth } from "date-fns";
+     8→import {
+     9→  Wallet,
+    10→  CheckCircle2,
+    11→  Clock,
+    12→  XCircle,
+    13→  IndianRupee,
+    14→  Plus,
+    15→  CreditCard,
+    16→  Banknote,
+    17→  Building2,
+    18→  Smartphone,
+    19→  Wallet as WalletIcon,
+    20→  Search,
+    21→  ArrowUpRight,
+    22→  ArrowDownRight,
+    23→  ChevronLeft,
+    24→  ChevronRight,
+    25→  Calendar,
+    26→  RotateCcw,
+    27→  MoreVertical,
+    28→  PencilLine,
+    29→  Trash2,
+    30→  AlertTriangle,
+    31→  Ban,
+    32→} from "lucide-react";
+    33→
+    34→import { api } from "@/lib/api-client";
+    35→import { cn } from "@/lib/utils";
+    36→import { useAuthStore } from "@/stores/use-auth-store";
+    37→import { formatDeletionCountdown } from "@/lib/user-cleanup";
+    38→
+    39→import { GlassCard } from "@/components/glass/glass-card";
+    40→import { GlassButton } from "@/components/glass/glass-button";
+    41→import { GlassInput, GlassTextarea } from "@/components/glass/glass-input";
+    42→import { AnimatedCounter } from "@/components/glass/animated-counter";
+    43→import {
+    44→  StaggerGroup,
+    45→  StaggerItem,
+    46→} from "@/components/glass/page-transition";
+    47→import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
+    48→
+    49→import { Badge } from "@/components/ui/badge";
+    50→import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+    51→import {
+    52→  Dialog,
+    53→  DialogContent,
+    54→  DialogDescription,
+    55→  DialogFooter,
+    56→  DialogHeader,
+    57→  DialogTitle,
+    58→} from "@/components/ui/dialog";
+    59→import {
+    60→  Select,
+    61→  SelectContent,
+    62→  SelectItem,
+    63→  SelectTrigger,
+    64→  SelectValue,
+    65→} from "@/components/ui/select";
+    66→import {
+    67→  DropdownMenu,
+    68→  DropdownMenuTrigger,
+    69→  DropdownMenuContent,
+    70→  DropdownMenuItem,
+    71→  DropdownMenuSeparator,
+    72→  DropdownMenuLabel,
+    73→} from "@/components/ui/dropdown-menu";
+    74→import {
+    75→  AlertDialog,
+    76→  AlertDialogAction,
+    77→  AlertDialogCancel,
+    78→  AlertDialogContent,
+    79→  AlertDialogDescription,
+    80→  AlertDialogFooter,
+    81→  AlertDialogHeader,
+    82→  AlertDialogTitle,
+    83→} from "@/components/ui/alert-dialog";
+    84→import {
+    85→  Sheet,
+    86→  SheetContent,
+    87→  SheetDescription,
+    88→  SheetFooter,
+    89→  SheetHeader,
+    90→  SheetTitle,
+    91→} from "@/components/ui/sheet";
+    92→
+    93→// ─────────────────────────────────────────────────────────────
+    94→// Types
+    95→// ─────────────────────────────────────────────────────────────
+    96→
+    97→type PaymentStatus = "PENDING" | "APPROVED" | "REJECTED" | "REFUNDED" | "VOID" | "DELETED";
+    98→type PaymentMethod = "CASH" | "UPI" | "CARD" | "BANK_TRANSFER" | "WALLET";
+    99→
+   100→type Payment = {
+   101→  id: string;
+   102→  amount: number;
+   103→  method: PaymentMethod;
+   104→  status: PaymentStatus;
+   105→  reference: string | null;
+   106→  notes: string | null;
+   107→  billId: string | null;
+   108→  createdAt: string;
+   109→  deletedAt: string | null;
+   110→  deletionReason: string | null;
+   111→  user: { name: string; email: string };
+   112→};
+   113→
+   114→type ApiResponse<T> = { success: boolean; data: T; error?: string };
+   115→
+   116→type BillListItem = {
+   117→  id: string;
+   118→  periodMonth: number;
+   119→  periodYear: number;
+   120→  dueAmount: number;
+   121→  status: string;
+   122→  user: { name: string };
+   123→};
+   124→
+   125→// ─────────────────────────────────────────────────────────────
+   126→// Style maps
+   127→// ─────────────────────────────────────────────────────────────
+   128→
+   129→const STATUS_STYLES: Record<
+   130→  PaymentStatus,
+   131→  { className: string; label: string }
+   132→> = {
+   133→  APPROVED: {
+   134→    className: "bg-success/15 text-success border-success/30",
+   135→    label: "Approved",
+   136→  },
+   137→  PENDING: {
+   138→    className: "bg-warning/15 text-warning border-warning/30",
+   139→    label: "Pending",
+   140→  },
+   141→  REJECTED: {
+   142→    className: "bg-destructive/15 text-destructive border-destructive/30",
+   143→    label: "Rejected",
+   144→  },
+   145→  REFUNDED: {
+   146→    className: "bg-info/15 text-info border-info/30",
+   147→    label: "Refunded",
+   148→  },
+   149→  VOID: {
+   150→    className: "bg-muted text-muted-foreground border-border",
+   151→    label: "Void",
+   152→  },
+   153→  DELETED: {
+   154→    className: "bg-destructive/15 text-destructive border-destructive/30",
+   155→    label: "Deleted",
+   156→  },
+   157→};
+   158→
+   159→const METHOD_META: Record<
+   160→  PaymentMethod,
+   161→  { label: string; icon: React.ReactNode; className: string }
+   162→> = {
+   163→  CASH: {
+   164→    label: "Cash",
+   165→    icon: <Banknote className="h-3.5 w-3.5" />,
+   166→    className: "bg-success/10 text-success border-success/20",
+   167→  },
+   168→  UPI: {
+   169→    label: "UPI",
+   170→    icon: <Smartphone className="h-3.5 w-3.5" />,
+   171→    className: "bg-primary/10 text-primary border-primary/20",
+   172→  },
+   173→  CARD: {
+   174→    label: "Card",
+   175→    icon: <CreditCard className="h-3.5 w-3.5" />,
+   176→    className: "bg-info/10 text-info border-info/20",
+   177→  },
+   178→  BANK_TRANSFER: {
+   179→    label: "Bank",
+   180→    icon: <Building2 className="h-3.5 w-3.5" />,
+   181→    className: "bg-warning/10 text-warning border-warning/20",
+   182→  },
+   183→  WALLET: {
+   184→    label: "Wallet",
+   185→    icon: <WalletIcon className="h-3.5 w-3.5" />,
+   186→    className: "bg-secondary text-secondary-foreground border-border",
+   187→  },
+   188→};
+   189→
+   190→function formatINR(n: number) {
+   191→  return `₹${Math.round(n).toLocaleString("en-IN")}`;
+   192→}
+   193→
+   194→function formatDate(iso: string) {
+   195→  const d = new Date(iso);
+   196→  const datePart = d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+   197→  const timePart = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+   198→  return `${datePart}, ${timePart}`;
+   199→}
+   200→
+   201→/** Full date-time format: "29 June 2026, 05:28 am" */
+   202→function formatDateTime(iso: string) {
+   203→  const d = new Date(iso);
+   204→  const datePart = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+   205→  const timePart = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+   206→  return `${datePart}, ${timePart}`;
+   207→}
+   208→
+   209→const AVATAR_GRADIENTS = [
+   210→  "from-violet-500 to-fuchsia-500",
+   211→  "from-emerald-500 to-teal-500",
+   212→  "from-amber-500 to-orange-500",
+   213→  "from-rose-500 to-pink-500",
+   214→  "from-cyan-500 to-blue-500",
+   215→  "from-indigo-500 to-purple-500",
+   216→];
+   217→
+   218→function gradientFor(name: string) {
+   219→  const idx = name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0) % AVATAR_GRADIENTS.length;
+   220→  return AVATAR_GRADIENTS[idx];
+   221→}
+   222→
+   223→function initials(name: string) {
+   224→  return name.split(" ").filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("");
+   225→}
+   226→
+   227→// ─────────────────────────────────────────────────────────────
+   228→// Main view
+   229→// ─────────────────────────────────────────────────────────────
+   230→
+   231→export function PaymentsView() {
+   232→  const user = useAuthStore((s) => s.user);
+   233→  const isAdmin = user?.role === "ADMIN";
+   234→  const qc = useQueryClient();
+   235→
+   236→  const now = new Date();
+   237→  const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
+   238→  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+   239→  const isThisMonth = isSameMonth(new Date(selectedYear, selectedMonth, 1), now);
+   240→
+   241→  const [searchInput, setSearchInput] = useState("");
+   242→  const [search, setSearch] = useState("");
+   243→  // Debounced search — `searchInput` drives the input field; `search` is the
+   244→  // debounced value (200ms after the user stops typing) used for actual
+   245→  // filtering. Prevents re-filtering large lists on every keystroke.
+   246→  useEffect(() => {
+   247→    const t = setTimeout(() => setSearch(searchInput), 200);
+   248→    return () => clearTimeout(t);
+   249→  }, [searchInput]);
+   250→  const [statusFilter, setStatusFilter] = useState<PaymentStatus | "ALL" | "DELETED">("ALL");
+   251→
+   252→  const [submitOpen, setSubmitOpen] = useState(false);
+   253→  const [actionTarget, setActionTarget] = useState<{
+   254→    payment: Payment;
+   255→    action: "APPROVE" | "REJECT";
+   256→  } | null>(null);
+   257→
+   258→  // New state — edit / delete / void flows (admin only)
+   259→  const [editTarget, setEditTarget] = useState<Payment | null>(null);
+   260→  const [editOpen, setEditOpen] = useState(false);
+   261→  const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
+   262→  const [deleteReason, setDeleteReason] = useState("");
+   263→  const [voidTarget, setVoidTarget] = useState<Payment | null>(null);
+   264→
+   265→  // Fetch ALL payments for KPIs (not affected by month picker)
+   266→  const { data: allPayments = [] } = useQuery({
+   267→    queryKey: ["payments", "all"],
+   268→    queryFn: async () => {
+   269→      const r = await api.get<ApiResponse<Payment[]>>("/payments");
+   270→      return r.data;
+   271→    },
+   272→    placeholderData: (prev) => prev,
+   273→  });
+   274→
+   275→  // Fetch month-filtered payments for the list
+   276→  const { data: payments = [], isLoading, isFetching } = useQuery({
+   277→    queryKey: ["payments", { month: selectedMonth, year: selectedYear }],
+   278→    queryFn: async () => {
+   279→      const r = await api.get<ApiResponse<Payment[]>>("/payments", {
+   280→        params: { month: selectedMonth, year: selectedYear, limit: 500 },
+   281→      });
+   282→      return r.data;
+   283→    },
+   284→    // Keep previous data visible while a new month/year loads (stale-while-revalidate).
+   285→    // Eliminates the flash of empty content when switching months.
+   286→    placeholderData: (prev) => prev,
+   287→  });
+   288→
+   289→  // Fetch soft-deleted payments (deletion queue) — admin only
+   290→  const { data: deletedPayments = [] } = useQuery({
+   291→    queryKey: ["payments", "deleted", { month: selectedMonth, year: selectedYear }],
+   292→    queryFn: async () => {
+   293→      const r = await api.get<ApiResponse<Payment[]>>("/payments", {
+   294→        params: { month: selectedMonth, year: selectedYear, includeDeleted: "true", limit: 500 },
+   295→      });
+   296→      return r.data;
+   297→    },
+   298→    enabled: isAdmin,
+   299→    placeholderData: (prev) => prev,
+   300→  });
+   301→
+   302→  const submitMutation = useMutation({
+   303→    mutationFn: (payload: {
+   304→      amount: number;
+   305→      method: PaymentMethod;
+   306→      billId?: string;
+   307→      reference?: string;
+   308→      notes?: string;
+   309→    }) =>
+   310→      api.post<ApiResponse<Payment>>("/payments", payload),
+   311→    onSuccess: () => {
+   312→      toast.success("Payment submitted — pending admin approval");
+   313→      setSubmitOpen(false);
+   314→      qc.invalidateQueries({ queryKey: ["payments"] });
+   315→    },
+   316→    onError: (e: Error) => toast.error(e.message || "Failed to submit payment"),
+   317→  });
+   318→
+   319→  const actionMutation = useMutation({
+   320→    mutationFn: ({
+   321→      id,
+   322→      action,
+   323→    }: {
+   324→      id: string;
+   325→      action: "APPROVE" | "REJECT";
+   326→    }) => api.patch<ApiResponse<Payment>>(`/payments/${id}`, { action }),
+   327→    onSuccess: (_data, vars) => {
+   328→      toast.success(
+   329→        vars.action === "APPROVE"
+   330→          ? "Payment approved — bill updated"
+   331→          : "Payment rejected"
+   332→      );
+   333→      setActionTarget(null);
+   334→      qc.invalidateQueries({ queryKey: ["payments"] });
+   335→      qc.invalidateQueries({ queryKey: ["bills"] });
+   336→    },
+   337→    onError: (e: Error) => toast.error(e.message || "Action failed"),
+   338→  });
+   339→
+   340→  // Edit payment (PUT /api/payments/[id] { action: "EDIT", ... })
+   341→  const editMutation = useMutation({
+   342→    mutationFn: async ({
+   343→      id,
+   344→      payload,
+   345→    }: {
+   346→      id: string;
+   347→      payload: {
+   348→        amount?: number;
+   349→        method?: PaymentMethod;
+   350→        reference?: string | null;
+   351→        notes?: string | null;
+   352→      };
+   353→    }) =>
+   354→      api.put<ApiResponse<Payment>>(`/payments/${id}`, {
+   355→        action: "EDIT",
+   356→        ...payload,
+   357→      }),
+   358→    onSuccess: () => {
+   359→      toast.success("Payment updated");
+   360→      setEditOpen(false);
+   361→      setEditTarget(null);
+   362→      qc.invalidateQueries({ queryKey: ["payments"] });
+   363→    },
+   364→    onError: (e: Error) => toast.error(e.message || "Failed to update payment"),
+   365→  });
+   366→
+   367→  // Void payment (PUT /api/payments/[id] { action: "VOID" })
+   368→  const voidMutation = useMutation({
+   369→    mutationFn: (id: string) =>
+   370→      api.put<ApiResponse<Payment>>(`/payments/${id}`, { action: "VOID" }),
+   371→    onSuccess: () => {
+   372→      toast.success("Payment voided");
+   373→      setVoidTarget(null);
+   374→      qc.invalidateQueries({ queryKey: ["payments"] });
+   375→      qc.invalidateQueries({ queryKey: ["bills"] });
+   376→    },
+   377→    onError: (e: Error) => toast.error(e.message || "Failed to void payment"),
+   378→  });
+   379→
+   380→  // Soft-delete payment (DELETE /api/payments/[id] { reason? })
+   381→  const deleteMutation = useMutation({
+   382→    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+   383→      await api.delete(`/payments/${id}`, {
+   384→        body: JSON.stringify({ reason: reason || undefined }),
+   385→      });
+   386→    },
+   387→    onSuccess: () => {
+   388→      toast.success("Payment scheduled for deletion — permanently removed in 7 days");
+   389→      setDeleteTarget(null);
+   390→      setDeleteReason("");
+   391→      qc.invalidateQueries({ queryKey: ["payments"] });
+   392→    },
+   393→    onError: (e: Error) => toast.error(e.message || "Failed to delete payment"),
+   394→  });
+   395→
+   396→  // Restore soft-deleted payment (POST /api/payments/[id]/restore)
+   397→  const restoreMutation = useMutation({
+   398→    mutationFn: async (id: string) => {
+   399→      const r = await api.post<ApiResponse<Payment>>(`/payments/${id}/restore`);
+   400→      return r.data;
+   401→    },
+   402→    onSuccess: () => {
+   403→      toast.success("Payment restored successfully");
+   404→      qc.invalidateQueries({ queryKey: ["payments"] });
+   405→    },
+   406→    onError: (e: Error) => toast.error(e.message || "Failed to restore payment"),
+   407→  });
+   408→
+   409→  const openEditForm = useCallback((p: Payment) => {
+   410→    setEditTarget(p);
+   411→    setEditOpen(true);
+   412→  }, []);
+   413→
+   414→  const closeEditForm = useCallback(() => {
+   415→    setEditOpen(false);
+   416→    setEditTarget(null);
+   417→  }, []);
+   418→
+   419→  // KPIs — computed from the month-filtered payments list
+   420→  const kpis = useMemo(() => {
+   421→    const approved = payments.filter((p) => p.status === "APPROVED");
+   422→    const totalApproved = approved.reduce((s, p) => s + p.amount, 0);
+   423→    const pending = payments.filter((p) => p.status === "PENDING").length;
+   424→    const rejected = payments.filter((p) => p.status === "REJECTED").length;
+   425→    const refunded = payments.filter((p) => p.status === "REFUNDED").length;
+   426→    return { totalApproved, pending, rejected, refunded };
+   427→  }, [payments]);
+   428→
+   429→  // Filtered list — search + status filter pills only
+   430→  const sourcePayments = statusFilter === "DELETED" ? deletedPayments : payments;
+   431→
+   432→  const filtered = useMemo(() => {
+   433→    const q = search.trim().toLowerCase();
+   434→    return sourcePayments.filter((p) => {
+   435→      if (statusFilter !== "ALL" && statusFilter !== "DELETED" && p.status !== statusFilter) return false;
+   436→      if (!q) return true;
+   437→      return (
+   438→        p.user.name?.toLowerCase().includes(q) ||
+   439→        p.user.email?.toLowerCase().includes(q) ||
+   440→        (p.reference || "").toLowerCase().includes(q)
+   441→      );
+   442→    });
+   443→  }, [sourcePayments, search, statusFilter]);
+   444→
+   445→  // Pending payments for the admin approval card — from ALL payments (not month-scoped)
+   446→  const pendingPayments = allPayments.filter((p) => p.status === "PENDING");
+   447→
+   448→  if (isLoading) {
+   449→    return (
+   450→      <div className="space-y-4">
+   451→        <div className="grid-kpi gap-3">
+   452→          {Array.from({ length: 4 }).map((_, i) => (
+   453→            <ShimmerSkeleton key={i} className="h-32" />
+   454→          ))}
+   455→        </div>
+   456→        <ShimmerSkeleton className="h-14 w-full" />
+   457→        <div className="grid gap-3">
+   458→          {Array.from({ length: 5 }).map((_, i) => (
+   459→            <ShimmerSkeleton key={i} className="h-20" />
+   460→          ))}
+   461→        </div>
+   462→      </div>
+   463→    );
+   464→  }
+   465→
+   466→  return (
+   467→    <StaggerGroup className="space-y-4">
+   468→      {/* Subtle refetch indicator — thin animated bar at the top of the list.
+   469→          Shows on every refetch (month change, mutation invalidation) but
+   470→          NOT on the initial load (the full skeleton handles that). */}
+   471→      <AnimatePresence>
+   472→        {isFetching && (
+   473→          <motion.div
+   474→            initial={{ scaleX: 0, opacity: 0 }}
+   475→            animate={{ scaleX: 1, opacity: 1 }}
+   476→            exit={{ opacity: 0 }}
+   477→            transition={{ duration: 0.4, ease: "easeOut" }}
+   478→            style={{ transformOrigin: "left" }}
+   479→            className="h-0.5 rounded-full bg-primary/60 shadow-sm shadow-primary/30"
+   480→            aria-hidden="true"
+   481→          />
+   482→        )}
+   483→      </AnimatePresence>
+   484→      {/* Month picker — centered capsule with circular arrows (matches billing/expenses) */}
+   485→      <StaggerItem>
+   486→        <div className="flex items-center justify-center gap-4">
+   487→          <motion.button
+   488→            whileTap={{ scale: 0.9 }}
+   489→            onClick={() => {
+   490→              const d = new Date(selectedYear, selectedMonth - 1, 1);
+   491→              setSelectedMonth(d.getMonth());
+   492→              setSelectedYear(d.getFullYear());
+   493→            }}
+   494→            aria-label="Previous month"
+   495→            className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   496→          >
+   497→            <ChevronLeft className="h-5 w-5" />
+   498→          </motion.button>
+   499→
+   500→          <button
+   501→            onClick={() => !isThisMonth && (setSelectedMonth(now.getMonth()), setSelectedYear(now.getFullYear()))}
+   502→            className="flex-1 max-w-[280px] flex items-center justify-center gap-2.5 glass-soft rounded-full px-6 py-2.5 transition-all hover:ring-1 hover:ring-primary/30"
+   503→          >
+   504→            <Calendar className="h-4 w-4 text-primary shrink-0" />
+   505→            <div className="leading-tight text-center">
+   506→              <p className="text-sm font-bold text-primary">
+   507→                {new Date(selectedYear, selectedMonth).toLocaleDateString("en-US", { month: "long" })}
+   508→              </p>
+   509→              <p className="text-[11px] text-muted-foreground">
+   510→                {selectedYear}
+   511→              </p>
+   512→            </div>
+   513→            {!isThisMonth && (
+   514→              <RotateCcw className="h-3 w-3 text-muted-foreground shrink-0" />
+   515→            )}
+   516→          </button>
+   517→
+   518→          <motion.button
+   519→            whileTap={{ scale: 0.9 }}
+   520→            onClick={() => {
+   521→              const d = new Date(selectedYear, selectedMonth + 1, 1);
+   522→              setSelectedMonth(d.getMonth());
+   523→              setSelectedYear(d.getFullYear());
+   524→            }}
+   525→            aria-label="Next month"
+   526→            className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   527→          >
+   528→            <ChevronRight className="h-5 w-5" />
+   529→          </motion.button>
+   530→        </div>
+   531→      </StaggerItem>
+   532→
+   533→      {/* Action bar — only for non-admins (who can submit payments) */}
+   534→      {!isAdmin && (
+   535→        <StaggerItem>
+   536→          <div className="flex items-center justify-end gap-3">
+   537→            <GlassButton
+   538→              size="lg"
+   539→              onClick={() => setSubmitOpen(true)}
+   540→              className="shrink-0"
+   541→            >
+   542→              <Plus className="h-4 w-4" />
+   543→              Submit Payment
+   544→            </GlassButton>
+   545→          </div>
+   546→        </StaggerItem>
+   547→      )}
+   548→
+   549→      {/* KPIs */}
+   550→      <StaggerItem>
+   551→        <div className="grid-kpi gap-3">
+   552→          <KpiCard
+   553→            label="Total Deposit"
+   554→            value={kpis.totalApproved}
+   555→            icon={<CheckCircle2 className="h-5 w-5" />}
+   556→            color="success"
+   557→            prefix="₹"
+   558→          />
+   559→          <KpiCard
+   560→            label="Pending Approvals"
+   561→            value={kpis.pending}
+   562→            icon={<Clock className="h-5 w-5" />}
+   563→            color="warning"
+   564→          />
+   565→          <KpiCard
+   566→            label="Rejected"
+   567→            value={kpis.rejected}
+   568→            icon={<XCircle className="h-5 w-5" />}
+   569→            color="danger"
+   570→          />
+   571→          <KpiCard
+   572→            label="Refunded"
+   573→            value={kpis.refunded}
+   574→            icon={<RotateCcw className="h-5 w-5" />}
+   575→            color="info"
+   576→          />
+   577→        </div>
+   578→      </StaggerItem>
+   579→
+   580→      {/* Admin: Pending payments section */}
+   581→      {isAdmin && pendingPayments.length > 0 && (
+   582→        <StaggerItem>
+   583→          <GlassCard className="p-5" hover={false} glow="warning">
+   584→            <div className="flex items-center justify-between mb-4">
+   585→              <div>
+   586→                <h3 className="font-semibold text-lg flex items-center gap-2">
+   587→                  <Clock className="h-5 w-5 text-warning" />
+   588→                  Pending Approvals
+   589→                  <Badge variant="outline" className="bg-warning/15 text-warning border-warning/30 rounded-full">
+   590→                    {pendingPayments.length}
+   591→                  </Badge>
+   592→                </h3>
+   593→                <p className="text-xs text-muted-foreground">
+   594→                  Review and approve or reject incoming payments.
+   595→                </p>
+   596→              </div>
+   597→            </div>
+   598→            <StaggerGroup className="space-y-2">
+   599→              {pendingPayments.slice(0, 4).map((p) => (
+   600→                <StaggerItem key={p.id}>
+   601→                  <PendingRow
+   602→                    payment={p}
+   603→                    onApprove={() =>
+   604→                      setActionTarget({ payment: p, action: "APPROVE" })
+   605→                    }
+   606→                    onReject={() =>
+   607→                      setActionTarget({ payment: p, action: "REJECT" })
+   608→                    }
+   609→                    loading={
+   610→                      actionMutation.isPending &&
+   611→                      actionTarget?.payment.id === p.id
+   612→                    }
+   613→                  />
+   614→                </StaggerItem>
+   615→              ))}
+   616→            </StaggerGroup>
+   617→          </GlassCard>
+   618→        </StaggerItem>
+   619→      )}
+   620→
+   621→      {/* Search + Filter pills (expenses-style) */}
+   622→      <StaggerItem>
+   623→        <div className="space-y-3">
+   624→          <GlassInput
+   625→            placeholder="Search by name, email, reference…"
+   626→            value={searchInput}
+   627→            onChange={(e) => setSearchInput(e.target.value)}
+   628→            icon={<Search />}
+   629→          />
+   630→          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1">
+   631→            {(
+   632→              [
+   633→                "ALL",
+   634→                "PENDING",
+   635→                "APPROVED",
+   636→                "REJECTED",
+   637→                "REFUNDED",
+   638→                ...(isAdmin ? (["DELETED"] as const) : []),
+   639→              ] as const
+   640→            ).map((s) => {
+   641→              const active = statusFilter === s;
+   642→              const label =
+   643→                s === "DELETED"
+   644→                  ? "Deletion Queue"
+   645→                  : s === "ALL"
+   646→                    ? "All"
+   647→                    : STATUS_STYLES[s as PaymentStatus].label;
+   648→              const badge =
+   649→                s === "DELETED" && deletedPayments.length > 0
+   650→                  ? deletedPayments.length
+   651→                  : s === "PENDING" && kpis.pending > 0
+   652→                    ? kpis.pending
+   653→                    : null;
+   654→              const isQueueBadge = s === "DELETED";
+   655→              return (
+   656→                <button
+   657→                  key={s}
+   658→                  onClick={() => setStatusFilter(s)}
+   659→                  className={cn(
+   660→                    "inline-flex items-center h-8 px-2.5 rounded-xl text-[11px] gap-1.5 font-medium whitespace-nowrap shrink-0 transition-all",
+   661→                    active
+   662→                      ? "bg-primary text-primary-foreground shadow-md shadow-primary/30"
+   663→                      : "glass-soft text-muted-foreground hover:text-foreground"
+   664→                  )}
+   665→                >
+   666→                  {label}
+   667→                  {badge !== null && (
+   668→                    <span
+   669→                      className={cn(
+   670→                        "text-[9px] rounded-full px-1.5 py-0.5 leading-none font-bold min-w-[16px] text-center",
+   671→                        active
+   672→                          ? "bg-primary-foreground/20 text-primary-foreground"
+   673→                          : isQueueBadge
+   674→                            ? "bg-destructive text-white"
+   675→                            : "bg-warning text-white"
+   676→                      )}
+   677→                    >
+   678→                      {badge}
+   679→                    </span>
+   680→                  )}
+   681→                </button>
+   682→              );
+   683→            })}
+   684→          </div>
+   685→        </div>
+   686→      </StaggerItem>
+   687→
+   688→      {/* List */}
+   689→      <StaggerItem>
+   690→        {filtered.length === 0 ? (
+   691→          <GlassCard className="p-10" hover={false}>
+   692→            <div className="flex flex-col items-center justify-center text-center gap-3">
+   693→              <div className="grid place-items-center h-14 w-14 rounded-3xl bg-muted/40">
+   694→                <IndianRupee className="h-6 w-6 text-muted-foreground" />
+   695→              </div>
+   696→              <div>
+   697→                <p className="font-medium">No payments found</p>
+   698→                <p className="text-sm text-muted-foreground">
+   699→                  Submit a payment or adjust your filters.
+   700→                </p>
+   701→              </div>
+   702→            </div>
+   703→          </GlassCard>
+   704→        ) : (
+   705→          <div className="space-y-3">
+   706→            <AnimatePresence mode="popLayout">
+   707→              {filtered.map((p) => (
+   708→                <motion.div
+   709→                  key={p.id}
+   710→                  layout
+   711→                  initial={{ opacity: 0, y: 12, scale: 0.98 }}
+   712→                  animate={{ opacity: 1, y: 0, scale: 1 }}
+   713→                  exit={{ opacity: 0, scale: 0.95 }}
+   714→                  transition={{ type: "spring", stiffness: 280, damping: 26 }}
+   715→                >
+   716→                  <PaymentRow
+   717→                    payment={p}
+   718→                    isAdmin={isAdmin}
+   719→                    onApprove={() =>
+   720→                      setActionTarget({ payment: p, action: "APPROVE" })
+   721→                    }
+   722→                    onReject={() =>
+   723→                      setActionTarget({ payment: p, action: "REJECT" })
+   724→                    }
+   725→                    onEdit={() => openEditForm(p)}
+   726→                    onDelete={() => setDeleteTarget(p)}
+   727→                    onVoid={() => setVoidTarget(p)}
+   728→                    onRestore={() => restoreMutation.mutate(p.id)}
+   729→                  />
+   730→                </motion.div>
+   731→              ))}
+   732→            </AnimatePresence>
+   733→          </div>
+   734→        )}
+   735→      </StaggerItem>
+   736→
+   737→      {/* Submit Payment Dialog */}
+   738→      <SubmitPaymentDialog
+   739→        open={submitOpen}
+   740→        onOpenChange={setSubmitOpen}
+   741→        onSubmit={(payload) => submitMutation.mutate(payload)}
+   742→        loading={submitMutation.isPending}
+   743→      />
+   744→
+   745→      {/* Approve/Reject confirm */}
+   746→      <AlertDialog
+   747→        open={!!actionTarget}
+   748→        onOpenChange={(o) => !o && setActionTarget(null)}
+   749→      >
+   750→        <AlertDialogContent className="rounded-3xl">
+   751→          <AlertDialogHeader>
+   752→            <AlertDialogTitle>
+   753→              {actionTarget?.action === "APPROVE"
+   754→                ? "Approve payment?"
+   755→                : "Reject payment?"}
+   756→            </AlertDialogTitle>
+   757→            <AlertDialogDescription>
+   758→              {actionTarget && (
+   759→                <>
+   760→                  {actionTarget.action === "APPROVE" ? (
+   761→                    <>
+   762→                      Approve{" "}
+   763→                      <span className="font-medium text-foreground">
+   764→                        {formatINR(actionTarget.payment.amount)}
+   765→                      </span>{" "}
+   766→                      from{" "}
+   767→                      <span className="font-medium text-foreground">
+   768→                        {actionTarget.payment.user.name}
+   769→                      </span>
+   770→                      ? The linked bill will be updated.
+   771→                    </>
+   772→                  ) : (
+   773→                    <>
+   774→                      Reject the{" "}
+   775→                      <span className="font-medium text-foreground">
+   776→                        {formatINR(actionTarget.payment.amount)}
+   777→                      </span>{" "}
+   778→                      payment from{" "}
+   779→                      <span className="font-medium text-foreground">
+   780→                        {actionTarget.payment.user.name}
+   781→                      </span>
+   782→                      ?
+   783→                    </>
+   784→                  )}
+   785→                </>
+   786→              )}
+   787→            </AlertDialogDescription>
+   788→          </AlertDialogHeader>
+   789→          <AlertDialogFooter>
+   790→            <AlertDialogCancel className="rounded-2xl">Cancel</AlertDialogCancel>
+   791→            <AlertDialogAction
+   792→              className={cn(
+   793→                "rounded-2xl",
+   794→                actionTarget?.action === "APPROVE"
+   795→                  ? "bg-success text-white hover:bg-success/90"
+   796→                  : "bg-destructive text-white hover:bg-destructive/90"
+   797→              )}
+   798→              onClick={() =>
+   799→                actionTarget &&
+   800→                actionMutation.mutate({
+   801→                  id: actionTarget.payment.id,
+   802→                  action: actionTarget.action,
+   803→                })
+   804→              }
+   805→              disabled={actionMutation.isPending}
+   806→            >
+   807→              {actionMutation.isPending
+   808→                ? "Processing…"
+   809→                : actionTarget?.action === "APPROVE"
+   810→                  ? "Approve"
+   811→                  : "Reject"}
+   812→            </AlertDialogAction>
+   813→          </AlertDialogFooter>
+   814→        </AlertDialogContent>
+   815→      </AlertDialog>
+   816→
+   817→      {/* Edit Payment Sheet (admin only — rendered for everyone but only
+   818→          opened when an admin triggers onEdit) */}
+   819→      <PaymentEditSheet
+   820→        open={editOpen}
+   821→        onOpenChange={(o) => !o && closeEditForm()}
+   822→        onSubmit={(id, payload) => editMutation.mutate({ id, payload })}
+   823→        loading={editMutation.isPending}
+   824→        payment={editTarget}
+   825→      />
+   826→
+   827→      {/* Delete single payment confirm */}
+   828→      <AlertDialog
+   829→        open={!!deleteTarget}
+   830→        onOpenChange={(o) => !o && setDeleteTarget(null)}
+   831→      >
+   832→        <AlertDialogContent className="rounded-3xl">
+   833→          <AlertDialogHeader>
+   834→            <AlertDialogTitle className="flex items-center gap-2">
+   835→              <AlertTriangle className="h-5 w-5 text-destructive" />
+   836→              Delete this payment?
+   837→            </AlertDialogTitle>
+   838→            <AlertDialogDescription>
+   839→              {deleteTarget && (
+   840→                <>
+   841→                  This will schedule the{" "}
+   842→                  <span className="font-medium text-foreground">
+   843→                    {formatINR(deleteTarget.amount)}
+   844→                  </span>{" "}
+   845→                  payment from{" "}
+   846→                  <span className="font-medium text-foreground">
+   847→                    {deleteTarget.user.name}
+   848→                  </span>{" "}
+   849→                  for deletion. It will be permanently removed after{" "}
+   850→                  <span className="font-medium text-foreground">7 days</span>.
+   851→                </>
+   852→              )}
+   853→            </AlertDialogDescription>
+   854→          </AlertDialogHeader>
+   855→          <GlassTextarea
+   856→            label="Reason (required)"
+   857→            rows={2}
+   858→            placeholder="Why is this payment being deleted?"
+   859→            value={deleteReason}
+   860→            onChange={(e) => setDeleteReason(e.target.value)}
+   861→          />
+   862→          <AlertDialogFooter>
+   863→            <AlertDialogCancel className="rounded-2xl">Cancel</AlertDialogCancel>
+   864→            <AlertDialogAction
+   865→              className="rounded-2xl bg-destructive text-white hover:bg-destructive/90"
+   866→              disabled={!deleteReason.trim() || deleteMutation.isPending}
+   867→              onClick={() => {
+   868→                if (!deleteReason.trim()) {
+   869→                  toast.error("A reason is required");
+   870→                  return;
+   871→                }
+   872→                if (deleteTarget) {
+   873→                  deleteMutation.mutate({
+   874→                    id: deleteTarget.id,
+   875→                    reason: deleteReason,
+   876→                  });
+   877→                }
+   878→              }}
+   879→            >
+   880→              {deleteMutation.isPending ? "Deleting…" : "Delete Payment"}
+   881→            </AlertDialogAction>
+   882→          </AlertDialogFooter>
+   883→        </AlertDialogContent>
+   884→      </AlertDialog>
+   885→
+   886→      {/* Void payment confirm */}
+   887→      <AlertDialog
+   888→        open={!!voidTarget}
+   889→        onOpenChange={(o) => !o && setVoidTarget(null)}
+   890→      >
+   891→        <AlertDialogContent className="rounded-3xl">
+   892→          <AlertDialogHeader>
+   893→            <AlertDialogTitle className="flex items-center gap-2">
+   894→              <Ban className="h-5 w-5 text-destructive" />
+   895→              Void this payment?
+   896→            </AlertDialogTitle>
+   897→            <AlertDialogDescription>
+   898→              {voidTarget && (
+   899→                <>
+   900→                  This will mark the{" "}
+   901→                  <span className="font-medium text-foreground">
+   902→                    {formatINR(voidTarget.amount)}
+   903→                  </span>{" "}
+   904→                  payment from{" "}
+   905→                  <span className="font-medium text-foreground">
+   906→                    {voidTarget.user.name}
+   907→                  </span>{" "}
+   908→                  as void.
+   909→                  {voidTarget.status === "APPROVED" && voidTarget.billId && (
+   910→                    <>
+   911→                      {" "}Since this payment was approved and linked to a
+   912→                      bill, the bill's paid amount will be reduced
+   913→                      accordingly.
+   914→                    </>
+   915→                  )}
+   916→                  {" "}This action cannot be undone.
+   917→                </>
+   918→              )}
+   919→            </AlertDialogDescription>
+   920→          </AlertDialogHeader>
+   921→          <AlertDialogFooter>
+   922→            <AlertDialogCancel className="rounded-2xl">Cancel</AlertDialogCancel>
+   923→            <AlertDialogAction
+   924→              className="rounded-2xl bg-destructive text-white hover:bg-destructive/90"
+   925→              onClick={() => voidTarget && voidMutation.mutate(voidTarget.id)}
+   926→              disabled={voidMutation.isPending}
+   927→            >
+   928→              {voidMutation.isPending ? "Voiding…" : "Void Payment"}
+   929→            </AlertDialogAction>
+   930→          </AlertDialogFooter>
+   931→        </AlertDialogContent>
+   932→      </AlertDialog>
+   933→    </StaggerGroup>
+   934→  );
+   935→}
+   936→
+   937→// ─────────────────────────────────────────────────────────────
+   938→// Sub-components
+   939→// ─────────────────────────────────────────────────────────────
+   940→
+   941→function KpiCard({
+   942→  label,
+   943→  value,
+   944→  icon,
+   945→  color,
+   946→  prefix,
+   947→}: {
+   948→  label: string;
+   949→  value: number;
+   950→  icon: React.ReactNode;
+   951→  color: "primary" | "success" | "warning" | "danger" | "info";
+   952→  prefix?: string;
+   953→}) {
+   954→  const colorVar =
+   955→    color === "primary"
+   956→      ? "var(--primary)"
+   957→      : color === "success"
+   958→        ? "var(--success)"
+   959→        : color === "warning"
+   960→          ? "var(--warning)"
+   961→          : color === "danger"
+   962→            ? "var(--destructive)"
+   963→            : "var(--info)";
+   964→  return (
+   965→    <GlassCard
+   966→      className="p-4"
+   967→      glow={color === "danger" ? "danger" : color === "warning" ? "warning" : color === "success" ? "success" : "primary"}
+   968→    >
+   969→      <div className="flex items-start justify-between mb-3">
+   970→        <div
+   971→          className="grid place-items-center h-10 w-10 rounded-2xl"
+   972→          style={{
+   973→            background: `color-mix(in oklch, ${colorVar} 15%, transparent)`,
+   974→            color: colorVar,
+   975→          }}
+   976→        >
+   977→          {icon}
+   978→        </div>
+   979→      </div>
+   980→      <p className="text-xs text-muted-foreground">{label}</p>
+   981→      <div className="text-2xl font-bold tracking-tight tabular-nums">
+   982→        <AnimatedCounter value={value} prefix={prefix || ""} />
+   983→      </div>
+   984→    </GlassCard>
+   985→  );
+   986→}
+   987→
+   988→const PendingRow = memo(function PendingRow({
+   989→  payment,
+   990→  onApprove,
+   991→  onReject,
+   992→  loading,
+   993→}: {
+   994→  payment: Payment;
+   995→  onApprove: () => void;
+   996→  onReject: () => void;
+   997→  loading: boolean;
+   998→}) {
+   999→  return (
+  1000→    <motion.div
+  1001→      whileHover={{ x: 2 }}
+  1002→      className="glass-soft rounded-2xl p-3 flex items-center gap-3"
+  1003→    >
+  1004→      <div
+  1005→        className={cn(
+  1006→          "grid place-items-center h-10 w-10 rounded-xl shrink-0",
+  1007→          METHOD_META[payment.method].className
+  1008→        )}
+  1009→      >
+  1010→        {METHOD_META[payment.method].icon}
+  1011→      </div>
+  1012→      <div className="min-w-0 flex-1">
+  1013→        <div className="flex items-center gap-2">
+  1014→          <p className="font-medium truncate">{payment.user.name}</p>
+  1015→          <span className="text-xs text-muted-foreground truncate">
+  1016→            · {METHOD_META[payment.method].label}
+  1017→          </span>
+  1018→        </div>
+  1019→        <p className="text-xs text-muted-foreground truncate">
+  1020→          {formatDateTime(payment.createdAt)}
+  1021→          {payment.reference ? ` · Ref ${payment.reference}` : ""}
+  1022→        </p>
+  1023→      </div>
+  1024→      <div className="text-right shrink-0">
+  1025→        <p className="font-bold tabular-nums">{formatINR(payment.amount)}</p>
+  1026→      </div>
+  1027→      <div className="flex items-center gap-1.5 shrink-0">
+  1028→        <GlassButton
+  1029→          size="sm"
+  1030→          variant="success"
+  1031→          onClick={onApprove}
+  1032→          loading={loading}
+  1033→          className="!h-8 !px-3"
+  1034→        >
+  1035→          <CheckCircle2 className="h-3.5 w-3.5" />
+  1036→          Approve
+  1037→        </GlassButton>
+  1038→        <GlassButton
+  1039→          size="sm"
+  1040→          variant="danger"
+  1041→          onClick={onReject}
+  1042→          loading={loading}
+  1043→          className="!h-8 !px-3"
+  1044→        >
+  1045→          <XCircle className="h-3.5 w-3.5" />
+  1046→        </GlassButton>
+  1047→      </div>
+  1048→    </motion.div>
+  1049→  );
+  1050→});
+  1051→
+  1052→const PaymentRow = memo(function PaymentRow({
+  1053→  payment,
+  1054→  isAdmin,
+  1055→  onApprove,
+  1056→  onReject,
+  1057→  onEdit,
+  1058→  onDelete,
+  1059→  onVoid,
+  1060→  onRestore,
+  1061→}: {
+  1062→  payment: Payment;
+  1063→  isAdmin: boolean;
+  1064→  onApprove: () => void;
+  1065→  onReject: () => void;
+  1066→  onEdit: () => void;
+  1067→  onDelete: () => void;
+  1068→  onVoid: () => void;
+  1069→  onRestore: () => void;
+  1070→}) {
+  1071→  const isDeleted = !!payment.deletedAt;
+  1072→
+  1073→  // Build the actions list — admin-only. Deleted rows show Restore; otherwise
+  1074→  // PENDING rows get Approve/Reject, non-VOID rows get Edit/Void, all get Delete.
+  1075→  const actions: {
+  1076→    label: string;
+  1077→    icon: typeof CheckCircle2;
+  1078→    onClick: () => void;
+  1079→    variant?: "destructive";
+  1080→  }[] = [];
+  1081→
+  1082→  if (isDeleted) {
+  1083→    if (isAdmin) {
+  1084→      actions.push({ label: "Restore Payment", icon: RotateCcw, onClick: onRestore });
+  1085→    }
+  1086→  } else {
+  1087→    if (isAdmin && payment.status === "PENDING") {
+  1088→      actions.push({ label: "Approve Payment", icon: CheckCircle2, onClick: onApprove });
+  1089→      actions.push({
+  1090→        label: "Reject Payment",
+  1091→        icon: XCircle,
+  1092→        onClick: onReject,
+  1093→        variant: "destructive",
+  1094→      });
+  1095→    }
+  1096→    if (isAdmin && payment.status !== "VOID") {
+  1097→      actions.push({ label: "Edit Payment", icon: PencilLine, onClick: onEdit });
+  1098→      actions.push({
+  1099→        label: "Void Payment",
+  1100→        icon: Ban,
+  1101→        onClick: onVoid,
+  1102→        variant: "destructive",
+  1103→      });
+  1104→    }
+  1105→    if (isAdmin) {
+  1106→      actions.push({
+  1107→        label: "Delete Payment",
+  1108→        icon: Trash2,
+  1109→        onClick: onDelete,
+  1110→        variant: "destructive",
+  1111→      });
+  1112→    }
+  1113→  }
+  1114→
+  1115→  const methodMeta = METHOD_META[payment.method];
+  1116→  const statusMeta = STATUS_STYLES[payment.status];
+  1117→
+  1118→  return (
+  1119→    <GlassCard className="p-4" hover={false}>
+  1120→      <div className="flex items-start gap-3">
+  1121→        <Avatar className="h-10 w-10 rounded-xl shrink-0">
+  1122→          <AvatarFallback
+  1123→            className={cn(
+  1124→              "rounded-xl bg-gradient-to-br text-white font-semibold text-xs",
+  1125→              gradientFor(payment.user.name)
+  1126→            )}
+  1127→          >
+  1128→            {initials(payment.user.name) || "U"}
+  1129→          </AvatarFallback>
+  1130→        </Avatar>
+  1131→
+  1132→        <div className="flex-1 min-w-0">
+  1133→          <div className="flex items-start justify-between gap-2">
+  1134→            <div className="min-w-0">
+  1135→              <div className="flex items-center gap-2 flex-wrap">
+  1136→                <h3
+  1137→                  className={cn(
+  1138→                    "font-medium text-sm truncate",
+  1139→                    isDeleted && "text-muted-foreground line-through"
+  1140→                  )}
+  1141→                >
+  1142→                  {isAdmin ? payment.user.name : methodMeta.label}
+  1143→                </h3>
+  1144→                {isDeleted ? (
+  1145→                  <Badge
+  1146→                    variant="outline"
+  1147→                    className="text-[10px] bg-destructive/15 text-destructive border-destructive/30"
+  1148→                  >
+  1149→                    <Clock className="h-2.5 w-2.5" />{" "}
+  1150→                    {formatDeletionCountdown(new Date(payment.deletedAt!))}
+  1151→                  </Badge>
+  1152→                ) : (
+  1153→                  <>
+  1154→                    <Badge
+  1155→                      variant="outline"
+  1156→                      className={cn("text-[10px]", statusMeta.className)}
+  1157→                    >
+  1158→                      {statusMeta.label}
+  1159→                    </Badge>
+  1160→                    <Badge
+  1161→                      variant="outline"
+  1162→                      className={cn("text-[10px]", methodMeta.className)}
+  1163→                    >
+  1164→                      {methodMeta.label}
+  1165→                    </Badge>
+  1166→                  </>
+  1167→                )}
+  1168→              </div>
+  1169→              {/* Transaction strip — Amount with label, same size as billing */}
+  1170→              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 mt-2">
+  1171→                <div className="flex items-baseline gap-1">
+  1172→                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Amount</span>
+  1173→                  <span className="text-base font-bold tabular-nums">{formatINR(payment.amount)}</span>
+  1174→                </div>
+  1175→                {isDeleted && payment.deletionReason && (
+  1176→                  <span className="inline-flex items-start gap-1 text-[11px] text-destructive/80">
+  1177→                    <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+  1178→                    Reason: {payment.deletionReason}
+  1179→                  </span>
+  1180→                )}
+  1181→              </div>
+  1182→              {/* Date + reference + notes row */}
+  1183→              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-muted-foreground">
+  1184→                <span className="inline-flex items-center gap-1">
+  1185→                  <Clock className="h-3 w-3" /> {formatDateTime(payment.createdAt)}
+  1186→                </span>
+  1187→                {payment.reference && (
+  1188→                  <span className="inline-flex items-center gap-1 truncate">
+  1189→                    <ArrowUpRight className="h-3 w-3" /> Ref {payment.reference}
+  1190→                  </span>
+  1191→                )}
+  1192→                {payment.notes && (
+  1193→                  <span className="truncate max-w-[200px]">
+  1194→                    · {payment.notes}
+  1195→                  </span>
+  1196→                )}
+  1197→              </div>
+  1198→            </div>
+  1199→
+  1200→            {/* Dropdown — only render if there are actions */}
+  1201→            {actions.length > 0 && (
+  1202→              <DropdownMenu>
+  1203→                <DropdownMenuTrigger asChild>
+  1204→                  <GlassButton
+  1205→                    variant="ghost"
+  1206→                    size="icon"
+  1207→                    className="shrink-0"
+  1208→                    aria-label="Payment actions"
+  1209→                  >
+  1210→                    <MoreVertical className="h-4 w-4" />
+  1211→                  </GlassButton>
+  1212→                </DropdownMenuTrigger>
+  1213→                <DropdownMenuContent align="end" className="w-44 rounded-2xl">
+  1214→                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
+  1215→                  <DropdownMenuSeparator />
+  1216→                  {actions.map((a) => {
+  1217→                    const Icon = a.icon;
+  1218→                    return (
+  1219→                      <DropdownMenuItem
+  1220→                        key={a.label}
+  1221→                        onClick={a.onClick}
+  1222→                        variant={a.variant}
+  1223→                        className="rounded-xl cursor-pointer"
+  1224→                      >
+  1225→                        <Icon className="h-4 w-4" />
+  1226→                        {a.label}
+  1227→                      </DropdownMenuItem>
+  1228→                    );
+  1229→                  })}
+  1230→                </DropdownMenuContent>
+  1231→              </DropdownMenu>
+  1232→            )}
+  1233→          </div>
+  1234→        </div>
+  1235→      </div>
+  1236→    </GlassCard>
+  1237→  );
+  1238→});
+  1239→
+  1240→// ─────────────────────────────────────────────────────────────
+  1241→// Submit payment dialog
+  1242→// ─────────────────────────────────────────────────────────────
+  1243→
+  1244→function SubmitPaymentDialog({
+  1245→  open,
+  1246→  onOpenChange,
+  1247→  onSubmit,
+  1248→  loading,
+  1249→}: {
+  1250→  open: boolean;
+  1251→  onOpenChange: (o: boolean) => void;
+  1252→  onSubmit: (payload: {
+  1253→    amount: number;
+  1254→    method: PaymentMethod;
+  1255→    billId?: string;
+  1256→    reference?: string;
+  1257→    notes?: string;
+  1258→  }) => void;
+  1259→  loading: boolean;
+  1260→}) {
+  1261→  const [amount, setAmount] = useState("");
+  1262→  const [method, setMethod] = useState<PaymentMethod>("UPI");
+  1263→  const [billId, setBillId] = useState<string>("NONE");
+  1264→  const [reference, setReference] = useState("");
+  1265→  const [notes, setNotes] = useState("");
+  1266→  const [error, setError] = useState<string>("");
+  1267→
+  1268→  // Load user's outstanding bills for selection
+  1269→  const { data: bills = [] } = useQuery({
+  1270→    queryKey: ["bills"],
+  1271→    queryFn: async () => {
+  1272→      const r = await api.get<ApiResponse<BillListItem[]>>("/bills");
+  1273→      return r.data;
+  1274→    },
+  1275→    enabled: open,
+  1276→  });
+  1277→
+  1278→  const outstanding = bills.filter(
+  1279→    (b) => b.status !== "PAID" && b.status !== "VOID" && b.dueAmount > 0
+  1280→  );
+  1281→
+  1282→  function reset() {
+  1283→    setAmount("");
+  1284→    setMethod("UPI");
+  1285→    setBillId("NONE");
+  1286→    setReference("");
+  1287→    setNotes("");
+  1288→    setError("");
+  1289→  }
+  1290→
+  1291→  function handleClose(o: boolean) {
+  1292→    if (!o) reset();
+  1293→    onOpenChange(o);
+  1294→  }
+  1295→
+  1296→  function handleSubmit() {
+  1297→    const amt = parseFloat(amount);
+  1298→    if (!amt || amt <= 0) {
+  1299→      setError("Enter a valid amount greater than 0");
+  1300→      return;
+  1301→    }
+  1302→    onSubmit({
+  1303→      amount: amt,
+  1304→      method,
+  1305→      billId: billId === "NONE" ? undefined : billId,
+  1306→      reference: reference.trim() || undefined,
+  1307→      notes: notes.trim() || undefined,
+  1308→    });
+  1309→  }
+  1310→
+  1311→  return (
+  1312→    <Dialog open={open} onOpenChange={handleClose}>
+  1313→      <DialogContent className="rounded-3xl max-w-md">
+  1314→        <DialogHeader>
+  1315→          <DialogTitle className="flex items-center gap-2">
+  1316→            <Wallet className="h-5 w-5 text-primary" />
+  1317→            Submit a Payment
+  1318→          </DialogTitle>
+  1319→          <DialogDescription>
+  1320→            Your payment will be reviewed by an administrator before being
+  1321→            applied to your bill.
+  1322→          </DialogDescription>
+  1323→        </DialogHeader>
+  1324→
+  1325→        <div className="space-y-3">
+  1326→          <GlassInput
+  1327→            label="Amount (₹)"
+  1328→            type="number"
+  1329→            inputMode="decimal"
+  1330→            placeholder="0.00"
+  1331→            value={amount}
+  1332→            onChange={(e) => {
+  1333→              setAmount(e.target.value);
+  1334→              setError("");
+  1335→            }}
+  1336→            error={error}
+  1337→            icon={<IndianRupee />}
+  1338→          />
+  1339→
+  1340→          <div className="space-y-1.5">
+  1341→            <label className="text-xs font-medium text-muted-foreground ml-1">
+  1342→              Method
+  1343→            </label>
+  1344→            <Select
+  1345→              value={method}
+  1346→              onValueChange={(v) => setMethod(v as PaymentMethod)}
+  1347→            >
+  1348→              <SelectTrigger className="w-full h-11 rounded-2xl">
+  1349→                <SelectValue />
+  1350→              </SelectTrigger>
+  1351→              <SelectContent>
+  1352→                {Object.entries(METHOD_META).map(([k, m]) => (
+  1353→                  <SelectItem key={k} value={k}>
+  1354→                    {m.label}
+  1355→                  </SelectItem>
+  1356→                ))}
+  1357→              </SelectContent>
+  1358→            </Select>
+  1359→          </div>
+  1360→
+  1361→          {outstanding.length > 0 && (
+  1362→            <div className="space-y-1.5">
+  1363→              <label className="text-xs font-medium text-muted-foreground ml-1">
+  1364→                Apply to bill (optional)
+  1365→              </label>
+  1366→              <Select value={billId} onValueChange={setBillId}>
+  1367→                <SelectTrigger className="w-full h-11 rounded-2xl">
+  1368→                  <SelectValue placeholder="Select a bill" />
+  1369→                </SelectTrigger>
+  1370→                <SelectContent>
+  1371→                  <SelectItem value="NONE">No specific bill</SelectItem>
+  1372→                  {outstanding.map((b) => (
+  1373→                    <SelectItem key={b.id} value={b.id}>
+  1374→                      {b.user.name} — {formatMonthLabel(b.periodMonth, b.periodYear)} · ₹
+  1375→                      {Math.round(b.dueAmount).toLocaleString("en-IN")} due
+  1376→                    </SelectItem>
+  1377→                  ))}
+  1378→                </SelectContent>
+  1379→              </Select>
+  1380→            </div>
+  1381→          )}
+  1382→
+  1383→          <GlassInput
+  1384→            label="Reference (optional)"
+  1385→            placeholder="UTR / Txn ID"
+  1386→            value={reference}
+  1387→            onChange={(e) => setReference(e.target.value)}
+  1388→            icon={<ArrowUpRight />}
+  1389→          />
+  1390→
+  1391→          <GlassTextarea
+  1392→            label="Notes (optional)"
+  1393→            placeholder="Any note for the admin…"
+  1394→            value={notes}
+  1395→            onChange={(e) => setNotes(e.target.value)}
+  1396→            rows={2}
+  1397→          />
+  1398→        </div>
+  1399→
+  1400→        <DialogFooter>
+  1401→          <GlassButton variant="ghost" onClick={() => handleClose(false)}>
+  1402→            Cancel
+  1403→          </GlassButton>
+  1404→          <GlassButton onClick={handleSubmit} loading={loading}>
+  1405→            <ArrowDownRight className="h-4 w-4" />
+  1406→            Submit
+  1407→          </GlassButton>
+  1408→        </DialogFooter>
+  1409→      </DialogContent>
+  1410→    </Dialog>
+  1411→  );
+  1412→}
+  1413→
+  1414→function formatMonthLabel(month: number, year: number) {
+  1415→  return new Date(year, month, 1).toLocaleDateString("en-IN", {
+  1416→    month: "short",
+  1417→    year: "numeric",
+  1418→  });
+  1419→}
+  1420→
+  1421→// ─────────────────────────────────────────────────────────────
+  1422→// Edit payment sheet (admin only — key-based remount so each open
+  1423→// starts with fresh state initialized from the `payment` prop)
+  1424→// ─────────────────────────────────────────────────────────────
+  1425→
+  1426→function PaymentEditSheet({
+  1427→  open,
+  1428→  onOpenChange,
+  1429→  onSubmit,
+  1430→  loading,
+  1431→  payment,
+  1432→}: {
+  1433→  open: boolean;
+  1434→  onOpenChange: (o: boolean) => void;
+  1435→  onSubmit: (
+  1436→    id: string,
+  1437→    payload: {
+  1438→      amount?: number;
+  1439→      method?: PaymentMethod;
+  1440→      reference?: string | null;
+  1441→      notes?: string | null;
+  1442→    }
+  1443→  ) => void;
+  1444→  loading: boolean;
+  1445→  payment: Payment | null;
+  1446→}) {
+  1447→  // A `key` based on the editing target forces the body to remount whenever
+  1448→  // the user opens the sheet for a different payment. Combined with the Sheet
+  1449→  // unmounting its content when closed, this means each open starts with
+  1450→  // fresh state initialized from the `payment` prop — no useEffect sync
+  1451→  // needed (which would trigger cascading renders per the react-hooks rule).
+  1452→  const bodyKey = payment ? `edit-${payment.id}` : "edit";
+  1453→  return (
+  1454→    <Sheet open={open} onOpenChange={onOpenChange}>
+  1455→      <SheetContent
+  1456→        side="right"
+  1457→        className="w-full max-w-md flex flex-col gap-0 p-0"
+  1458→      >
+  1459→        <PaymentEditBody
+  1460→          key={bodyKey}
+  1461→          payment={payment}
+  1462→          onSubmit={onSubmit}
+  1463→          loading={loading}
+  1464→          onCancel={() => onOpenChange(false)}
+  1465→        />
+  1466→      </SheetContent>
+  1467→    </Sheet>
+  1468→  );
+  1469→}
+  1470→
+  1471→function PaymentEditBody({
+  1472→  payment,
+  1473→  onSubmit,
+  1474→  loading,
+  1475→  onCancel,
+  1476→}: {
+  1477→  payment: Payment | null;
+  1478→  onSubmit: (
+  1479→    id: string,
+  1480→    payload: {
+  1481→      amount?: number;
+  1482→      method?: PaymentMethod;
+  1483→      reference?: string | null;
+  1484→      notes?: string | null;
+  1485→    }
+  1486→  ) => void;
+  1487→  loading: boolean;
+  1488→  onCancel: () => void;
+  1489→}) {
+  1490→  const [amount, setAmount] = useState(payment ? String(payment.amount) : "");
+  1491→  const [method, setMethod] = useState<PaymentMethod>(payment?.method ?? "UPI");
+  1492→  const [reference, setReference] = useState(payment?.reference ?? "");
+  1493→  const [notes, setNotes] = useState(payment?.notes ?? "");
+  1494→  const [errors, setErrors] = useState<Record<string, string>>({});
+  1495→
+  1496→  // Cannot edit amount on APPROVED + bill-linked payments — backend will
+  1497→  // reject with 422. Lock the field and explain why; admin must void + resubmit.
+  1498→  const amountLocked = payment?.status === "APPROVED" && !!payment?.billId;
+  1499→
+  1500→  function handleSubmit() {
+  1501→    if (!payment) return;
+  1502→    const next: Record<string, string> = {};
+  1503→    const amt = parseFloat(amount);
+  1504→    if (!amountLocked) {
+  1505→      if (!amt || amt <= 0) next.amount = "Enter a valid amount";
+  1506→    }
+  1507→    setErrors(next);
+  1508→    if (Object.keys(next).length > 0) return;
+  1509→
+  1510→    const payload: {
+  1511→      amount?: number;
+  1512→      method?: PaymentMethod;
+  1513→      reference?: string | null;
+  1514→      notes?: string | null;
+  1515→    } = {
+  1516→      method,
+  1517→      reference: reference.trim() || null,
+  1518→      notes: notes.trim() || null,
+  1519→    };
+  1520→    if (!amountLocked) payload.amount = amt;
+  1521→    onSubmit(payment.id, payload);
+  1522→  }
+  1523→
+  1524→  return (
+  1525→    <>
+  1526→      <SheetHeader className="px-6 pt-6 pb-2">
+  1527→        <SheetTitle className="flex items-center gap-2 text-xl">
+  1528→          <PencilLine className="h-5 w-5 text-primary" />
+  1529→          Edit Payment
+  1530→        </SheetTitle>
+  1531→        <SheetDescription>
+  1532→          Update the details of this payment from {payment?.user.name}.
+  1533→        </SheetDescription>
+  1534→      </SheetHeader>
+  1535→
+  1536→      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 no-scrollbar">
+  1537→        <GlassInput
+  1538→          label="Amount (₹)"
+  1539→          type="number"
+  1540→          inputMode="decimal"
+  1541→          placeholder="0.00"
+  1542→          value={amount}
+  1543→          onChange={(e) => setAmount(e.target.value)}
+  1544→          error={errors.amount}
+  1545→          icon={<IndianRupee />}
+  1546→          disabled={amountLocked}
+  1547→          hint={
+  1548→            amountLocked
+  1549→              ? "Amount locked — this approved payment is linked to a bill. Void it and submit a new payment to change the amount."
+  1550→              : undefined
+  1551→          }
+  1552→        />
+  1553→
+  1554→        <div className="space-y-1.5">
+  1555→          <label className="text-xs font-medium text-muted-foreground ml-1">
+  1556→            Method
+  1557→          </label>
+  1558→          <Select
+  1559→            value={method}
+  1560→            onValueChange={(v) => setMethod(v as PaymentMethod)}
+  1561→          >
+  1562→            <SelectTrigger className="w-full h-11 rounded-2xl">
+  1563→              <SelectValue />
+  1564→            </SelectTrigger>
+  1565→            <SelectContent>
+  1566→              {Object.entries(METHOD_META).map(([k, m]) => (
+  1567→                <SelectItem key={k} value={k}>
+  1568→                  {m.label}
+  1569→                </SelectItem>
+  1570→              ))}
+  1571→            </SelectContent>
+  1572→          </Select>
+  1573→        </div>
+  1574→
+  1575→        <GlassInput
+  1576→          label="Reference (optional)"
+  1577→          placeholder="UTR / Txn ID"
+  1578→          value={reference}
+  1579→          onChange={(e) => setReference(e.target.value)}
+  1580→          icon={<ArrowUpRight />}
+  1581→        />
+  1582→
+  1583→        <GlassTextarea
+  1584→          label="Notes (optional)"
+  1585→          placeholder="Any note for the admin…"
+  1586→          value={notes}
+  1587→          onChange={(e) => setNotes(e.target.value)}
+  1588→          rows={3}
+  1589→        />
+  1590→      </div>
+  1591→
+  1592→      <SheetFooter className="px-6 py-4 border-t border-border/40 flex-row gap-2">
+  1593→        <GlassButton variant="ghost" className="flex-1" onClick={onCancel}>
+  1594→          Cancel
+  1595→        </GlassButton>
+  1596→        <GlassButton className="flex-1" onClick={handleSubmit} loading={loading}>
+  1597→          <PencilLine className="h-4 w-4" />
+  1598→          Save Changes
+  1599→        </GlassButton>
+  1600→      </SheetFooter>
+  1601→    </>
+  1602→  );
+  1603→}
+  1604→

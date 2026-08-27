@@ -1,0 +1,922 @@
+     1→"use client";
+     2→
+     3→import { useState, useMemo, memo, useCallback, useRef, useEffect } from "react";
+     4→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     5→import { motion, AnimatePresence } from "framer-motion";
+     6→import { toast } from "sonner";
+     7→import { isSameMonth, isSameDay, format, addDays, startOfMonth, endOfMonth, eachDayOfInterval, getDay } from "date-fns";
+     8→import {
+     9→  ChevronLeft,
+    10→  ChevronRight,
+    11→  Calendar,
+    12→  RotateCcw,
+    13→  Utensils,
+    14→  Lock,
+    15→  Check,
+    16→  X,
+    17→  ChevronDown,
+    18→  CalendarDays,
+    19→  List,
+    20→  Sun,
+    21→  UserPlus,
+    22→  ShieldCheck,
+    23→} from "lucide-react";
+    24→import { api } from "@/lib/api-client";
+    25→import { cn } from "@/lib/utils";
+    26→import { GlassCard } from "@/components/glass/glass-card";
+    27→import { GlassButton } from "@/components/glass/glass-button";
+    28→import { AnimatedCounter } from "@/components/glass/animated-counter";
+    29→import {
+    30→  StaggerGroup,
+    31→  StaggerItem,
+    32→} from "@/components/glass/page-transition";
+    33→import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
+    34→
+    35→// ─────────────────────────────────────────────────────────────
+    36→// Types
+    37→// ─────────────────────────────────────────────────────────────
+    38→
+    39→type MealConfig = {
+    40→  id: string;
+    41→  name: string;
+    42→  displayName: string;
+    43→  icon: string;
+    44→  color: string;
+    45→  startTime: string;
+    46→  endTime: string;
+    47→  cutoffTime: string;
+    48→};
+    49→
+    50→type FlatEntry = {
+    51→  id: string;
+    52→  mealId: string;
+    53→  mealName: string;
+    54→  mealDisplayName: string;
+    55→  mealIcon: string;
+    56→  mealColor: string;
+    57→  serviceDate: string;
+    58→  status: string;
+    59→  originalState: string;
+    60→  overridden: boolean;
+    61→  editableUntil: string;
+    62→  locked: boolean;
+    63→  preRegistration: boolean;
+    64→  startTime: string;
+    65→  endTime: string;
+    66→  mealType: string;
+    67→};
+    68→
+    69→type MealEntry = {
+    70→  id: string;
+    71→  status: string;
+    72→  originalState: string;
+    73→  overridden: boolean;
+    74→  locked: boolean;
+    75→  editableUntil: string;
+    76→  serviceDate: string;
+    77→  preRegistration: boolean;
+    78→  meal: {
+    79→    id: string;
+    80→    name: string;
+    81→    displayName: string;
+    82→    icon: string;
+    83→    color: string;
+    84→    startTime: string;
+    85→    endTime: string;
+    86→    cutoffTime: string;
+    87→  };
+    88→};
+    89→
+    90→type EntriesResponse = {
+    91→  meals: MealConfig[];
+    92→  byDate: Record<string, FlatEntry[]>;
+    93→  registrationDate?: string;
+    94→};
+    95→
+    96→type ApiResponse<T> = { success: boolean; data: T };
+    97→type ViewMode = "agenda" | "calendar" | "day";
+    98→
+    99→// ─────────────────────────────────────────────────────────────
+   100→// Helpers
+   101→// ─────────────────────────────────────────────────────────────
+   102→
+   103→function toDateString(d: Date): string {
+   104→  const y = d.getFullYear();
+   105→  const m = String(d.getMonth() + 1).padStart(2, "0");
+   106→  const day = String(d.getDate()).padStart(2, "0");
+   107→  return `${y}-${m}-${day}`;
+   108→}
+   109→
+   110→function to12h(t: string): string {
+   111→  const [h, m] = t.split(":").map(Number);
+   112→  const period = h >= 12 ? "PM" : "AM";
+   113→  const hr = h % 12 || 12;
+   114→  return `${hr}:${String(m).padStart(2, "0")} ${period}`;
+   115→}
+   116→
+   117→function parseDateStr(s: string): Date {
+   118→  const [y, m, d] = s.split("-").map(Number);
+   119→  return new Date(y, m - 1, d);
+   120→}
+   121→
+   122→const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+   123→
+   124→// ─────────────────────────────────────────────────────────────
+   125→// Main view
+   126→// ─────────────────────────────────────────────────────────────
+   127→
+   128→export function UserMealsView() {
+   129→  const qc = useQueryClient();
+   130→  const now = new Date();
+   131→  const [viewMode, setViewMode] = useState<ViewMode>("agenda");
+   132→  const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
+   133→  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+   134→  const [selectedDay, setSelectedDay] = useState(new Date());
+   135→  const isThisMonth = isSameMonth(new Date(selectedYear, selectedMonth, 1), now);
+   136→  const [expandedDay, setExpandedDay] = useState<string | null>(toDateString(now));
+   137→
+   138→  // Month query — for agenda + calendar views
+   139→  const { data: monthData, isLoading: monthLoading } = useQuery({
+   140→    queryKey: ["user-meals", { month: selectedMonth, year: selectedYear }],
+   141→    queryFn: async () => {
+   142→      const r = await api.get<ApiResponse<EntriesResponse>>("/meals/entries", {
+   143→        params: { month: selectedMonth, year: selectedYear },
+   144→      });
+   145→      return r.data;
+   146→    },
+   147→    placeholderData: (prev) => prev,
+   148→    enabled: viewMode !== "day",
+   149→  });
+   150→
+   151→  // Single-day query — for day view
+   152→  const dayStr = toDateString(selectedDay);
+   153→  const { data: dayData, isLoading: dayLoading } = useQuery({
+   154→    queryKey: ["user-meals-day", dayStr],
+   155→    queryFn: async () => {
+   156→      const r = await api.get<ApiResponse<EntriesResponse>>("/meals/entries", {
+   157→        params: { date: dayStr },
+   158→      });
+   159→      return r.data;
+   160→    },
+   161→    placeholderData: (prev) => prev,
+   162→    enabled: viewMode === "day",
+   163→  });
+   164→
+   165→  const toggleMutation = useMutation({
+   166→    mutationFn: async ({ entryId, status }: { entryId: string; status: "ON" | "OFF" }) => {
+   167→      await api.patch("/meals/toggle", { entryId, status });
+   168→    },
+   169→    onSuccess: () => {
+   170→      qc.invalidateQueries({ queryKey: ["user-meals"] });
+   171→      qc.invalidateQueries({ queryKey: ["user-meals-day"] });
+   172→      qc.invalidateQueries({ queryKey: ["kitchen"] });
+   173→    },
+   174→    onError: (e: Error) => toast.error(e.message || "Failed to toggle meal"),
+   175→  });
+   176→
+   177→  // Normalize month data into sorted days array
+   178→  const days = useMemo(() => {
+   179→    const src = monthData;
+   180→    if (!src) return [];
+   181→    const mealMap = new Map(src.meals.map((m) => [m.id, m]));
+   182→    const result: { dateStr: string; date: Date; entries: MealEntry[] }[] = [];
+   183→    const dateKeys = Object.keys(src.byDate).sort();
+   184→    for (const dateStr of dateKeys) {
+   185→      const flatEntries = src.byDate[dateStr];
+   186→      if (!flatEntries || flatEntries.length === 0) continue;
+   187→      const entries: MealEntry[] = flatEntries.map((f) => {
+   188→        const meal = mealMap.get(f.mealId);
+   189→        return {
+   190→          id: f.id, status: f.status, locked: f.locked,
+   191→          editableUntil: f.editableUntil, serviceDate: f.serviceDate,
+   192→          originalState: f.originalState,
+   193→          overridden: f.overridden,
+   194→          preRegistration: f.preRegistration,
+   195→          meal: {
+   196→            id: f.mealId, name: f.mealName, displayName: f.mealDisplayName,
+   197→            icon: f.mealIcon, color: f.mealColor,
+   198→            startTime: f.startTime, endTime: f.endTime,
+   199→            cutoffTime: meal?.cutoffTime ?? "",
+   200→          },
+   201→        };
+   202→      });
+   203→      result.push({ dateStr, date: parseDateStr(dateStr), entries });
+   204→    }
+   205→    return result;
+   206→  }, [monthData]);
+   207→
+   208→  // Map for quick lookup by dateStr
+   209→  const dayMap = useMemo(() => {
+   210→    const m = new Map<string, MealEntry[]>();
+   211→    for (const d of days) m.set(d.dateStr, d.entries);
+   212→    return m;
+   213→  }, [days]);
+   214→
+   215→  // Day view entries
+   216→  const dayEntries = useMemo(() => {
+   217→    if (!dayData) return [];
+   218→    const mealMap = new Map(dayData.meals.map((m) => [m.id, m]));
+   219→    const flat = dayData.byDate[dayStr] ?? [];
+   220→    return flat.map<MealEntry>((f) => {
+   221→      const meal = mealMap.get(f.mealId);
+   222→      return {
+   223→        id: f.id, status: f.status, locked: f.locked,
+   224→        editableUntil: f.editableUntil, serviceDate: f.serviceDate,
+   225→        originalState: f.originalState,
+   226→        overridden: f.overridden,
+   227→        preRegistration: f.preRegistration,
+   228→        meal: {
+   229→          id: f.mealId, name: f.mealName, displayName: f.mealDisplayName,
+   230→          icon: f.mealIcon, color: f.mealColor,
+   231→          startTime: f.startTime, endTime: f.endTime,
+   232→          cutoffTime: meal?.cutoffTime ?? "",
+   233→        },
+   234→      };
+   235→    });
+   236→  }, [dayData, dayStr]);
+   237→
+   238→  // Month stats
+   239→  const stats = useMemo(() => {
+   240→    let on = 0, off = 0, locked = 0;
+   241→    for (const day of days) {
+   242→      for (const e of day.entries) {
+   243→        if (e.status === "ON" || e.status === "LOCKED") on++;
+   244→        else if (e.status === "OFF") off++;
+   245→        if (e.locked || e.status === "LOCKED") locked++;
+   246→      }
+   247→    }
+   248→    return { on, off, locked };
+   249→  }, [days]);
+   250→
+   251→  // Day stats
+   252→  const dayStats = useMemo(() => {
+   253→    const on = dayEntries.filter((e) => e.status === "ON" || e.status === "LOCKED").length;
+   254→    const off = dayEntries.filter((e) => e.status === "OFF").length;
+   255→    const locked = dayEntries.filter((e) => e.locked || e.status === "LOCKED").length;
+   256→    return { on, off, locked };
+   257→  }, [dayEntries]);
+   258→
+   259→  // Registration date — used for the pre-reg toast message + before-enrollment labels.
+   260→  // Normalize to local midnight so the comparison is date-only (not affected by timezone).
+   261→  const registrationDate = useMemo(() => {
+   262→    const raw = monthData?.registrationDate ?? dayData?.registrationDate;
+   263→    if (!raw) return null;
+   264→    const d = new Date(raw);
+   265→    d.setHours(0, 0, 0, 0);
+   266→    return d;
+   267→  }, [monthData, dayData]);
+   268→
+   269→  // Whether the selected day (day view) is before registration.
+   270→  // Uses date-only comparison (both normalized to local midnight) so a user who
+   271→  // registered on July 8 is NOT "before enrollment" on July 8.
+   272→  const isDayBeforeRegistration = useMemo(() => {
+   273→    if (!registrationDate) return false;
+   274→    const sel = new Date(selectedDay);
+   275→    sel.setHours(0, 0, 0, 0);
+   276→    return sel.getTime() < registrationDate.getTime();
+   277→  }, [registrationDate, selectedDay]);
+   278→
+   279→  // Short toast shown when a user tries to toggle a pre-registration meal
+   280→  const showPreRegToast = useCallback(() => {
+   281→    const dateLabel = registrationDate
+   282→      ? format(registrationDate, "d MMM yyyy")
+   283→      : "your enrollment";
+   284→    toast.error(
+   285→      `You enrolled on ${dateLabel} — meals before this date can only be changed by an admin.`
+   286→    );
+   287→  }, [registrationDate]);
+   288→
+   289→  const handleToggleDay = useCallback((dateStr: string) => {
+   290→    setExpandedDay((prev) => (prev === dateStr ? null : dateStr));
+   291→  }, []);
+   292→
+   293→  // Auto-scroll to today's row when agenda view loads or month changes
+   294→  const todayRef = useRef<HTMLDivElement>(null);
+   295→  const todayDateStr = toDateString(now);
+   296→  const isLoading = viewMode === "day" ? dayLoading : monthLoading;
+   297→  useEffect(() => {
+   298→    if (viewMode !== "agenda" || isLoading || days.length === 0) return;
+   299→    // Only auto-scroll if today is in the current month's data
+   300→    const hasToday = days.some((d) => d.dateStr === todayDateStr);
+   301→    if (!hasToday) return;
+   302→    // Small delay to let the DOM render after loading
+   303→    const t = setTimeout(() => {
+   304→      todayRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+   305→    }, 300);
+   306→    return () => clearTimeout(t);
+   307→  }, [viewMode, isLoading, days, todayDateStr]);
+   308→
+   309→  if (isLoading) {
+   310→    return (
+   311→      <div className="space-y-4">
+   312→        <ShimmerSkeleton className="h-14 w-full" />
+   313→        <div className="grid grid-cols-3 gap-3">
+   314→          <ShimmerSkeleton className="h-28" />
+   315→          <ShimmerSkeleton className="h-28" />
+   316→          <ShimmerSkeleton className="h-28" />
+   317→        </div>
+   318→        <div className="space-y-3">
+   319→          {Array.from({ length: 5 }).map((_, i) => (
+   320→            <ShimmerSkeleton key={i} className="h-16" />
+   321→          ))}
+   322→        </div>
+   323→      </div>
+   324→    );
+   325→  }
+   326→
+   327→  return (
+   328→    <StaggerGroup className="space-y-4 pb-6">
+   329→      {/* Picker — month picker for agenda/calendar, day picker for day view */}
+   330→      {viewMode === "day" ? (
+   331→        <StaggerItem>
+   332→          <div className="flex items-center justify-center gap-4">
+   333→            <motion.button
+   334→              whileTap={{ scale: 0.9 }}
+   335→              onClick={() => setSelectedDay((d) => addDays(d, -1))}
+   336→              aria-label="Previous day"
+   337→              className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   338→            >
+   339→              <ChevronLeft className="h-5 w-5" />
+   340→            </motion.button>
+   341→            <button
+   342→              onClick={() => !isSameDay(selectedDay, now) && setSelectedDay(new Date())}
+   343→              className="flex-1 max-w-[280px] flex items-center justify-center gap-2.5 glass-soft rounded-full px-6 py-2.5 transition-all hover:ring-1 hover:ring-primary/30"
+   344→            >
+   345→              <Calendar className="h-4 w-4 text-primary shrink-0" />
+   346→              <div className="leading-tight text-center">
+   347→                <p className="text-sm font-bold text-primary">
+   348→                  {isSameDay(selectedDay, now) ? "Today" : format(selectedDay, "d MMM")}
+   349→                </p>
+   350→                <p className="text-[11px] text-muted-foreground">
+   351→                  {format(selectedDay, "EEE, d MMM yyyy")}
+   352→                </p>
+   353→              </div>
+   354→              {!isSameDay(selectedDay, now) && (
+   355→                <RotateCcw className="h-3 w-3 text-muted-foreground shrink-0" />
+   356→              )}
+   357→            </button>
+   358→            <motion.button
+   359→              whileTap={{ scale: 0.9 }}
+   360→              onClick={() => setSelectedDay((d) => addDays(d, 1))}
+   361→              aria-label="Next day"
+   362→              className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   363→            >
+   364→              <ChevronRight className="h-5 w-5" />
+   365→            </motion.button>
+   366→          </div>
+   367→        </StaggerItem>
+   368→      ) : (
+   369→        <StaggerItem>
+   370→          <div className="flex items-center justify-center gap-4">
+   371→            <motion.button
+   372→              whileTap={{ scale: 0.9 }}
+   373→              onClick={() => {
+   374→                const d = new Date(selectedYear, selectedMonth - 1, 1);
+   375→                setSelectedMonth(d.getMonth());
+   376→                setSelectedYear(d.getFullYear());
+   377→              }}
+   378→              aria-label="Previous month"
+   379→              className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   380→            >
+   381→              <ChevronLeft className="h-5 w-5" />
+   382→            </motion.button>
+   383→            <button
+   384→              onClick={() => {
+   385→                if (!isThisMonth) {
+   386→                  setSelectedMonth(now.getMonth());
+   387→                  setSelectedYear(now.getFullYear());
+   388→                }
+   389→              }}
+   390→              className="flex-1 max-w-[280px] flex items-center justify-center gap-2.5 glass-soft rounded-full px-6 py-2.5 transition-all hover:ring-1 hover:ring-primary/30"
+   391→            >
+   392→              <Calendar className="h-4 w-4 text-primary shrink-0" />
+   393→              <div className="leading-tight text-center">
+   394→                <p className="text-sm font-bold text-primary">
+   395→                  {new Date(selectedYear, selectedMonth).toLocaleDateString("en-US", { month: "long" })}
+   396→                </p>
+   397→                <p className="text-[11px] text-muted-foreground">{selectedYear}</p>
+   398→              </div>
+   399→              {!isThisMonth && (
+   400→                <RotateCcw className="h-3 w-3 text-muted-foreground shrink-0" />
+   401→              )}
+   402→            </button>
+   403→            <motion.button
+   404→              whileTap={{ scale: 0.9 }}
+   405→              onClick={() => {
+   406→                const d = new Date(selectedYear, selectedMonth + 1, 1);
+   407→                setSelectedMonth(d.getMonth());
+   408→                setSelectedYear(d.getFullYear());
+   409→              }}
+   410→              aria-label="Next month"
+   411→              className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   412→            >
+   413→              <ChevronRight className="h-5 w-5" />
+   414→            </motion.button>
+   415→          </div>
+   416→        </StaggerItem>
+   417→      )}
+   418→
+   419→      {/* KPI cards */}
+   420→      <StaggerItem>
+   421→        <div className="grid grid-cols-3 gap-3">
+   422→          <GlassCard className="p-4" glow="success" hover={false}>
+   423→            <div className="grid place-items-center h-10 w-10 rounded-2xl bg-success/15 text-success mb-3">
+   424→              <Check className="h-5 w-5" />
+   425→            </div>
+   426→            <p className="text-xs text-muted-foreground">Meals ON</p>
+   427→            <div className="text-2xl font-bold tracking-tight">
+   428→              <AnimatedCounter value={viewMode === "day" ? dayStats.on : stats.on} />
+   429→            </div>
+   430→          </GlassCard>
+   431→          <GlassCard className="p-4" glow="warning" hover={false}>
+   432→            <div className="grid place-items-center h-10 w-10 rounded-2xl bg-warning/15 text-warning mb-3">
+   433→              <X className="h-5 w-5" />
+   434→            </div>
+   435→            <p className="text-xs text-muted-foreground">Meals OFF</p>
+   436→            <div className="text-2xl font-bold tracking-tight">
+   437→              <AnimatedCounter value={viewMode === "day" ? dayStats.off : stats.off} />
+   438→            </div>
+   439→          </GlassCard>
+   440→          <GlassCard className="p-4" glow="danger" hover={false}>
+   441→            <div className="grid place-items-center h-10 w-10 rounded-2xl bg-destructive/15 text-destructive mb-3">
+   442→              <Lock className="h-5 w-5" />
+   443→            </div>
+   444→            <p className="text-xs text-muted-foreground">Locked</p>
+   445→            <div className="text-2xl font-bold tracking-tight">
+   446→              <AnimatedCounter value={viewMode === "day" ? dayStats.locked : stats.locked} />
+   447→            </div>
+   448→          </GlassCard>
+   449→        </div>
+   450→      </StaggerItem>
+   451→
+   452→      {/* View mode toggle — segmented control (below KPIs) */}
+   453→      <StaggerItem>
+   454→        <div className="flex items-center justify-center">
+   455→          <div className="inline-flex items-center gap-1 glass-soft rounded-2xl p-1">
+   456→            {([
+   457→              { mode: "agenda" as const, label: "Agenda", icon: List },
+   458→              { mode: "calendar" as const, label: "Calendar", icon: CalendarDays },
+   459→              { mode: "day" as const, label: "Day", icon: Sun },
+   460→            ]).map((opt) => {
+   461→              const active = viewMode === opt.mode;
+   462→              const Icon = opt.icon;
+   463→              return (
+   464→                <button
+   465→                  key={opt.mode}
+   466→                  onClick={() => setViewMode(opt.mode)}
+   467→                  className={cn(
+   468→                    "inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-[11px] font-medium transition-all shrink-0",
+   469→                    active
+   470→                      ? "bg-primary text-primary-foreground shadow-md shadow-primary/30"
+   471→                      : "text-muted-foreground hover:text-foreground"
+   472→                  )}
+   473→                >
+   474→                  <Icon className="h-3.5 w-3.5" />
+   475→                  {opt.label}
+   476→                </button>
+   477→              );
+   478→            })}
+   479→          </div>
+   480→        </div>
+   481→      </StaggerItem>
+   482→
+   483→      {/* Content — agenda / calendar / day */}
+   484→      {viewMode === "agenda" && (
+   485→        <StaggerItem>
+   486→          {days.length === 0 ? (
+   487→            <GlassCard className="p-10 text-center" hover={false}>
+   488→              <Utensils className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+   489→              <p className="text-sm text-muted-foreground">
+   490→                No meals configured for {new Date(selectedYear, selectedMonth).toLocaleDateString("en-US", { month: "long", year: "numeric" })}.
+   491→              </p>
+   492→            </GlassCard>
+   493→          ) : (
+   494→            <div className="space-y-2">
+   495→              <AnimatePresence mode="popLayout">
+   496→                {days.map((day) => (
+   497→                  <motion.div
+   498→                    key={day.dateStr}
+   499→                    ref={day.dateStr === todayDateStr ? todayRef : undefined}
+   500→                    initial={{ opacity: 0, y: 8 }}
+   501→                    animate={{ opacity: 1, y: 0 }}
+   502→                    exit={{ opacity: 0, scale: 0.98 }}
+   503→                    transition={{ type: "spring", stiffness: 280, damping: 26 }}
+   504→                  >
+   505→                    <DayRow
+   506→                      dateStr={day.dateStr}
+   507→                      date={day.date}
+   508→                      entries={day.entries}
+   509→                      isExpanded={expandedDay === day.dateStr}
+   510→                      onToggleExpand={() => handleToggleDay(day.dateStr)}
+   511→                      onToggleMeal={(entryId, status) =>
+   512→                        toggleMutation.mutate({ entryId, status })
+   513→                      }
+   514→                      onPreRegToggle={showPreRegToast}
+   515→                      registrationDate={registrationDate}
+   516→                      loading={toggleMutation.isPending}
+   517→                    />
+   518→                  </motion.div>
+   519→                ))}
+   520→              </AnimatePresence>
+   521→            </div>
+   522→          )}
+   523→        </StaggerItem>
+   524→      )}
+   525→
+   526→      {viewMode === "calendar" && (
+   527→        <StaggerItem>
+   528→          <GlassCard className="p-4" hover={false}>
+   529→            {/* Weekday headers */}
+   530→            <div className="grid grid-cols-7 gap-1 mb-2">
+   531→              {WEEKDAYS.map((wd) => (
+   532→                <div key={wd} className="text-center text-[10px] font-medium text-muted-foreground py-1">
+   533→                  {wd}
+   534→                </div>
+   535→              ))}
+   536→            </div>
+   537→            {/* Calendar grid */}
+   538→            <div className="grid grid-cols-7 gap-1">
+   539→              {(() => {
+   540→                const monthStart = startOfMonth(new Date(selectedYear, selectedMonth, 1));
+   541→                const monthEnd = endOfMonth(monthStart);
+   542→                const startPad = getDay(monthStart);
+   543→                const allDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
+   544→                const cells: (Date | null)[] = [];
+   545→                for (let i = 0; i < startPad; i++) cells.push(null);
+   546→                allDays.forEach((d) => cells.push(d));
+   547→                while (cells.length % 7 !== 0) cells.push(null);
+   548→
+   549→                return cells.map((date, i) => {
+   550→                  if (!date) return <div key={`pad-${i}`} className="aspect-square" />;
+   551→                  const ds = toDateString(date);
+   552→                  const entries = dayMap.get(ds) ?? [];
+   553→                  const isToday = ds === toDateString(now);
+   554→                  // Check if this date is before the user's registration date
+   555→                  const cellDate = new Date(date);
+   556→                  cellDate.setHours(0, 0, 0, 0);
+   557→                  const isPreReg = registrationDate ? cellDate < registrationDate : false;
+   558→                  const onCount = entries.filter((e) => e.status === "ON" || e.status === "LOCKED").length;
+   559→                  const offCount = entries.filter((e) => e.status === "OFF").length;
+   560→                  const hasLocked = entries.some((e) => e.locked || e.status === "LOCKED");
+   561→                  const hasOverride = entries.some((e) => e.overridden);
+   562→                  const isPast = date < now && !isToday;
+   563→
+   564→                  return (
+   565→                    <button
+   566→                      key={ds}
+   567→                      onClick={() => {
+   568→                        setSelectedDay(date);
+   569→                        setViewMode("day");
+   570→                      }}
+   571→                      className={cn(
+   572→                        "aspect-square rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all text-[10px] relative",
+   573→                        isPreReg
+   574→                          ? "bg-muted/30 ring-1 ring-dashed ring-border/50 hover:bg-muted/50"
+   575→                          : isToday
+   576→                            ? "bg-primary/15 ring-1 ring-primary/40"
+   577→                            : entries.length > 0
+   578→                              ? "glass-soft hover:ring-1 hover:ring-primary/30"
+   579→                              : "opacity-40",
+   580→                        !isPreReg && isPast && "opacity-60"
+   581→                      )}
+   582→                      title={isPreReg ? "Before your enrollment — not editable" : undefined}
+   583→                    >
+   584→                      <span className={cn("font-bold", isToday && !isPreReg ? "text-primary" : "text-foreground")}>
+   585→                        {format(date, "d")}
+   586→                      </span>
+   587→                      {isPreReg ? (
+   588→                        hasOverride ? (
+   589→                          <span className="h-1.5 w-1.5 rounded-full bg-primary/50" title="Admin override" />
+   590→                        ) : (
+   591→                          <span className="text-[8px] text-muted-foreground/70 font-medium leading-none">pre</span>
+   592→                        )
+   593→                      ) : entries.length > 0 ? (
+   594→                        <div className="flex items-center gap-0.5">
+   595→                          {onCount > 0 && (
+   596→                            <span className="h-1.5 w-1.5 rounded-full bg-success" />
+   597→                          )}
+   598→                          {offCount > 0 && (
+   599→                            <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+   600→                          )}
+   601→                          {hasLocked && (
+   602→                            <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+   603→                          )}
+   604→                        </div>
+   605→                      ) : null}
+   606→                    </button>
+   607→                  );
+   608→                });
+   609→              })()}
+   610→            </div>
+   611→            {/* Legend */}
+   612→            <div className="flex items-center justify-center gap-4 mt-3 pt-3 border-t border-border/40 flex-wrap">
+   613→              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+   614→                <span className="h-1.5 w-1.5 rounded-full bg-success" /> ON
+   615→              </span>
+   616→              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+   617→                <span className="h-1.5 w-1.5 rounded-full bg-warning" /> OFF
+   618→              </span>
+   619→              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+   620→                <span className="h-1.5 w-1.5 rounded-full bg-destructive" /> Locked
+   621→              </span>
+   622→              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+   623→                <UserPlus className="h-2.5 w-2.5" /> Before Enrollment
+   624→              </span>
+   625→            </div>
+   626→          </GlassCard>
+   627→        </StaggerItem>
+   628→      )}
+   629→
+   630→      {viewMode === "day" && (
+   631→        <StaggerItem>
+   632→          {/* Before Enrollment banner — shown when the selected day is before
+   633→              the user's registration date */}
+   634→          {isDayBeforeRegistration && (
+   635→            <div className="flex items-start gap-3 p-3.5 rounded-2xl glass-soft ring-1 ring-border/40 mb-3">
+   636→              <div className="grid place-items-center h-9 w-9 rounded-xl bg-muted/60 text-muted-foreground shrink-0">
+   637→                <UserPlus className="h-4 w-4" />
+   638→              </div>
+   639→              <div className="flex-1 min-w-0 pt-0.5">
+   640→                <p className="text-sm font-semibold text-foreground">
+   641→                  Before Enrollment
+   642→                </p>
+   643→                <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+   644→                  {format(selectedDay, "d MMMM yyyy")} is before your registration date
+   645→                  {registrationDate ? ` (${format(registrationDate, "d MMM yyyy")})` : ""}.
+   646→                  Meals are not available for this date. Only an administrator can override them.
+   647→                </p>
+   648→              </div>
+   649→            </div>
+   650→          )}
+   651→          {dayEntries.length === 0 ? (
+   652→            <GlassCard className="p-10 text-center" hover={false}>
+   653→              {isDayBeforeRegistration ? (
+   654→                <>
+   655→                  <UserPlus className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+   656→                  <p className="text-sm font-medium text-foreground">
+   657→                    Not enrolled on this date
+   658→                  </p>
+   659→                  <p className="text-xs text-muted-foreground mt-1">
+   660→                    {format(selectedDay, "d MMMM yyyy")} is before your registration date
+   661→                    {registrationDate ? ` (${format(registrationDate, "d MMM yyyy")})` : ""}.
+   662→                    Meals are not available for this date.
+   663→                  </p>
+   664→                </>
+   665→              ) : (
+   666→                <>
+   667→                  <Utensils className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+   668→                  <p className="text-sm text-muted-foreground">
+   669→                    No meals configured for {format(selectedDay, "d MMMM yyyy")}.
+   670→                  </p>
+   671→                </>
+   672→              )}
+   673→            </GlassCard>
+   674→          ) : (
+   675→            <div className="space-y-3">
+   676→              <AnimatePresence mode="popLayout">
+   677→                {dayEntries.map((entry) => (
+   678→                  <motion.div
+   679→                    key={entry.id}
+   680→                    initial={{ opacity: 0, y: 12, scale: 0.98 }}
+   681→                    animate={{ opacity: 1, y: 0, scale: 1 }}
+   682→                    exit={{ opacity: 0, scale: 0.95 }}
+   683→                    transition={{ type: "spring", stiffness: 280, damping: 26 }}
+   684→                  >
+   685→                    <DayMealCard
+   686→                      entry={entry}
+   687→                      onToggle={(newStatus) =>
+   688→                        toggleMutation.mutate({ entryId: entry.id, status: newStatus })
+   689→                      }
+   690→                      onPreRegToggle={showPreRegToast}
+   691→                      loading={toggleMutation.isPending}
+   692→                    />
+   693→                  </motion.div>
+   694→                ))}
+   695→              </AnimatePresence>
+   696→            </div>
+   697→          )}
+   698→        </StaggerItem>
+   699→      )}
+   700→    </StaggerGroup>
+   701→  );
+   702→}
+   703→
+   704→// ─────────────────────────────────────────────────────────────
+   705→// Day row — for agenda view (collapsible)
+   706→// ─────────────────────────────────────────────────────────────
+   707→
+   708→const DayRow = memo(function DayRow({
+   709→  dateStr, date, entries, isExpanded, onToggleExpand, onToggleMeal, onPreRegToggle, registrationDate, loading,
+   710→}: {
+   711→  dateStr: string; date: Date; entries: MealEntry[];
+   712→  isExpanded: boolean; onToggleExpand: () => void;
+   713→  onToggleMeal: (entryId: string, status: "ON" | "OFF") => void;
+   714→  onPreRegToggle: () => void;
+   715→  registrationDate: Date | null;
+   716→  loading: boolean;
+   717→}) {
+   718→  const isToday = toDateString(new Date()) === dateStr;
+   719→  const onCount = entries.filter((e) => e.status === "ON" || e.status === "LOCKED").length;
+   720→  const offCount = entries.filter((e) => e.status === "OFF").length;
+   721→  const lockedCount = entries.filter((e) => e.locked || e.status === "LOCKED").length;
+   722→  const overriddenCount = entries.filter((e) => e.overridden).length;
+   723→  // Check if this date is before the user's registration date
+   724→  const cellDate = new Date(date);
+   725→  cellDate.setHours(0, 0, 0, 0);
+   726→  const isPreReg = registrationDate ? cellDate < registrationDate : false;
+   727→
+   728→  return (
+   729→    <GlassCard className="overflow-hidden" hover={false}>
+   730→      <button
+   731→        onClick={onToggleExpand}
+   732→        className="w-full flex items-center gap-3 p-3 hover:bg-secondary/20 transition-colors"
+   733→      >
+   734→        <div className={cn("grid place-items-center h-11 w-11 rounded-2xl shrink-0 flex-col", isToday ? "bg-primary/15" : "bg-muted/40")}>
+   735→          <span className={cn("text-xs font-bold leading-none", isToday ? "text-primary" : "text-muted-foreground")}>
+   736→            {format(date, "EEE").toUpperCase()}
+   737→          </span>
+   738→          <span className={cn("text-sm font-bold leading-none mt-0.5", isToday ? "text-primary" : "text-foreground")}>
+   739→            {format(date, "d")}
+   740→          </span>
+   741→        </div>
+   742→        <div className="flex-1 min-w-0 text-left">
+   743→          <p className={cn("text-sm font-medium", isToday && "text-primary")}>
+   744→            {isToday ? "Today" : format(date, "EEEE, d MMMM")}
+   745→          </p>
+   746→          <div className="flex items-center gap-2 mt-0.5">
+   747→            {isPreReg && (
+   748→              <span className="inline-flex items-center gap-0.5 text-[10px] bg-muted/60 text-muted-foreground px-1.5 py-0.5 rounded-full font-medium">
+   749→                <UserPlus className="h-2.5 w-2.5" /> Before Enrollment
+   750→              </span>
+   751→            )}
+   752→            {onCount > 0 && (
+   753→              <span className="inline-flex items-center gap-0.5 text-[10px] bg-success/15 text-success px-1.5 py-0.5 rounded-full font-medium">
+   754→                <Check className="h-2.5 w-2.5" /> {onCount} ON
+   755→              </span>
+   756→            )}
+   757→            {offCount > 0 && (
+   758→              <span className="inline-flex items-center gap-0.5 text-[10px] bg-warning/15 text-warning px-1.5 py-0.5 rounded-full font-medium">
+   759→                <X className="h-2.5 w-2.5" /> {offCount} OFF
+   760→              </span>
+   761→            )}
+   762→            {lockedCount > 0 && (
+   763→              <span className="inline-flex items-center gap-0.5 text-[10px] bg-destructive/15 text-destructive px-1.5 py-0.5 rounded-full font-medium">
+   764→                <Lock className="h-2.5 w-2.5" /> {lockedCount}
+   765→              </span>
+   766→            )}
+   767→            {overriddenCount > 0 && (
+   768→              <span className="inline-flex items-center gap-0.5 text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-medium">
+   769→                <ShieldCheck className="h-2.5 w-2.5" /> {overriddenCount} Admin
+   770→              </span>
+   771→            )}
+   772→          </div>
+   773→        </div>
+   774→        <motion.div animate={{ rotate: isExpanded ? 180 : 0 }} transition={{ duration: 0.2 }}>
+   775→          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+   776→        </motion.div>
+   777→      </button>
+   778→      <AnimatePresence initial={false}>
+   779→        {isExpanded && (
+   780→          <motion.div
+   781→            initial={{ height: 0, opacity: 0 }}
+   782→            animate={{ height: "auto", opacity: 1 }}
+   783→            exit={{ height: 0, opacity: 0 }}
+   784→            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+   785→            className="overflow-hidden"
+   786→          >
+   787→            <div className="px-3 pb-3 space-y-2">
+   788→              {entries.map((entry) => (
+   789→                <MealCard
+   790→                  key={entry.id}
+   791→                  entry={entry}
+   792→                  onToggle={(newStatus) => onToggleMeal(entry.id, newStatus)}
+   793→                  onPreRegToggle={onPreRegToggle}
+   794→                  loading={loading}
+   795→                />
+   796→              ))}
+   797→            </div>
+   798→          </motion.div>
+   799→        )}
+   800→      </AnimatePresence>
+   801→    </GlassCard>
+   802→  );
+   803→});
+   804→
+   805→// ─────────────────────────────────────────────────────────────
+   806→// Compact meal card — for agenda expanded view
+   807→// ─────────────────────────────────────────────────────────────
+   808→
+   809→const MealCard = memo(function MealCard({
+   810→  entry, onToggle, onPreRegToggle, loading,
+   811→}: {
+   812→  entry: MealEntry;
+   813→  onToggle: (status: "ON" | "OFF") => void;
+   814→  onPreRegToggle: () => void;
+   815→  loading: boolean;
+   816→}) {
+   817→  const isOn = entry.status === "ON" || entry.status === "LOCKED";
+   818→  const isLocked = entry.locked || entry.status === "LOCKED";
+   819→  const isPreReg = entry.preRegistration;
+   820→  const isOverridden = entry.overridden;
+   821→  const disabled = (isLocked && !isPreReg) || (isPreReg && isOverridden) || loading;
+   822→
+   823→  const handleClick = () => {
+   824→    if (isPreReg && !isOverridden) {
+   825→      onPreRegToggle();
+   826→      return;
+   827→    }
+   828→    if (!disabled) onToggle(isOn ? "OFF" : "ON");
+   829→  };
+   830→
+   831→  return (
+   832→    <div className="flex items-center gap-3 p-2.5 rounded-2xl glass-soft">
+   833→      <div className="grid place-items-center h-10 w-10 rounded-xl shrink-0 text-xl" style={{ background: `color-mix(in oklch, ${entry.meal.color} 15%, transparent)` }}>
+   834→        {entry.meal.icon}
+   835→      </div>
+   836→      <div className="flex-1 min-w-0">
+   837→        <p className="text-sm font-medium truncate">{entry.meal.displayName}</p>
+   838→        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+   839→          <span className="text-[11px] text-muted-foreground">{to12h(entry.meal.startTime)} – {to12h(entry.meal.endTime)}</span>
+   840→          {isLocked && !isPreReg && <Lock className="h-2.5 w-2.5 text-destructive" />}
+   841→          {isOverridden && (
+   842→            <span className="inline-flex items-center gap-0.5 text-[9px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-medium">
+   843→              <ShieldCheck className="h-2.5 w-2.5" /> Admin
+   844→            </span>
+   845→          )}
+   846→        </div>
+   847→      </div>
+   848→      <button
+   849→        onClick={handleClick}
+   850→        disabled={disabled}
+   851→        className={cn("relative inline-flex h-7 w-12 items-center rounded-full transition-[margin,transform] duration-200 ease-out shrink-0", isOn ? "bg-success shadow-sm shadow-success/30" : "bg-muted", disabled && "opacity-50 cursor-not-allowed")}
+   852→      >
+   853→        <span className={cn("inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-[margin,transform] duration-200 ease-out", isOn ? "ml-auto mr-1" : "ml-1")} />
+   854→      </button>
+   855→    </div>
+   856→  );
+   857→});
+   858→
+   859→// ─────────────────────────────────────────────────────────────
+   860→// Full meal card — for day view (larger, with cutoff info)
+   861→// ─────────────────────────────────────────────────────────────
+   862→
+   863→const DayMealCard = memo(function DayMealCard({
+   864→  entry, onToggle, onPreRegToggle, loading,
+   865→}: {
+   866→  entry: MealEntry;
+   867→  onToggle: (status: "ON" | "OFF") => void;
+   868→  onPreRegToggle: () => void;
+   869→  loading: boolean;
+   870→}) {
+   871→  const isOn = entry.status === "ON" || entry.status === "LOCKED";
+   872→  const isLocked = entry.locked || entry.status === "LOCKED";
+   873→  const isPreReg = entry.preRegistration;
+   874→  const isOverridden = entry.overridden;
+   875→  const disabled = (isLocked && !isPreReg) || (isPreReg && isOverridden) || loading;
+   876→
+   877→  const handleClick = () => {
+   878→    if (isPreReg && !isOverridden) {
+   879→      onPreRegToggle();
+   880→      return;
+   881→    }
+   882→    if (!disabled) onToggle(isOn ? "OFF" : "ON");
+   883→  };
+   884→
+   885→  return (
+   886→    <GlassCard className="p-4" hover={false}>
+   887→      <div className="flex items-center gap-3">
+   888→        <div className="grid place-items-center h-12 w-12 rounded-2xl shrink-0 text-2xl" style={{ background: `color-mix(in oklch, ${entry.meal.color} 15%, transparent)` }}>
+   889→          {entry.meal.icon}
+   890→        </div>
+   891→        <div className="flex-1 min-w-0">
+   892→          <h3 className="font-semibold truncate">{entry.meal.displayName}</h3>
+   893→          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+   894→            <span className="text-xs text-muted-foreground">{to12h(entry.meal.startTime)} – {to12h(entry.meal.endTime)}</span>
+   895→            {isLocked && !isPreReg && <span className="inline-flex items-center gap-0.5 text-[10px] text-destructive"><Lock className="h-2.5 w-2.5" /> Locked</span>}
+   896→            {isOverridden && (
+   897→              <span className="inline-flex items-center gap-0.5 text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-medium">
+   898→                <ShieldCheck className="h-2.5 w-2.5" /> Overridden by admin
+   899→              </span>
+   900→            )}
+   901→          </div>
+   902→        </div>
+   903→        <button
+   904→          onClick={handleClick}
+   905→          disabled={disabled}
+   906→          className={cn("relative inline-flex h-8 w-14 items-center rounded-full transition-[margin,transform] duration-200 ease-out shrink-0", isOn ? "bg-success shadow-md shadow-success/30" : "bg-muted", disabled && "opacity-50 cursor-not-allowed")}
+   907→        >
+   908→          <span className={cn("inline-block h-6 w-6 rounded-full bg-white shadow-md transition-[margin,transform] duration-200 ease-out", isOn ? "ml-auto mr-1" : "ml-1")} />
+   909→        </button>
+   910→      </div>
+   911→      <div className="flex items-center justify-between mt-3">
+   912→        <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium", isOn ? "bg-success/15 text-success" : "bg-muted text-muted-foreground")}>
+   913→          {isLocked && !isPreReg ? "🔒 Locked" : isOn ? "ON" : "OFF"}
+   914→        </span>
+   915→        {!isLocked && !isPreReg && entry.meal.cutoffTime && (
+   916→          <span className="text-[10px] text-muted-foreground">Cutoff: {to12h(entry.meal.cutoffTime)}</span>
+   917→        )}
+   918→      </div>
+   919→    </GlassCard>
+   920→  );
+   921→});
+   922→

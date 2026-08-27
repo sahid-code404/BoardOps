@@ -1,0 +1,944 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useEffect, useMemo, useState } from "react";
+     4→     4→import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+     5→     5→import { motion } from "framer-motion";
+     6→     6→import { Controller, useForm } from "react-hook-form";
+     7→     7→import { zodResolver } from "@hookform/resolvers/zod";
+     8→     8→import { z } from "zod";
+     9→     9→import {
+    10→    10→  Search,
+    11→    11→  Plus,
+    12→    12→  Shield,
+    13→    13→  Lock,
+    14→    14→  Trash2,
+    15→    15→  Check,
+    16→    16→  X,
+    17→    17→  Database,
+    18→    18→  Sparkles,
+    19→    19→  Filter,
+    20→    20→  Hash,
+    21→    21→  DollarSign,
+    22→    22→  Percent,
+    23→    23→  Type,
+    24→    24→  ToggleLeft,
+    25→    25→  Pencil,
+    26→    26→  Save,
+    27→    27→  AlertCircle,
+    28→    28→  Tag,
+    29→    29→} from "lucide-react";
+    30→    30→import { toast } from "sonner";
+    31→    31→import { GlassCard } from "@/components/glass/glass-card";
+    32→    32→import { GlassButton } from "@/components/glass/glass-button";
+    33→    33→import { GlassInput, GlassTextarea } from "@/components/glass/glass-input";
+    34→    34→import {
+    35→    35→  StaggerGroup,
+    36→    36→  StaggerItem,
+    37→    37→} from "@/components/glass/page-transition";
+    38→    38→import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
+    39→    39→import { useAuthStore } from "@/stores/use-auth-store";
+    40→    40→import { api } from "@/lib/api-client";
+    41→    41→import { cn } from "@/lib/utils";
+    42→    42→import {
+    43→    43→  Dialog,
+    44→    44→  DialogContent,
+    45→    45→  DialogDescription,
+    46→    46→  DialogFooter,
+    47→    47→  DialogHeader,
+    48→    48→  DialogTitle,
+    49→    49→} from "@/components/ui/dialog";
+    50→    50→import {
+    51→    51→  Select,
+    52→    52→  SelectContent,
+    53→    53→  SelectItem,
+    54→    54→  SelectTrigger,
+    55→    55→  SelectValue,
+    56→    56→} from "@/components/ui/select";
+    57→    57→import {
+    58→    58→  Accordion,
+    59→    59→  AccordionContent,
+    60→    60→  AccordionItem,
+    61→    61→  AccordionTrigger,
+    62→    62→} from "@/components/ui/accordion";
+    63→    63→import { Badge } from "@/components/ui/badge";
+    64→    64→import { Switch } from "@/components/ui/switch";
+    65→    65→
+    66→    66→// ─────────────────────────────────────────────────────────────
+    67→    67→// Types
+    68→    68→// ─────────────────────────────────────────────────────────────
+    69→    69→
+    70→    70→type VariableType =
+    71→    71→  | "NUMBER"
+    72→    72→  | "CURRENCY"
+    73→    73→  | "PERCENTAGE"
+    74→    74→  | "TEXT"
+    75→    75→  | "BOOLEAN";
+    76→    76→
+    77→    77→type Variable = {
+    78→    78→  id: string;
+    79→    79→  key: string;
+    80→    80→  name: string;
+    81→    81→  description?: string | null;
+    82→    82→  type: VariableType;
+    83→    83→  value: string;
+    84→    84→  unit?: string | null;
+    85→    85→  category: string;
+    86→    86→  isSystem: boolean;
+    87→    87→  isProtected: boolean;
+    88→    88→  status: string;
+    89→    89→  createdAt: string;
+    90→    90→  updatedAt: string;
+    91→    91→};
+    92→    92→
+    93→    93→type ApiResponse<T> = { success: boolean; data: T };
+    94→    94→
+    95→    95→// ─────────────────────────────────────────────────────────────
+    96→    96→// Constants
+    97→    97→// ─────────────────────────────────────────────────────────────
+    98→    98→
+    99→    99→const TYPE_META: Record<
+   100→   100→  VariableType,
+   101→   101→  { icon: typeof Hash; tint: string; color: string }
+   102→   102→> = {
+   103→   103→  NUMBER: { icon: Hash, tint: "bg-info/15 text-info", color: "var(--info)" },
+   104→   104→  CURRENCY: {
+   105→   105→    icon: DollarSign,
+   106→   106→    tint: "bg-success/15 text-success",
+   107→   107→    color: "var(--success)",
+   108→   108→  },
+   109→   109→  PERCENTAGE: {
+   110→   110→    icon: Percent,
+   111→   111→    tint: "bg-warning/15 text-warning",
+   112→   112→    color: "var(--warning)",
+   113→   113→  },
+   114→   114→  TEXT: {
+   115→   115→    icon: Type,
+   116→   116→    tint: "bg-primary/15 text-primary",
+   117→   117→    color: "var(--primary)",
+   118→   118→  },
+   119→   119→  BOOLEAN: {
+   120→   120→    icon: ToggleLeft,
+   121→   121→    tint: "bg-secondary text-foreground",
+   122→   122→    color: "var(--foreground)",
+   123→   123→  },
+   124→   124→};
+   125→   125→
+   126→   126→const PRESET_CATEGORIES = [
+   127→   127→  "GENERAL",
+   128→   128→  "MEAL_RATES",
+   129→   129→  "BILLING",
+   130→   130→  "PENALTIES",
+   131→   131→  "DISCOUNTS",
+   132→   132→  "SYSTEM",
+   133→   133→];
+   134→   134→
+   135→   135→// ─────────────────────────────────────────────────────────────
+   136→   136→// Form schema
+   137→   137→// ─────────────────────────────────────────────────────────────
+   138→   138→
+   139→   139→const createSchema = z.object({
+   140→   140→  key: z
+   141→   141→    .string()
+   142→   142→    .min(2, "Key must be at least 2 characters")
+   143→   143→    .regex(
+   144→   144→      /^[a-z0-9_.-]+$/i,
+   145→   145→      "Use letters, numbers, dots, dashes, underscores only"
+   146→   146→    ),
+   147→   147→  name: z.string().min(2, "Name must be at least 2 characters"),
+   148→   148→  type: z.enum([
+   149→   149→    "NUMBER",
+   150→   150→    "CURRENCY",
+   151→   151→    "PERCENTAGE",
+   152→   152→    "TEXT",
+   153→   153→    "BOOLEAN",
+   154→   154→  ]),
+   155→   155→  value: z.string().min(1, "Value is required"),
+   156→   156→  unit: z.string().optional(),
+   157→   157→  category: z
+   158→   158→    .string()
+   159→   159→    .min(1, "Category required")
+   160→   160→    .default("GENERAL"),
+   161→   161→  description: z.string().optional(),
+   162→   162→});
+   163→   163→
+   164→   164→type CreateForm = z.infer<typeof createSchema>;
+   165→   165→
+   166→   166→// ─────────────────────────────────────────────────────────────
+   167→   167→// Main view
+   168→   168→// ─────────────────────────────────────────────────────────────
+   169→   169→
+   170→   170→export function VariablesView() {
+   171→   171→  const user = useAuthStore((s) => s.user);
+   172→   172→  const queryClient = useQueryClient();
+   173→   173→  const isAdmin = user?.role === "ADMIN";
+   174→   174→
+   175→   175→  const [search, setSearch] = useState("");
+   176→   176→  const [typeFilter, setTypeFilter] = useState<string>("ALL");
+   177→   177→  const [catFilter, setCatFilter] = useState<string>("ALL");
+   178→   178→  const [createOpen, setCreateOpen] = useState(false);
+   179→   179→
+   180→   180→  const { data: resp, isLoading } = useQuery({
+   181→   181→    queryKey: ["variables"],
+   182→   182→    queryFn: () => api.get<ApiResponse<Variable[]>>("/variables"),
+   183→   183→  });
+   184→   184→
+   185→   185→  const variables = resp?.data ?? [];
+   186→   186→
+   187→   187→  const createMutation = useMutation({
+   188→   188→    mutationFn: (data: CreateForm) =>
+   189→   189→      api.post<ApiResponse<Variable>>("/variables", data),
+   190→   190→    onSuccess: () => {
+   191→   191→      toast.success("Variable created successfully");
+   192→   192→      queryClient.invalidateQueries({ queryKey: ["variables"] });
+   193→   193→      setCreateOpen(false);
+   194→   194→    },
+   195→   195→    onError: (e: { message?: string }) =>
+   196→   196→      toast.error(e.message || "Failed to create variable"),
+   197→   197→  });
+   198→   198→
+   199→   199→  const updateMutation = useMutation({
+   200→   200→    mutationFn: ({ id, value }: { id: string; value: string }) =>
+   201→   201→      api.put<ApiResponse<Variable>>(`/variables/${id}`, { value }),
+   202→   202→    onSuccess: () => {
+   203→   203→      toast.success("Variable updated");
+   204→   204→      queryClient.invalidateQueries({ queryKey: ["variables"] });
+   205→   205→    },
+   206→   206→    onError: (e: { message?: string }) =>
+   207→   207→      toast.error(e.message || "Failed to update variable"),
+   208→   208→  });
+   209→   209→
+   210→   210→  const deleteMutation = useMutation({
+   211→   211→    mutationFn: (id: string) =>
+   212→   212→      api.delete<ApiResponse<{ success: boolean }>>(`/variables/${id}`),
+   213→   213→    onSuccess: () => {
+   214→   214→      toast.success("Variable archived");
+   215→   215→      queryClient.invalidateQueries({ queryKey: ["variables"] });
+   216→   216→    },
+   217→   217→    onError: (e: { message?: string }) =>
+   218→   218→      toast.error(e.message || "Failed to delete variable"),
+   219→   219→  });
+   220→   220→
+   221→   221→  // Categories — derive from existing variables plus presets
+   222→   222→  const categories = useMemo(() => {
+   223→   223→    const set = new Set<string>(PRESET_CATEGORIES);
+   224→   224→    variables.forEach((v) => set.add(v.category));
+   225→   225→    return Array.from(set).sort();
+   226→   226→  }, [variables]);
+   227→   227→
+   228→   228→  // Filter + group
+   229→   229→  const grouped = useMemo(() => {
+   230→   230→    const filtered = variables.filter((v) => {
+   231→   231→      if (search) {
+   232→   232→        const q = search.toLowerCase();
+   233→   233→        const hit =
+   234→   234→          v.name.toLowerCase().includes(q) ||
+   235→   235→          v.key.toLowerCase().includes(q) ||
+   236→   236→          (v.description ?? "").toLowerCase().includes(q) ||
+   237→   237→          v.category.toLowerCase().includes(q);
+   238→   238→        if (!hit) return false;
+   239→   239→      }
+   240→   240→      if (typeFilter !== "ALL" && v.type !== typeFilter) return false;
+   241→   241→      if (catFilter !== "ALL" && v.category !== catFilter) return false;
+   242→   242→      return true;
+   243→   243→    });
+   244→   244→
+   245→   245→    const groups: Record<string, Variable[]> = {};
+   246→   246→    filtered.forEach((v) => {
+   247→   247→      if (!groups[v.category]) groups[v.category] = [];
+   248→   248→      groups[v.category].push(v);
+   249→   249→    });
+   250→   250→    return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
+   251→   251→  }, [variables, search, typeFilter, catFilter]);
+   252→   252→
+   253→   253→  const stats = {
+   254→   254→    total: variables.length,
+   255→   255→    system: variables.filter((v) => v.isSystem).length,
+   256→   256→    custom: variables.filter((v) => !v.isSystem).length,
+   257→   257→    categories: new Set(variables.map((v) => v.category)).size,
+   258→   258→  };
+   259→   259→
+   260→   260→  if (isLoading) return <VariablesSkeleton />;
+   261→   261→
+   262→   262→  return (
+   263→   263→    <StaggerGroup className="space-y-4 md:space-y-6">
+   264→   264→      {/* Action bar */}
+   265→   265→      {isAdmin && (
+   266→   266→        <StaggerItem>
+   267→   267→          <div className="flex items-center justify-end gap-3">
+   268→   268→            <GlassButton onClick={() => setCreateOpen(true)} className="shrink-0">
+   269→   269→              <Plus className="h-4 w-4" />
+   270→   270→              Create Variable
+   271→   271→            </GlassButton>
+   272→   272→          </div>
+   273→   273→        </StaggerItem>
+   274→   274→      )}
+   275→   275→
+   276→   276→      {/* Stats bar */}
+   277→   277→      <StaggerItem>
+   278→   278→        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+   279→   279→          <StatCard
+   280→   280→            icon={Database}
+   281→   281→            label="Total"
+   282→   282→            value={stats.total}
+   283→   283→            color="primary"
+   284→   284→          />
+   285→   285→          <StatCard
+   286→   286→            icon={Shield}
+   287→   287→            label="System"
+   288→   288→            value={stats.system}
+   289→   289→            color="info"
+   290→   290→          />
+   291→   291→          <StatCard
+   292→   292→            icon={Sparkles}
+   293→   293→            label="Custom"
+   294→   294→            value={stats.custom}
+   295→   295→            color="success"
+   296→   296→          />
+   297→   297→          <StatCard
+   298→   298→            icon={Filter}
+   299→   299→            label="Categories"
+   300→   300→            value={stats.categories}
+   301→   301→            color="warning"
+   302→   302→          />
+   303→   303→        </div>
+   304→   304→      </StaggerItem>
+   305→   305→
+   306→   306→      {/* Search + filters */}
+   307→   307→      <StaggerItem>
+   308→   308→        <GlassCard className="p-4" hover={false}>
+   309→   309→          <div className="flex flex-col md:flex-row gap-3">
+   310→   310→            <div className="flex-1">
+   311→   311→              <GlassInput
+   312→   312→                value={search}
+   313→   313→                onChange={(e) => setSearch(e.target.value)}
+   314→   314→                placeholder="Search by name, key, or description..."
+   315→   315→                icon={<Search />}
+   316→   316→              />
+   317→   317→            </div>
+   318→   318→            <Select value={typeFilter} onValueChange={setTypeFilter}>
+   319→   319→              <SelectTrigger className="w-full md:w-44 h-12 glass-soft rounded-2xl border-2 border-transparent">
+   320→   320→                <Filter className="h-4 w-4 mr-1 text-muted-foreground" />
+   321→   321→                <SelectValue placeholder="Type" />
+   322→   322→              </SelectTrigger>
+   323→   323→              <SelectContent>
+   324→   324→                <SelectItem value="ALL">All types</SelectItem>
+   325→   325→                <SelectItem value="NUMBER">Number</SelectItem>
+   326→   326→                <SelectItem value="CURRENCY">Currency</SelectItem>
+   327→   327→                <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+   328→   328→                <SelectItem value="TEXT">Text</SelectItem>
+   329→   329→                <SelectItem value="BOOLEAN">Boolean</SelectItem>
+   330→   330→              </SelectContent>
+   331→   331→            </Select>
+   332→   332→            <Select value={catFilter} onValueChange={setCatFilter}>
+   333→   333→              <SelectTrigger className="w-full md:w-44 h-12 glass-soft rounded-2xl border-2 border-transparent">
+   334→   334→                <Tag className="h-4 w-4 mr-1 text-muted-foreground" />
+   335→   335→                <SelectValue placeholder="Category" />
+   336→   336→              </SelectTrigger>
+   337→   337→              <SelectContent>
+   338→   338→                <SelectItem value="ALL">All categories</SelectItem>
+   339→   339→                {categories.map((c) => (
+   340→   340→                  <SelectItem key={c} value={c}>
+   341→   341→                    {c}
+   342→   342→                  </SelectItem>
+   343→   343→                ))}
+   344→   344→              </SelectContent>
+   345→   345→            </Select>
+   346→   346→          </div>
+   347→   347→        </GlassCard>
+   348→   348→      </StaggerItem>
+   349→   349→
+   350→   350→      {/* Grouped list */}
+   351→   351→      {grouped.length === 0 ? (
+   352→   352→        <StaggerItem>
+   353→   353→          <GlassCard className="p-10 md:p-14 text-center" hover={false}>
+   354→   354→            <div className="grid place-items-center h-16 w-16 rounded-3xl bg-muted/40 mx-auto mb-4">
+   355→   355→              <Database className="h-8 w-8 text-muted-foreground/60" />
+   356→   356→            </div>
+   357→   357→            <h3 className="font-semibold text-lg mb-1">
+   358→   358→              {variables.length === 0
+   359→   359→                ? "No variables yet"
+   360→   360→                : "No matching variables"}
+   361→   361→            </h3>
+   362→   362→            <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+   363→   363→              {variables.length === 0
+   364→   364→                ? "Create your first variable to start configuring system behaviour."
+   365→   365→                : "Try adjusting your search or filter criteria."}
+   366→   366→            </p>
+   367→   367→            {isAdmin && variables.length === 0 && (
+   368→   368→              <GlassButton
+   369→   369→                className="mt-4"
+   370→   370→                onClick={() => setCreateOpen(true)}
+   371→   371→              >
+   372→   372→                <Plus className="h-4 w-4" /> Create Variable
+   373→   373→              </GlassButton>
+   374→   374→            )}
+   375→   375→          </GlassCard>
+   376→   376→        </StaggerItem>
+   377→   377→      ) : (
+   378→   378→        <StaggerItem>
+   379→   379→          <Accordion
+   380→   380→            type="multiple"
+   381→   381→            defaultValue={grouped[0] ? [grouped[0][0]] : []}
+   382→   382→            className="space-y-3"
+   383→   383→          >
+   384→   384→            {grouped.map(([category, vars]) => (
+   385→   385→              <AccordionItem
+   386→   386→                key={category}
+   387→   387→                value={category}
+   388→   388→                className="glass rounded-3xl overflow-hidden border-b-0 px-4 md:px-5"
+   389→   389→              >
+   390→   390→                <AccordionTrigger className="hover:no-underline py-4">
+   391→   391→                  <div className="flex items-center gap-3">
+   392→   392→                    <div className="grid place-items-center h-9 w-9 rounded-2xl bg-primary/15">
+   393→   393→                      <Database className="h-4 w-4 text-primary" />
+   394→   394→                    </div>
+   395→   395→                    <div className="text-left">
+   396→   396→                      <div className="font-semibold text-sm tracking-wide">
+   397→   397→                        {category}
+   398→   398→                      </div>
+   399→   399→                      <div className="text-[11px] text-muted-foreground">
+   400→   400→                        {vars.length} variable
+   401→   401→                        {vars.length === 1 ? "" : "s"} ·{" "}
+   402→   402→                        {vars.filter((v) => v.isSystem).length} system
+   403→   403→                      </div>
+   404→   404→                    </div>
+   405→   405→                  </div>
+   406→   406→                </AccordionTrigger>
+   407→   407→                <AccordionContent>
+   408→   408→                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pb-3 pt-1">
+   409→   409→                    {vars.map((v) => (
+   410→   410→                      <VariableCard
+   411→   411→                        key={v.id}
+   412→   412→                        variable={v}
+   413→   413→                        isAdmin={isAdmin}
+   414→   414→                        onSave={(value) =>
+   415→   415→                          updateMutation.mutate({ id: v.id, value })
+   416→   416→                        }
+   417→   417→                        onDelete={() => deleteMutation.mutate(v.id)}
+   418→   418→                        saving={
+   419→   419→                          updateMutation.isPending &&
+   420→   420→                          updateMutation.variables?.id === v.id
+   421→   421→                        }
+   422→   422→                        deleting={
+   423→   423→                          deleteMutation.isPending &&
+   424→   424→                          deleteMutation.variables === v.id
+   425→   425→                        }
+   426→   426→                      />
+   427→   427→                    ))}
+   428→   428→                  </div>
+   429→   429→                </AccordionContent>
+   430→   430→              </AccordionItem>
+   431→   431→            ))}
+   432→   432→          </Accordion>
+   433→   433→        </StaggerItem>
+   434→   434→      )}
+   435→   435→
+   436→   436→      {/* Create dialog */}
+   437→   437→      <CreateVariableDialog
+   438→   438→        open={createOpen}
+   439→   439→        onOpenChange={setCreateOpen}
+   440→   440→        onSubmit={(d) => createMutation.mutate(d)}
+   441→   441→        loading={createMutation.isPending}
+   442→   442→        categories={categories}
+   443→   443→      />
+   444→   444→    </StaggerGroup>
+   445→   445→  );
+   446→   446→}
+   447→   447→
+   448→   448→// ─────────────────────────────────────────────────────────────
+   449→   449→// Stat card
+   450→   450→// ─────────────────────────────────────────────────────────────
+   451→   451→
+   452→   452→function StatCard({
+   453→   453→  icon: Icon,
+   454→   454→  label,
+   455→   455→  value,
+   456→   456→  color,
+   457→   457→}: {
+   458→   458→  icon: typeof Database;
+   459→   459→  label: string;
+   460→   460→  value: number;
+   461→   461→  color: "primary" | "info" | "success" | "warning";
+   462→   462→}) {
+   463→   463→  const colorVar =
+   464→   464→    color === "primary"
+   465→   465→      ? "var(--primary)"
+   466→   466→      : color === "info"
+   467→   467→        ? "var(--info)"
+   468→   468→        : color === "success"
+   469→   469→          ? "var(--success)"
+   470→   470→          : "var(--warning)";
+   471→   471→  return (
+   472→   472→    <GlassCard
+   473→   473→      className="p-4 relative overflow-hidden"
+   474→   474→      glow={color === "info" ? "primary" : color}
+   475→   475→      whileHover={{ y: -2 }}
+   476→   476→    >
+   477→   477→      <div
+   478→   478→        className="absolute -top-8 -right-8 h-24 w-24 rounded-full blur-3xl opacity-25"
+   479→   479→        style={{ background: colorVar }}
+   480→   480→      />
+   481→   481→      <div className="relative flex items-center gap-3">
+   482→   482→        <div
+   483→   483→          className="grid place-items-center h-10 w-10 rounded-2xl shrink-0"
+   484→   484→          style={{
+   485→   485→            background: `color-mix(in oklch, ${colorVar} 18%, transparent)`,
+   486→   486→          }}
+   487→   487→        >
+   488→   488→          <Icon className="h-5 w-5" style={{ color: colorVar }} />
+   489→   489→        </div>
+   490→   490→        <div>
+   491→   491→          <div className="text-2xl font-bold tabular-nums leading-none">
+   492→   492→            {value}
+   493→   493→          </div>
+   494→   494→          <div className="text-xs text-muted-foreground mt-1">{label}</div>
+   495→   495→        </div>
+   496→   496→      </div>
+   497→   497→    </GlassCard>
+   498→   498→  );
+   499→   499→}
+   500→   500→
+   501→   501→// ─────────────────────────────────────────────────────────────
+   502→   502→// Variable card with inline edit
+   503→   503→// ─────────────────────────────────────────────────────────────
+   504→   504→
+   505→   505→function VariableCard({
+   506→   506→  variable,
+   507→   507→  isAdmin,
+   508→   508→  onSave,
+   509→   509→  onDelete,
+   510→   510→  saving,
+   511→   511→  deleting,
+   512→   512→}: {
+   513→   513→  variable: Variable;
+   514→   514→  isAdmin: boolean;
+   515→   515→  onSave: (value: string) => void;
+   516→   516→  onDelete: () => void;
+   517→   517→  saving: boolean;
+   518→   518→  deleting: boolean;
+   519→   519→}) {
+   520→   520→  const [editing, setEditing] = useState(false);
+   521→   521→  const [draft, setDraft] = useState(variable.value);
+   522→   522→
+   523→   523→  // NOTE: draft is re-synced from variable.value each time the user opens the
+   524→   524→  // editor (see startEdit below). External refetches that update variable.value
+   525→   525→  // while not editing don't affect the (hidden) draft, which is the desired
+   526→   526→  // behaviour.
+   527→   527→
+   528→   528→  const typeMeta = TYPE_META[variable.type] ?? TYPE_META.TEXT;
+   529→   529→  const TypeIcon = typeMeta.icon;
+   530→   530→  const isBool = variable.type === "BOOLEAN";
+   531→   531→  const boolValue = variable.value === "true";
+   532→   532→
+   533→   533→  const startEdit = () => {
+   534→   534→    setDraft(variable.value);
+   535→   535→    setEditing(true);
+   536→   536→  };
+   537→   537→  const cancelEdit = () => {
+   538→   538→    setDraft(variable.value);
+   539→   539→    setEditing(false);
+   540→   540→  };
+   541→   541→  const save = () => {
+   542→   542→    if (draft === variable.value) {
+   543→   543→      setEditing(false);
+   544→   544→      return;
+   545→   545→    }
+   546→   546→    onSave(draft);
+   547→   547→    setEditing(false);
+   548→   548→  };
+   549→   549→
+   550→   550→  const canEditValue = isAdmin;
+   551→   551→  const canDelete = isAdmin && !variable.isProtected && !variable.isSystem;
+   552→   552→
+   553→   553→  return (
+   554→   554→    <motion.div
+   555→   555→      whileHover={{ y: -2 }}
+   556→   556→      transition={{ type: "spring", stiffness: 300, damping: 22 }}
+   557→   557→      className="glass-soft rounded-3xl p-4 relative overflow-hidden"
+   558→   558→    >
+   559→   559→      <div className="flex items-start justify-between gap-3">
+   560→   560→        <div className="flex-1 min-w-0">
+   561→   561→          <div className="flex items-center gap-2 mb-1 flex-wrap">
+   562→   562→            <h4 className="font-semibold text-sm truncate">
+   563→   563→              {variable.name}
+   564→   564→            </h4>
+   565→   565→            <span
+   566→   566→              className={cn(
+   567→   567→                "inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium",
+   568→   568→                typeMeta.tint
+   569→   569→              )}
+   570→   570→            >
+   571→   571→              <TypeIcon className="h-3 w-3" />
+   572→   572→              {variable.type}
+   573→   573→            </span>
+   574→   574→            {variable.isSystem && (
+   575→   575→              <Badge
+   576→   576→                variant="secondary"
+   577→   577→                className="h-5 text-[10px] gap-1 px-1.5"
+   578→   578→              >
+   579→   579→                <Shield className="h-3 w-3" /> System
+   580→   580→              </Badge>
+   581→   581→            )}
+   582→   582→            {variable.isProtected && (
+   583→   583→              <Badge
+   584→   584→                variant="outline"
+   585→   585→                className="h-5 text-[10px] gap-1 px-1.5 border-warning/40 text-warning"
+   586→   586→              >
+   587→   587→                <Lock className="h-3 w-3" /> Protected
+   588→   588→              </Badge>
+   589→   589→            )}
+   590→   590→          </div>
+   591→   591→          <div className="flex items-center gap-1.5 mb-2">
+   592→   592→            <code className="text-[11px] font-mono text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded">
+   593→   593→              {variable.key}
+   594→   594→            </code>
+   595→   595→            {variable.unit && (
+   596→   596→              <span className="text-[10px] text-muted-foreground">
+   597→   597→                · unit: <strong>{variable.unit}</strong>
+   598→   598→              </span>
+   599→   599→            )}
+   600→   600→          </div>
+   601→   601→          {variable.description && (
+   602→   602→            <p className="text-xs text-muted-foreground/80 line-clamp-2 mb-2">
+   603→   603→              {variable.description}
+   604→   604→            </p>
+   605→   605→          )}
+   606→   606→        </div>
+   607→   607→      </div>
+   608→   608→
+   609→   609→      {/* Value display / inline edit */}
+   610→   610→      <div className="mt-2">
+   611→   611→        {isBool ? (
+   612→   612→          // BOOLEAN — switch (only editable by admin)
+   613→   613→          <div className="flex items-center justify-between glass rounded-2xl px-3 py-2">
+   614→   614→            <span className="text-[11px] text-muted-foreground">
+   615→   615→              Current state
+   616→   616→            </span>
+   617→   617→            <Switch
+   618→   618→              checked={boolValue}
+   619→   619→              disabled={!canEditValue || saving}
+   620→   620→              onCheckedChange={(c) => {
+   621→   621→                if (canEditValue) onSave(c ? "true" : "false");
+   622→   622→              }}
+   623→   623→            />
+   624→   624→          </div>
+   625→   625→        ) : editing ? (
+   626→   626→          <div className="flex items-center gap-2">
+   627→   627→            <input
+   628→   628→              autoFocus
+   629→   629→              value={draft}
+   630→   630→              onChange={(e) => setDraft(e.target.value)}
+   631→   631→              onKeyDown={(e) => {
+   632→   632→                if (e.key === "Enter") save();
+   633→   633→                if (e.key === "Escape") cancelEdit();
+   634→   634→              }}
+   635→   635→              className="flex-1 bg-transparent glass rounded-2xl px-3 py-2 text-sm font-medium tabular-nums outline-none focus:ring-2 focus:ring-primary/40"
+   636→   636→            />
+   637→   637→            <GlassButton
+   638→   638→              size="icon"
+   639→   639→              variant="success"
+   640→   640→              onClick={save}
+   641→   641→              loading={saving}
+   642→   642→              aria-label="Save"
+   643→   643→            >
+   644→   644→              <Check className="h-4 w-4" />
+   645→   645→            </GlassButton>
+   646→   646→            <GlassButton
+   647→   647→              size="icon"
+   648→   648→              variant="ghost"
+   649→   649→              onClick={cancelEdit}
+   650→   650→              aria-label="Cancel"
+   651→   651→            >
+   652→   652→              <X className="h-4 w-4" />
+   653→   653→            </GlassButton>
+   654→   654→          </div>
+   655→   655→        ) : (
+   656→   656→          <div className="flex items-center justify-between glass rounded-2xl px-3 py-2">
+   657→   657→            <div className="flex items-baseline gap-1.5 min-w-0">
+   658→   658→              <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+   659→   659→                Value
+   660→   660→              </span>
+   661→   661→              <span className="text-base font-semibold tabular-nums truncate">
+   662→   662→                {variable.value}
+   663→   663→              </span>
+   664→   664→              {variable.unit && (
+   665→   665→                <span className="text-xs text-muted-foreground">
+   666→   666→                  {variable.unit}
+   667→   667→                </span>
+   668→   668→              )}
+   669→   669→            </div>
+   670→   670→            {canEditValue && (
+   671→   671→              <GlassButton
+   672→   672→                size="icon"
+   673→   673→                variant="ghost"
+   674→   674→                onClick={startEdit}
+   675→   675→                aria-label="Edit value"
+   676→   676→                className="h-8 w-8"
+   677→   677→              >
+   678→   678→                <Pencil className="h-3.5 w-3.5" />
+   679→   679→              </GlassButton>
+   680→   680→            )}
+   681→   681→          </div>
+   682→   682→        )}
+   683→   683→      </div>
+   684→   684→
+   685→   685→      {/* Footer actions */}
+   686→   686→      {canDelete && (
+   687→   687→        <div className="mt-2 flex justify-end">
+   688→   688→          <GlassButton
+   689→   689→            size="sm"
+   690→   690→            variant="ghost"
+   691→   691→            onClick={onDelete}
+   692→   692→            loading={deleting}
+   693→   693→            className="text-destructive hover:text-destructive"
+   694→   694→          >
+   695→   695→            <Trash2 className="h-3.5 w-3.5" />
+   696→   696→            Archive
+   697→   697→          </GlassButton>
+   698→   698→        </div>
+   699→   699→      )}
+   700→   700→    </motion.div>
+   701→   701→  );
+   702→   702→}
+   703→   703→
+   704→   704→// ─────────────────────────────────────────────────────────────
+   705→   705→// Create variable dialog
+   706→   706→// ─────────────────────────────────────────────────────────────
+   707→   707→
+   708→   708→function CreateVariableDialog({
+   709→   709→  open,
+   710→   710→  onOpenChange,
+   711→   711→  onSubmit,
+   712→   712→  loading,
+   713→   713→  categories,
+   714→   714→}: {
+   715→   715→  open: boolean;
+   716→   716→  onOpenChange: (v: boolean) => void;
+   717→   717→  onSubmit: (data: CreateForm) => void;
+   718→   718→  loading: boolean;
+   719→   719→  categories: string[];
+   720→   720→}) {
+   721→   721→  const form = useForm<CreateForm>({
+   722→   722→    resolver: zodResolver(createSchema),
+   723→   723→    defaultValues: {
+   724→   724→      key: "",
+   725→   725→      name: "",
+   726→   726→      type: "NUMBER",
+   727→   727→      value: "",
+   728→   728→      unit: "",
+   729→   729→      category: "GENERAL",
+   730→   730→      description: "",
+   731→   731→    },
+   732→   732→  });
+   733→   733→
+   734→   734→  const type = form.watch("type");
+   735→   735→  const isBool = type === "BOOLEAN";
+   736→   736→
+   737→   737→  useEffect(() => {
+   738→   738→    if (!open) {
+   739→   739→      form.reset();
+   740→   740→    }
+   741→   741→  }, [open, form]);
+   742→   742→
+   743→   743→  const submit = (data: CreateForm) => {
+   744→   744→    onSubmit(data);
+   745→   745→  };
+   746→   746→
+   747→   747→  return (
+   748→   748→    <Dialog open={open} onOpenChange={onOpenChange}>
+   749→   749→      <DialogContent className="glass-strong rounded-3xl max-w-md max-h-[90vh] overflow-y-auto no-scrollbar">
+   750→   750→        <DialogHeader>
+   751→   751→          <DialogTitle className="flex items-center gap-2">
+   752→   752→            <Plus className="h-5 w-5 text-primary" />
+   753→   753→            Create Variable
+   754→   754→          </DialogTitle>
+   755→   755→          <DialogDescription>
+   756→   756→            Add a new configurable variable to the system. Keys must be unique.
+   757→   757→          </DialogDescription>
+   758→   758→        </DialogHeader>
+   759→   759→
+   760→   760→        <form
+   761→   761→          onSubmit={form.handleSubmit(submit)}
+   762→   762→          className="space-y-4 pt-2"
+   763→   763→        >
+   764→   764→          <GlassInput
+   765→   765→            label="Name"
+   766→   766→            placeholder="e.g., Breakfast Rate"
+   767→   767→            error={form.formState.errors.name?.message}
+   768→   768→            {...form.register("name")}
+   769→   769→          />
+   770→   770→
+   771→   771→          <GlassInput
+   772→   772→            label="Key"
+   773→   773→            placeholder="e.g., breakfast_rate"
+   774→   774→            hint="Letters, numbers, dots, dashes, underscores only"
+   775→   775→            error={form.formState.errors.key?.message}
+   776→   776→            trailing={
+   777→   777→              <code className="text-[10px] font-mono text-muted-foreground">
+   778→   778→                /^[a-z0-9_.-]+$/i
+   779→   779→              </code>
+   780→   780→            }
+   781→   781→            {...form.register("key")}
+   782→   782→          />
+   783→   783→
+   784→   784→          <div>
+   785→   785→            <label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
+   786→   786→              Type
+   787→   787→            </label>
+   788→   788→            <Controller
+   789→   789→              control={form.control}
+   790→   790→              name="type"
+   791→   791→              render={({ field }) => (
+   792→   792→                <Select
+   793→   793→                  value={field.value}
+   794→   794→                  onValueChange={field.onChange}
+   795→   795→                >
+   796→   796→                  <SelectTrigger className="w-full h-12 glass-soft rounded-2xl border-2 border-transparent">
+   797→   797→                    <SelectValue placeholder="Select type" />
+   798→   798→                  </SelectTrigger>
+   799→   799→                  <SelectContent>
+   800→   800→                    <SelectItem value="NUMBER">Number</SelectItem>
+   801→   801→                    <SelectItem value="CURRENCY">Currency</SelectItem>
+   802→   802→                    <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+   803→   803→                    <SelectItem value="TEXT">Text</SelectItem>
+   804→   804→                    <SelectItem value="BOOLEAN">Boolean</SelectItem>
+   805→   805→                  </SelectContent>
+   806→   806→                </Select>
+   807→   807→              )}
+   808→   808→            />
+   809→   809→          </div>
+   810→   810→
+   811→   811→          {isBool ? (
+   812→   812→            <div>
+   813→   813→              <label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
+   814→   814→                Value
+   815→   815→              </label>
+   816→   816→              <Controller
+   817→   817→                control={form.control}
+   818→   818→                name="value"
+   819→   819→                render={({ field }) => (
+   820→   820→                  <div className="flex items-center gap-3 glass-soft rounded-2xl px-4 py-3 h-12">
+   821→   821→                    <Switch
+   822→   822→                      checked={field.value === "true"}
+   823→   823→                      onCheckedChange={(c) =>
+   824→   824→                        field.onChange(c ? "true" : "false")
+   825→   825→                      }
+   826→   826→                    />
+   827→   827→                    <span className="text-sm font-medium">
+   828→   828→                      {field.value === "true" ? "Enabled" : "Disabled"}
+   829→   829→                    </span>
+   830→   830→                  </div>
+   831→   831→                )}
+   832→   832→              />
+   833→   833→            </div>
+   834→   834→          ) : (
+   835→   835→            <GlassInput
+   836→   836→              label="Value"
+   837→   837→              placeholder={
+   838→   838→                type === "CURRENCY"
+   839→   839→                  ? "e.g., 50.00"
+   840→   840→                  : type === "PERCENTAGE"
+   841→   841→                    ? "e.g., 12.5"
+   842→   842→                    : type === "NUMBER"
+   843→   843→                      ? "e.g., 4"
+   844→   844→                      : "Enter value"
+   845→   845→              }
+   846→   846→              error={form.formState.errors.value?.message}
+   847→   847→              {...form.register("value")}
+   848→   848→            />
+   849→   849→          )}
+   850→   850→
+   851→   851→          <div className="grid grid-cols-2 gap-3">
+   852→   852→            <GlassInput
+   853→   853→              label="Unit (optional)"
+   854→   854→              placeholder="e.g., ₹/meal"
+   855→   855→              {...form.register("unit")}
+   856→   856→            />
+   857→   857→            <div>
+   858→   858→              <label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
+   859→   859→                Category
+   860→   860→              </label>
+   861→   861→              <Controller
+   862→   862→                control={form.control}
+   863→   863→                name="category"
+   864→   864→                render={({ field }) => (
+   865→   865→                  <Select
+   866→   866→                    value={field.value}
+   867→   867→                    onValueChange={field.onChange}
+   868→   868→                  >
+   869→   869→                    <SelectTrigger className="w-full h-12 glass-soft rounded-2xl border-2 border-transparent">
+   870→   870→                      <SelectValue placeholder="Select category" />
+   871→   871→                    </SelectTrigger>
+   872→   872→                    <SelectContent>
+   873→   873→                      {categories.map((c) => (
+   874→   874→                        <SelectItem key={c} value={c}>
+   875→   875→                          {c}
+   876→   876→                        </SelectItem>
+   877→   877→                      ))}
+   878→   878→                    </SelectContent>
+   879→   879→                  </Select>
+   880→   880→                )}
+   881→   881→              />
+   882→   882→            </div>
+   883→   883→          </div>
+   884→   884→
+   885→   885→          <div>
+   886→   886→            <label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
+   887→   887→              Description (optional)
+   888→   888→            </label>
+   889→   889→            <GlassTextarea
+   890→   890→              placeholder="What does this variable control?"
+   891→   891→              className="min-h-[80px]"
+   892→   892→              {...form.register("description")}
+   893→   893→            />
+   894→   894→          </div>
+   895→   895→
+   896→   896→          <div className="flex items-center gap-2 p-3 rounded-2xl bg-info/10 text-info text-[11px]">
+   897→   897→            <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+   898→   898→            Custom variables can be edited or archived later. System variables
+   899→   899→            are locked to preserve formula integrity.
+   900→   900→          </div>
+   901→   901→
+   902→   902→          <DialogFooter className="gap-2">
+   903→   903→            <GlassButton
+   904→   904→              type="button"
+   905→   905→              variant="ghost"
+   906→   906→              onClick={() => onOpenChange(false)}
+   907→   907→            >
+   908→   908→              Cancel
+   909→   909→            </GlassButton>
+   910→   910→            <GlassButton type="submit" loading={loading}>
+   911→   911→              <Save className="h-4 w-4" />
+   912→   912→              Create Variable
+   913→   913→            </GlassButton>
+   914→   914→          </DialogFooter>
+   915→   915→        </form>
+   916→   916→      </DialogContent>
+   917→   917→    </Dialog>
+   918→   918→  );
+   919→   919→}
+   920→   920→
+   921→   921→// ─────────────────────────────────────────────────────────────
+   922→   922→// Loading skeleton
+   923→   923→// ─────────────────────────────────────────────────────────────
+   924→   924→
+   925→   925→function VariablesSkeleton() {
+   926→   926→  return (
+   927→   927→    <div className="space-y-4 md:space-y-6">
+   928→   928→      <ShimmerSkeleton className="h-28" />
+   929→   929→      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+   930→   930→        <ShimmerSkeleton className="h-20" />
+   931→   931→        <ShimmerSkeleton className="h-20" />
+   932→   932→        <ShimmerSkeleton className="h-20" />
+   933→   933→        <ShimmerSkeleton className="h-20" />
+   934→   934→      </div>
+   935→   935→      <ShimmerSkeleton className="h-20" />
+   936→   936→      <div className="space-y-3">
+   937→   937→        {Array.from({ length: 3 }).map((_, i) => (
+   938→   938→          <ShimmerSkeleton key={i} className="h-32" />
+   939→   939→        ))}
+   940→   940→      </div>
+   941→   941→    </div>
+   942→   942→  );
+   943→   943→}
+   944→   944→

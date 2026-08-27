@@ -1,0 +1,722 @@
+     1→"use client";
+     2→
+     3→import { useMemo, useState } from "react";
+     4→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     5→import { motion, AnimatePresence } from "framer-motion";
+     6→import { toast } from "sonner";
+     7→import { addDays, format, isSameDay } from "date-fns";
+     8→import {
+     9→  ChevronLeft,
+    10→  ChevronRight,
+    11→  Utensils,
+    12→  UtensilsCrossed,
+    13→  UserPlus,
+    14→  Users,
+    15→  CalendarDays,
+    16→  Soup,
+    17→  Lock,
+    18→  RotateCcw,
+    19→  Check,
+    20→  X,
+    21→  Search,
+    22→  ChevronDown,
+    23→  ShieldCheck,
+    24→} from "lucide-react";
+    25→import { GlassCard } from "@/components/glass/glass-card";
+    26→import { GlassButton } from "@/components/glass/glass-button";
+    27→import { GlassInput } from "@/components/glass/glass-input";
+    28→import { AnimatedCounter } from "@/components/glass/animated-counter";
+    29→import {
+    30→  StaggerGroup,
+    31→  StaggerItem,
+    32→} from "@/components/glass/page-transition";
+    33→import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
+    34→import { UserAvatar } from "@/components/glass/user-avatar";
+    35→import { useAuthStore } from "@/stores/use-auth-store";
+    36→import { useAppStore } from "@/stores/use-app-store";
+    37→import { cn } from "@/lib/utils";
+    38→import { api } from "@/lib/api-client";
+    39→
+    40→// ─────────────────────────────────────────────────────────────
+    41→// Types
+    42→// ─────────────────────────────────────────────────────────────
+    43→
+    44→type MealCount = {
+    45→  id: string;
+    46→  name: string;
+    47→  displayName: string;
+    48→  icon: string;
+    49→  color: string;
+    50→  startTime: string;
+    51→  endTime: string;
+    52→  on: number;
+    53→  off: number;
+    54→  guests: number;
+    55→  total: number;
+    56→};
+    57→
+    58→type UserMealItem = {
+    59→  mealId: string;
+    60→  mealName: string;
+    61→  mealIcon: string;
+    62→  mealColor: string;
+    63→  status: string;
+    64→  originalState: string;
+    65→  locked: boolean;
+    66→  overridden: boolean;
+    67→};
+    68→
+    69→type UserMealStatus = {
+    70→  userId: string;
+    71→  name: string;
+    72→  email: string;
+    73→  room: string | null;
+    74→  avatarUrl: string | null;
+    75→  onCount: number;
+    76→  offCount: number;
+    77→  monthConsumed: number;
+    78→  meals: UserMealItem[];
+    79→  notEnrolled?: boolean;
+    80→};
+    81→
+    82→type KitchenResponse = {
+    83→  date: string;
+    84→  counts: MealCount[];
+    85→  activeUsers: number;
+    86→  access?: boolean;
+    87→  monthTotals?: {
+    88→    meals: number;
+    89→    guests: number;
+    90→    off: number;
+    91→  };
+    92→  userMealStatus?: UserMealStatus[];
+    93→};
+    94→
+    95→type ApiResponse<T> = { success: boolean; data: T };
+    96→
+    97→// ─────────────────────────────────────────────────────────────
+    98→// Helpers
+    99→// ─────────────────────────────────────────────────────────────
+   100→
+   101→function toDateString(d: Date): string {
+   102→  const y = d.getFullYear();
+   103→  const m = String(d.getMonth() + 1).padStart(2, "0");
+   104→  const day = String(d.getDate()).padStart(2, "0");
+   105→  return `${y}-${m}-${day}`;
+   106→}
+   107→
+   108→/** Returns { top, bottom } for the date picker.
+   109→ *  - Today/Yesterday/Tomorrow: top = relative label, bottom = "EEE, d MMM"
+   110→ *  - Other dates: top = "d MMM" (date only), bottom = "EEE" (day name only, no duplicate) */
+   111→function getDatePickerLabels(d: Date): { top: string; bottom: string } {
+   112→  const today = new Date();
+   113→  today.setHours(0, 0, 0, 0);
+   114→  const target = new Date(d);
+   115→  target.setHours(0, 0, 0, 0);
+   116→  const diffMs = target.getTime() - today.getTime();
+   117→  const diffDays = Math.round(diffMs / (24 * 60 * 60 * 1000));
+   118→
+   119→  if (diffDays === 0) return { top: "Today", bottom: format(target, "EEE, d MMM") };
+   120→  if (diffDays === -1) return { top: "Yesterday", bottom: format(target, "EEE, d MMM") };
+   121→  if (diffDays === 1) return { top: "Tomorrow", bottom: format(target, "EEE, d MMM") };
+   122→  // Far dates: top = date only, bottom = day name only (no duplicate)
+   123→  return { top: format(target, "d MMM"), bottom: format(target, "EEE") };
+   124→}
+   125→
+   126→// ─────────────────────────────────────────────────────────────
+   127→// Main view
+   128→// ─────────────────────────────────────────────────────────────
+   129→
+   130→export function KitchenView() {
+   131→  const user = useAuthStore((s) => s.user);
+   132→  const setView = useAppStore((s) => s.setView);
+   133→  const [date, setDate] = useState<Date>(new Date());
+   134→
+   135→  const dateStr = toDateString(date);
+   136→  const datePickerLabels = getDatePickerLabels(date);
+   137→  const isUser = user?.role === "USER";
+   138→
+   139→  const { data: resp, isLoading } = useQuery({
+   140→    queryKey: ["kitchen", dateStr],
+   141→    queryFn: () =>
+   142→      api.get<ApiResponse<KitchenResponse>>("/kitchen", {
+   143→        params: { date: dateStr },
+   144→      }),
+   145→    // Live kitchen dashboard — refresh every 30s (was 15s; increased to halve
+   146→    // the API load while still being responsive enough for live counts).
+   147→    refetchInterval: 30_000,
+   148→    // Keep refetching on window focus so returning to the tab gives fresh
+   149→    // counts immediately. Combined with the 30s interval, this provides both
+   150→    // live updates and on-demand freshness.
+   151→    refetchOnWindowFocus: true,
+   152→    enabled: !isUser,
+   153→    // Keep previous day's data visible while a new date loads (stale-while-
+   154→    // revalidate). Eliminates the flash of empty content when switching dates.
+   155→    placeholderData: (prev) => prev,
+   156→  });
+   157→
+   158→  const counts = resp?.data?.counts ?? [];
+   159→
+   160→  const totals = useMemo(() => {
+   161→    return {
+   162→      meals: counts.reduce((s, c) => s + c.on + c.guests, 0),
+   163→      guests: counts.reduce((s, c) => s + c.guests, 0),
+   164→      off: counts.reduce((s, c) => s + c.off, 0),
+   165→    };
+   166→  }, [counts]);
+   167→
+   168→  const monthTotals = resp?.data?.monthTotals ?? { meals: 0, guests: 0, off: 0 };
+   169→  const userMealStatus = resp?.data?.userMealStatus;
+   170→
+   171→  // Admin override + search for user meal status
+   172→  const qc = useQueryClient();
+   173→  const [mealSearch, setMealSearch] = useState("");
+   174→  const [expandedUser, setExpandedUser] = useState<string | null>(null);
+   175→  const [overrideLoading, setOverrideLoading] = useState<string | null>(null);
+   176→
+   177→  const overrideMutation = useMutation({
+   178→    mutationFn: async (params: {
+   179→      mealId: string;
+   180→      userId: string;
+   181→      serviceDate: string;
+   182→      action: "TURN_ON" | "TURN_OFF" | "LOCK" | "UNLOCK";
+   183→    }) => {
+   184→      setOverrideLoading(`${params.userId}_${params.mealId}`);
+   185→      await api.post("/meals/override", {
+   186→        ...params,
+   187→        reason: "Admin override from kitchen dashboard",
+   188→      });
+   189→    },
+   190→    onSuccess: () => {
+   191→      toast.success("Meal overridden successfully");
+   192→      setOverrideLoading(null);
+   193→      qc.invalidateQueries({ queryKey: ["kitchen"] });
+   194→    },
+   195→    onError: (e: Error) => {
+   196→      toast.error(e.message || "Failed to override meal");
+   197→      setOverrideLoading(null);
+   198→    },
+   199→  });
+   200→
+   201→  // Filtered users (search only, no sort)
+   202→  const filteredUsers = useMemo(() => {
+   203→    if (!userMealStatus) return [];
+   204→    let result = userMealStatus;
+   205→    const q = mealSearch.trim().toLowerCase();
+   206→    if (q) {
+   207→      result = result.filter(
+   208→        (u) =>
+   209→          u.name.toLowerCase().includes(q) ||
+   210→          (u.room || "").toLowerCase().includes(q) ||
+   211→          u.email.toLowerCase().includes(q)
+   212→      );
+   213→    }
+   214→    return result;
+   215→  }, [userMealStatus, mealSearch]);
+   216→
+   217→  // USER role or server denied access — kitchen is admin/manager only
+   218→  if (isUser || resp?.data?.access === false) {
+   219→    return <AccessRestricted />;
+   220→  }
+   221→
+   222→  if (isLoading) return <KitchenSkeleton />;
+   223→
+   224→  return (
+   225→    <StaggerGroup className="space-y-4">
+   226→      {/* Date picker — wide capsule with centered text + circular arrows */}
+   227→      <StaggerItem>
+   228→        <div className="flex items-center justify-center gap-4">
+   229→          {/* Left arrow — circular */}
+   230→          <motion.button
+   231→            whileTap={{ scale: 0.9 }}
+   232→            onClick={() => setDate((d) => addDays(d, -1))}
+   233→            aria-label="Previous day"
+   234→            className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   235→          >
+   236→            <ChevronLeft className="h-5 w-5" />
+   237→          </motion.button>
+   238→
+   239→          {/* Date capsule — wide, centered text with relative day label */}
+   240→          <button
+   241→            onClick={() => !isSameDay(date, new Date()) && setDate(new Date())}
+   242→            className="flex-1 max-w-[280px] flex items-center justify-center gap-2.5 glass-soft rounded-full px-6 py-2.5 transition-all hover:ring-1 hover:ring-primary/30"
+   243→          >
+   244→            <CalendarDays className="h-4 w-4 text-primary shrink-0" />
+   245→            <div className="leading-tight text-center">
+   246→              <p className="text-sm font-bold text-primary">
+   247→                {datePickerLabels.top}
+   248→              </p>
+   249→              <p className="text-[11px] text-muted-foreground">
+   250→                {datePickerLabels.bottom}
+   251→              </p>
+   252→            </div>
+   253→            {!isSameDay(date, new Date()) && (
+   254→              <RotateCcw className="h-3 w-3 text-muted-foreground shrink-0" />
+   255→            )}
+   256→          </button>
+   257→
+   258→          {/* Right arrow — circular */}
+   259→          <motion.button
+   260→            whileTap={{ scale: 0.9 }}
+   261→            onClick={() => setDate((d) => addDays(d, 1))}
+   262→            aria-label="Next day"
+   263→            className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   264→          >
+   265→            <ChevronRight className="h-5 w-5" />
+   266→          </motion.button>
+   267→        </div>
+   268→      </StaggerItem>
+   269→
+   270→      {/* KPI cards — always 3 in a single horizontal row, stretches evenly on desktop */}
+   271→      <StaggerItem>
+   272→        <div className="grid grid-cols-3 gap-3">
+   273→          <KpiCard
+   274→            icon={<Utensils className="h-4 w-4" />}
+   275→            label="Total Meals"
+   276→            value={monthTotals.meals}
+   277→            color="success"
+   278→            sub="This Month"
+   279→          />
+   280→          <KpiCard
+   281→            icon={<UserPlus className="h-4 w-4" />}
+   282→            label="Guests"
+   283→            value={totals.guests}
+   284→            color="primary"
+   285→            sub="Today"
+   286→          />
+   287→          <KpiCard
+   288→            icon={<Users className="h-4 w-4" />}
+   289→            label="Meals OFF"
+   290→            value={totals.off}
+   291→            color="warning"
+   292→            sub="Skipped"
+   293→          />
+   294→        </div>
+   295→      </StaggerItem>
+   296→
+   297→      {/* Empty state */}
+   298→      {counts.length === 0 ? (
+   299→        <StaggerItem>
+   300→          <GlassCard className="p-10 text-center" hover={false}>
+   301→            <div className="grid place-items-center h-16 w-16 rounded-3xl bg-muted/40 mx-auto mb-4">
+   302→              <Soup className="h-8 w-8 text-muted-foreground/60" />
+   303→            </div>
+   304→            <h3 className="font-semibold text-lg mb-1">No meals configured</h3>
+   305→            <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+   306→              No active meal configurations found for{" "}
+   307→              {format(date, "d MMM yyyy")}. Set up meals in the Meals section to
+   308→              see kitchen counts here.
+   309→            </p>
+   310→            <GlassButton className="mt-5" onClick={() => setView("meals")}>
+   311→              <UtensilsCrossed className="h-4 w-4" />
+   312→              Configure Meals
+   313→            </GlassButton>
+   314→          </GlassCard>
+   315→        </StaggerItem>
+   316→      ) : (
+   317→        <>
+   318→          {/* Per-meal cards */}
+   319→          <StaggerItem>
+   320→            <div className="grid-cards gap-3">
+   321→              {counts.map((m) => (
+   322→                <MealCard key={m.id} meal={m} />
+   323→              ))}
+   324→            </div>
+   325→          </StaggerItem>
+   326→
+   327→          {/* User meal status — admin can see + override, expandable like agenda */}
+   328→          {userMealStatus && userMealStatus.length > 0 && (
+   329→            <StaggerItem>
+   330→              <GlassCard className="p-4" hover={false}>
+   331→                <div className="flex items-center gap-2 mb-3">
+   332→                  <Users className="h-5 w-5 text-primary" />
+   333→                  <h3 className="font-semibold">User Meal Status</h3>
+   334→                  <span className="text-xs text-muted-foreground">· {format(date, "d MMM yyyy")}</span>
+   335→                </div>
+   336→
+   337→                {/* Search */}
+   338→                <div className="mb-3">
+   339→                  <GlassInput
+   340→                    placeholder="Search by name, room, or email…"
+   341→                    value={mealSearch}
+   342→                    onChange={(e) => setMealSearch(e.target.value)}
+   343→                    icon={<Search className="h-4 w-4" />}
+   344→                  />
+   345→                </div>
+   346→
+   347→                {/* User list — expandable rows */}
+   348→                <div className="max-h-[28rem] overflow-y-auto no-scrollbar space-y-2">
+   349→                  {filteredUsers.length === 0 ? (
+   350→                    <p className="text-center py-4 text-sm text-muted-foreground">No users match your search.</p>
+   351→                  ) : (
+   352→                    filteredUsers.map((u) => {
+   353→                      const isExpanded = expandedUser === u.userId;
+   354→                      return (
+   355→                        <GlassCard key={u.userId} className="overflow-hidden" hover={false}>
+   356→                          {/* Collapsed row — click to expand */}
+   357→                          <button
+   358→                            onClick={() => setExpandedUser(isExpanded ? null : u.userId)}
+   359→                            className="w-full flex items-center gap-3 p-3 hover:bg-secondary/20 transition-colors"
+   360→                          >
+   361→                            {/* Avatar */}
+   362→                            <UserAvatar
+   363→                              name={u.name}
+   364→                              avatarUrl={u.avatarUrl}
+   365→                              className="h-9 w-9 rounded-xl"
+   366→                              fallbackClassName="text-xs"
+   367→                            />
+   368→                            {/* Name + room */}
+   369→                            <div className="flex-1 min-w-0 text-left">
+   370→                              <p className="text-sm font-medium truncate">{u.name}</p>
+   371→                              {u.room && (
+   372→                                <p className="text-[11px] text-muted-foreground">Room {u.room}</p>
+   373→                              )}
+   374→                            </div>
+   375→                            {/* Not-enrolled badge — shown when the selected date
+   376→                                is before this user's registration date */}
+   377→                            {u.notEnrolled && (
+   378→                              <span className="inline-flex items-center gap-0.5 text-[10px] bg-muted/60 text-muted-foreground px-1.5 py-0.5 rounded-full font-medium shrink-0">
+   379→                                <UserPlus className="h-2.5 w-2.5" /> Not enrolled
+   380→                              </span>
+   381→                            )}
+   382→                            {/* Expand chevron */}
+   383→                            <motion.div animate={{ rotate: isExpanded ? 180 : 0 }} transition={{ duration: 0.2 }}>
+   384→                              <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+   385→                            </motion.div>
+   386→                          </button>
+   387→
+   388→                          {/* Expanded — meal details with override controls */}
+   389→                          <AnimatePresence initial={false}>
+   390→                            {isExpanded && (
+   391→                              <motion.div
+   392→                                initial={{ height: 0, opacity: 0 }}
+   393→                                animate={{ height: "auto", opacity: 1 }}
+   394→                                exit={{ height: 0, opacity: 0 }}
+   395→                                transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+   396→                                className="overflow-hidden"
+   397→                              >
+   398→                                <div className="px-3 pb-3 space-y-2">
+   399→                                  {/* Monthly tally — total meals consumed this month */}
+   400→                                  <div className="flex items-center justify-between gap-2 p-2.5 rounded-2xl bg-primary/10 ring-1 ring-primary/20">
+   401→                                    <div className="flex items-center gap-2 min-w-0">
+   402→                                      <div className="grid place-items-center h-8 w-8 rounded-xl bg-primary/20 text-primary shrink-0">
+   403→                                        <Utensils className="h-4 w-4" />
+   404→                                      </div>
+   405→                                      <div className="min-w-0">
+   406→                                        <p className="text-[11px] font-medium text-foreground/80 leading-tight">Total Meals Consumed</p>
+   407→                                        <p className="text-[10px] text-muted-foreground leading-tight">
+   408→                                          {format(date, "MMM yyyy")}
+   409→                                        </p>
+   410→                                      </div>
+   411→                                    </div>
+   412→                                    <span className="inline-flex items-center justify-center min-w-[2.5rem] h-9 px-2.5 rounded-xl bg-primary text-primary-foreground text-lg font-bold tabular-nums shrink-0 shadow-sm shadow-primary/30">
+   413→                                      {u.monthConsumed}
+   414→                                    </span>
+   415→                                  </div>
+   416→
+   417→                                  {u.meals.map((m) => {
+   418→                                    const isOn = m.status === "ON" || m.status === "LOCKED";
+   419→                                    const isLocked = m.locked || m.status === "LOCKED";
+   420→                                    // Override is calculated DYNAMICALLY (never stored).
+   421→                                    const isOverridden = m.overridden;
+   422→                                    // Unlocked meals are READ-ONLY for the admin: the user can still
+   423→                                    // toggle these themselves before the cutoff, so the admin must not
+   424→                                    // override them. Admin override is only available on LOCKED meals.
+   425→                                    const isReadOnly = !isLocked;
+   426→                                    const hintKey = `${u.userId}_${m.mealId}`;
+   427→                                    const isLoading = overrideLoading === hintKey && !isReadOnly;
+   428→                                    return (
+   429→                                      <div
+   430→                                        key={m.mealId}
+   431→                                        className="flex items-center gap-3 p-2.5 rounded-2xl glass-soft"
+   432→                                      >
+   433→                                        {/* Meal icon */}
+   434→                                        <div
+   435→                                          className="grid place-items-center h-9 w-9 rounded-xl shrink-0 text-lg"
+   436→                                          style={{ background: `color-mix(in oklch, ${m.mealColor} 15%, transparent)` }}
+   437→                                        >
+   438→                                          {m.mealIcon}
+   439→                                        </div>
+   440→                                        {/* Meal name + status labels */}
+   441→                                        <div className="flex-1 min-w-0">
+   442→                                          <p className="text-sm font-medium truncate">{m.mealName}</p>
+   443→                                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+   444→                                            {isLocked && (
+   445→                                              <span className="text-[10px] text-destructive flex items-center gap-0.5">
+   446→                                                <Lock className="h-2.5 w-2.5" /> Locked
+   447→                                              </span>
+   448→                                            )}
+   449→                                            {isOverridden && (
+   450→                                              <span className="inline-flex items-center gap-0.5 text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-medium">
+   451→                                                <ShieldCheck className="h-2.5 w-2.5" /> Admin Modified
+   452→                                              </span>
+   453→                                            )}
+   454→                                            {isReadOnly && (
+   455→                                              <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+   456→                                                Read-only — user can edit
+   457→                                              </span>
+   458→                                            )}
+   459→                                          </div>
+   460→                                        </div>
+   461→                                        {/* Toggle
+   462→                                            - LOCKED meals: admin can override (clickable).
+   463→                                            - UNLOCKED meals: read-only. Clicking shows a toast with the reason. */}
+   464→                                        <div className="relative shrink-0">
+   465→                                          <button
+   466→                                            type="button"
+   467→                                            title={
+   468→                                              isReadOnly
+   469→                                                ? `${m.mealName} — read-only. The user can still change this meal before the cutoff. Admin override is only available after the meal is locked.`
+   470→                                                : `Toggle ${m.mealName} — currently ${m.status}. Admin can override.`
+   471→                                            }
+   472→                                            onClick={(e) => {
+   473→                                              e.stopPropagation();
+   474→                                              if (isReadOnly) {
+   475→                                                toast.error(
+   476→                                                  `${m.mealName} is not locked yet. The user can still change it before the cutoff — admin override is only available after the meal is locked.`,
+   477→                                                  { duration: 4000 }
+   478→                                                );
+   479→                                                return;
+   480→                                              }
+   481→                                              const action = isOn ? "TURN_OFF" : "TURN_ON";
+   482→                                              overrideMutation.mutate({
+   483→                                                mealId: m.mealId,
+   484→                                                userId: u.userId,
+   485→                                                serviceDate: dateStr,
+   486→                                                action,
+   487→                                              });
+   488→                                            }}
+   489→                                            className={cn(
+   490→                                              "relative inline-flex h-7 w-12 items-center rounded-full transition-all shrink-0",
+   491→                                              isOn ? "bg-success shadow-sm shadow-success/30" : "bg-muted",
+   492→                                              isReadOnly &&
+   493→                                                "opacity-70 cursor-not-allowed ring-2 ring-destructive/50 ring-offset-1 ring-offset-background",
+   494→                                              isLoading && "opacity-50 cursor-wait"
+   495→                                            )}
+   496→                                          >
+   497→                                            <motion.span
+   498→                                              layout
+   499→                                              transition={{ type: "spring", stiffness: 500, damping: 30 }}
+   500→                                              className={cn(
+   501→                                                "inline-block h-5 w-5 rounded-full bg-white shadow-sm",
+   502→                                                isOn ? "ml-auto mr-1" : "ml-1"
+   503→                                              )}
+   504→                                            />
+   505→                                          </button>
+   506→                                        </div>
+   507→                                      </div>
+   508→                                    );
+   509→                                  })}
+   510→                                </div>
+   511→                              </motion.div>
+   512→                            )}
+   513→                          </AnimatePresence>
+   514→                        </GlassCard>
+   515→                      );
+   516→                    })
+   517→                  )}
+   518→                </div>
+   519→              </GlassCard>
+   520→            </StaggerItem>
+   521→          )}
+   522→        </>
+   523→      )}
+   524→    </StaggerGroup>
+   525→  );
+   526→}
+   527→
+   528→// ─────────────────────────────────────────────────────────────
+   529→// Sub-components
+   530→// ─────────────────────────────────────────────────────────────
+   531→
+   532→function KpiCard({
+   533→  icon,
+   534→  label,
+   535→  value,
+   536→  color,
+   537→  sub,
+   538→}: {
+   539→  icon: React.ReactNode;
+   540→  label: string;
+   541→  value: number;
+   542→  color: "primary" | "success" | "warning" | "danger" | "info";
+   543→  sub?: string;
+   544→}) {
+   545→  const colorVar =
+   546→    color === "primary"
+   547→      ? "var(--primary)"
+   548→      : color === "success"
+   549→        ? "var(--success)"
+   550→        : color === "warning"
+   551→          ? "var(--warning)"
+   552→          : color === "danger"
+   553→            ? "var(--destructive)"
+   554→            : "var(--info)";
+   555→  return (
+   556→    <GlassCard
+   557→      className="p-4 relative overflow-hidden"
+   558→      glow={color === "danger" ? "danger" : color === "warning" ? "warning" : color === "success" ? "success" : "primary"}
+   559→      whileHover={{ y: -2 }}
+   560→    >
+   561→      <div
+   562→        className="absolute -top-8 -right-8 h-24 w-24 rounded-full blur-3xl opacity-30"
+   563→        style={{ background: colorVar }}
+   564→      />
+   565→      <div className="relative">
+   566→        <div className="flex items-start justify-between mb-3">
+   567→          <div
+   568→            className="grid place-items-center h-9 w-9 rounded-2xl"
+   569→            style={{
+   570→              background: `color-mix(in oklch, ${colorVar} 18%, transparent)`,
+   571→              color: colorVar,
+   572→            }}
+   573→          >
+   574→            {icon}
+   575→          </div>
+   576→        </div>
+   577→        <p className="text-[11px] text-muted-foreground">{label}</p>
+   578→        <div className="text-2xl font-bold tracking-tight tabular-nums">
+   579→          <AnimatedCounter value={value} />
+   580→        </div>
+   581→        {sub && (
+   582→          <p className="text-[10px] text-muted-foreground mt-1">{sub}</p>
+   583→        )}
+   584→      </div>
+   585→    </GlassCard>
+   586→  );
+   587→}
+   588→
+   589→function MealCard({ meal }: { meal: MealCount }) {
+   590→  return (
+   591→    <motion.div
+   592→      whileHover={{ y: -4, scale: 1.01 }}
+   593→      whileTap={{ scale: 0.98 }}
+   594→      transition={{ type: "spring", stiffness: 300, damping: 22 }}
+   595→      className="relative rounded-3xl p-5 overflow-hidden glass"
+   596→      style={{
+   597→        background: `linear-gradient(135deg, ${meal.color}30 0%, ${meal.color}0a 55%, transparent 100%)`,
+   598→        borderColor: `${meal.color}50`,
+   599→        boxShadow: `0 8px 32px -10px ${meal.color}40, inset 0 1px 0 0 ${meal.color}25`,
+   600→      }}
+   601→    >
+   602→      <div
+   603→        className="absolute -top-12 -right-12 h-32 w-32 rounded-full blur-3xl opacity-40 pointer-events-none"
+   604→        style={{ background: meal.color }}
+   605→      />
+   606→      <div className="relative">
+   607→        <div className="flex items-start justify-between mb-3">
+   608→          <div className="text-4xl drop-shadow-sm">{meal.icon}</div>
+   609→          <div className="text-right">
+   610→            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   611→              Service
+   612→            </div>
+   613→            <div className="text-xs font-medium tabular-nums">
+   614→              {(() => {
+   615→                const to12 = (t: string) => {
+   616→                  const [h, m] = t.split(":").map(Number);
+   617→                  const period = h >= 12 ? "PM" : "AM";
+   618→                  const hr = h % 12 || 12;
+   619→                  return `${hr}:${String(m).padStart(2, "0")} ${period}`;
+   620→                };
+   621→                return `${to12(meal.startTime)} – ${to12(meal.endTime)}`;
+   622→              })()}
+   623→            </div>
+   624→          </div>
+   625→        </div>
+   626→        <h4 className="font-semibold text-base">{meal.displayName}</h4>
+   627→
+   628→        <div className="mt-3 flex items-end justify-between gap-3">
+   629→          <div>
+   630→            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   631→              ON count
+   632→            </div>
+   633→            <AnimatedCounter
+   634→              value={meal.on}
+   635→              className="text-4xl font-bold tracking-tight tabular-nums block leading-none"
+   636→            />
+   637→          </div>
+   638→          <div className="flex flex-col gap-1 items-end">
+   639→            <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground">
+   640→              OFF: <strong className="tabular-nums">{meal.off}</strong>
+   641→            </span>
+   642→            <span
+   643→              className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+   644→              style={{
+   645→                background: `${meal.color}25`,
+   646→                color: meal.color,
+   647→              }}
+   648→            >
+   649→              Guests:{" "}
+   650→              <strong className="tabular-nums">{meal.guests}</strong>
+   651→            </span>
+   652→            <span className="text-[10px] px-2 py-0.5 rounded-full bg-success/20 text-success font-medium">
+   653→              Total:{" "}
+   654→              <strong className="tabular-nums">{meal.total}</strong>
+   655→            </span>
+   656→          </div>
+   657→        </div>
+   658→      </div>
+   659→    </motion.div>
+   660→  );
+   661→}
+   662→
+   663→// ─────────────────────────────────────────────────────────────
+   664→// States
+   665→// ─────────────────────────────────────────────────────────────
+   666→
+   667→function AccessRestricted() {
+   668→  return (
+   669→    <div className="grid place-items-center min-h-[60vh] p-4">
+   670→      <StaggerGroup className="w-full max-w-md">
+   671→        <StaggerItem>
+   672→          <GlassCard
+   673→            className="p-8 text-center"
+   674→            glow="warning"
+   675→            hover={false}
+   676→          >
+   677→            <motion.div
+   678→              initial={{ scale: 0.8, opacity: 0 }}
+   679→              animate={{ scale: 1, opacity: 1 }}
+   680→              transition={{ type: "spring", stiffness: 220, damping: 18 }}
+   681→              className="grid place-items-center h-16 w-16 rounded-3xl bg-warning/15 mx-auto mb-5"
+   682→            >
+   683→              <Lock className="h-8 w-8 text-warning" />
+   684→            </motion.div>
+   685→            <h2 className="text-xl font-bold mb-2">
+   686→              Access restricted
+   687→            </h2>
+   688→            <p className="text-sm text-muted-foreground">
+   689→              The Kitchen Dashboard is available to{" "}
+   690→              <strong className="text-foreground">managers and admins</strong>{" "}
+   691→              only. Residents don&apos;t have access to live meal counts.
+   692→            </p>
+   693→            <p className="text-xs text-muted-foreground mt-4">
+   694→              If you believe this is a mistake, please contact your
+   695→              administrator.
+   696→            </p>
+   697→          </GlassCard>
+   698→        </StaggerItem>
+   699→      </StaggerGroup>
+   700→    </div>
+   701→  );
+   702→}
+   703→
+   704→function KitchenSkeleton() {
+   705→  return (
+   706→    <div className="space-y-4">
+   707→      <ShimmerSkeleton className="h-32" />
+   708→      <div className="grid-kpi gap-3">
+   709→        <ShimmerSkeleton className="h-28" />
+   710→        <ShimmerSkeleton className="h-28" />
+   711→        <ShimmerSkeleton className="h-28" />
+   712→      </div>
+   713→      <ShimmerSkeleton className="h-32" />
+   714→      <div className="grid-cards gap-3">
+   715→        {Array.from({ length: 6 }).map((_, i) => (
+   716→          <ShimmerSkeleton key={i} className="h-44" />
+   717→        ))}
+   718→      </div>
+   719→    </div>
+   720→  );
+   721→}
+   722→

@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --text: #111827;
+    --text-sub: #6B7280;
+    --text-muted: #9CA3AF;
+    --bg: #FFFFFF;
+    --surface: #F9FAFB;
+    --border: #E5E7EB;
+    --blue: #3B82F6;
+    --cyan: #06B6D4;
+    --purple: #8B5CF6;
+    --amber: #F59E0B;
+    --red: #EF4444;
+    --green: #10B981;
+    --connector: #94A3B8;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #root { width: fit-content; min-width: 1800px; margin: 0 auto; padding: 48px 40px; }
+
+  /* ── Title ── */
+  .dfd-title {
+    font-size: 28px; font-weight: 800; color: var(--text);
+    text-align: center; margin-bottom: 8px;
+  }
+  .dfd-subtitle {
+    font-size: 15px; color: var(--text-sub);
+    text-align: center; margin-bottom: 40px; max-width: 900px; margin-left: auto; margin-right: auto; line-height: 1.6;
+  }
+
+  /* ── Legend ── */
+  .legend-bar {
+    display: flex; gap: 28px; justify-content: center; align-items: center;
+    margin-bottom: 36px; padding: 14px 24px;
+    background: #F8FAFC; border-radius: 10px; border: 1px solid #E5E7EB;
+    flex-wrap: wrap;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #4B5563; font-weight: 500; }
+  .legend-shape-entity {
+    width: 28px; height: 22px; background: #FEF3C7; border: 2px solid #F59E0B;
+    border-radius: 4px;
+  }
+  .legend-shape-process {
+    width: 28px; height: 22px; background: #EFF6FF; border: 2px solid #3B82F6;
+    border-radius: 20px;
+  }
+  .legend-shape-store {
+    width: 32px; height: 22px; background: #F5F3FF; border: 2px solid #8B5CF6;
+    border-top: none; border-bottom: 2px solid #8B5CF6; position: relative;
+  }
+  .legend-shape-store::before, .legend-shape-store::after {
+    content: ''; position: absolute; top: 0; width: 8px; height: 4px;
+    background: #F5F3FF; border: 2px solid #8B5CF6; border-bottom: none;
+  }
+  .legend-shape-store::before { left: 2px; }
+  .legend-shape-store::after { right: 2px; }
+  .legend-badge-user {
+    font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px;
+    background: #DBEAFE; color: #1E40AF;
+  }
+  .legend-badge-admin {
+    font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px;
+    background: #FEF3C7; color: #92400E;
+  }
+  .legend-badge-system {
+    font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 4px;
+    background: #D1FAE5; color: #065F46;
+  }
+
+  /* ── Three-column layout: User | Data Stores | Admin ── */
+  .dfd-grid {
+    display: grid;
+    grid-template-columns: 1fr 340px 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+
+  .lane {
+    display: flex; flex-direction: column; gap: 20px;
+  }
+  .lane-header {
+    text-align: center; padding: 14px 20px; border-radius: 12px;
+    font-size: 18px; font-weight: 700; margin-bottom: 8px;
+  }
+  .lane-user .lane-header {
+    background: linear-gradient(135deg, #DBEAFE 0%, #BFDBFE 100%);
+    color: #1E3A8A; border: 2px solid #3B82F6;
+  }
+  .lane-admin .lane-header {
+    background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+    color: #92400E; border: 2px solid #F59E0B;
+  }
+
+  /* ── Process node (rounded rect) ── */
+  .process-node {
+    background: #EFF6FF; border: 2px solid #3B82F6;
+    border-radius: 14px; padding: 14px 16px;
+    position: relative; z-index: 2;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  }
+  .process-node.admin-action {
+    background: #FFF7ED; border-color: #F59E0B;
+  }
+  .process-node.system-action {
+    background: #F0FDF4; border-color: #10B981;
+  }
+  .process-node .node-id {
+    position: absolute; top: -10px; left: 12px;
+    width: 24px; height: 24px; line-height: 24px;
+    text-align: center; border-radius: 50%;
+    font-size: 11px; font-weight: 700;
+    background: #3B82F6; color: white;
+  }
+  .process-node.admin-action .node-id { background: #F59E0B; }
+  .process-node.system-action .node-id { background: #10B981; }
+  .process-node .node-title {
+    font-size: 14px; font-weight: 700; color: #1F2937; line-height: 1.3;
+    margin-bottom: 4px;
+  }
+  .process-node .node-desc {
+    font-size: 12px; color: #6B7280; line-height: 1.5;
+  }
+  .process-node .role-tag {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    padding: 2px 7px; border-radius: 4px; margin-top: 6px;
+  }
+  .role-tag.user { background: #DBEAFE; color: #1E40AF; }
+  .role-tag.admin { background: #FEF3C7; color: #92400E; }
+  .role-tag.system { background: #D1FAE5; color: #065F46; }
+
+  /* ── Data store (open rectangle) ── */
+  .data-store {
+    background: #F5F3FF; border: 2px solid #8B5CF6;
+    border-radius: 6px; padding: 14px 16px;
+    position: relative; z-index: 2;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  }
+  .data-store::before {
+    content: ''; position: absolute; top: -2px; left: 14px; right: 14px;
+    height: 5px; background: #F5F3FF;
+    border-left: 2px solid #8B5CF6; border-right: 2px solid #8B5CF6;
+  }
+  .data-store .store-label {
+    font-size: 11px; font-weight: 700; color: #6B21B6; text-transform: uppercase;
+    letter-spacing: 0.5px; margin-bottom: 4px;
+  }
+  .data-store .store-name {
+    font-size: 15px; font-weight: 700; color: #1F2937; margin-bottom: 4px;
+  }
+  .data-store .store-fields {
+    font-size: 11px; color: #6B7280; line-height: 1.5;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  .stores-column {
+    display: flex; flex-direction: column; gap: 16px;
+    padding-top: 56px;
+  }
+  .stores-title {
+    text-align: center; font-size: 14px; font-weight: 700; color: #6B21B6;
+    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;
+  }
+
+  /* ── Domain section dividers ── */
+  .domain-section {
+    margin-top: 8px;
+  }
+  .domain-label {
+    font-size: 13px; font-weight: 700; color: #4B5563;
+    text-transform: uppercase; letter-spacing: 1px;
+    padding: 8px 14px; background: #F1F5F9; border-radius: 8px;
+    text-align: center; margin-bottom: 14px;
+    border-left: 4px solid #64748B;
+  }
+
+  /* ── Flow arrow (between nodes within a lane) ── */
+  .flow-arrow {
+    text-align: center; color: #94A3B8; font-size: 20px;
+    line-height: 1; margin: -8px 0; z-index: 1; position: relative;
+  }
+  .flow-arrow-label {
+    font-size: 11px; color: #6B7280; font-weight: 600;
+    background: white; padding: 0 6px; margin-top: 2px;
+  }
+
+  /* ── Cross-lane flow indicator ── */
+  .cross-flow {
+    position: relative; padding: 10px 0; margin: -8px 0;
+    text-align: center;
+  }
+  .cross-flow .cross-label {
+    display: inline-block; font-size: 11px; font-weight: 600;
+    color: #4B5563; background: #FEF9C3; border: 1px dashed #CA8A04;
+    padding: 4px 12px; border-radius: 6px;
+  }
+
+  /* ── Funds aggregation box (bottom) ── */
+  .funds-aggregation {
+    margin-top: 36px; padding: 24px;
+    background: linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%);
+    border: 2px solid #10B981; border-radius: 16px;
+  }
+  .funds-title {
+    font-size: 18px; font-weight: 700; color: #065F46; margin-bottom: 16px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .funds-formula {
+    display: flex; align-items: center; gap: 12px; justify-content: center;
+    flex-wrap: wrap;
+  }
+  .funds-term {
+    background: white; border: 2px solid #10B981; border-radius: 10px;
+    padding: 10px 16px; text-align: center; min-width: 140px;
+  }
+  .funds-term .term-label { font-size: 11px; color: #6B7280; font-weight: 600; text-transform: uppercase; }
+  .funds-term .term-source { font-size: 13px; font-weight: 700; color: #1F2937; margin-top: 2px; }
+  .funds-operator { font-size: 24px; font-weight: 700; color: #10B981; }
+  .funds-result {
+    background: #10B981; color: white; border-radius: 10px;
+    padding: 10px 20px; text-align: center; min-width: 160px;
+  }
+  .funds-result .term-label { font-size: 11px; opacity: 0.9; font-weight: 600; text-transform: uppercase; }
+  .funds-result .term-source { font-size: 15px; font-weight: 700; margin-top: 2px; }
+
+  /* ── SVG connector layer ── */
+  .connector-layer {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 1;
+  }
+</style>
+</head>
+<body>
+<div id="root">
+  <div class="dfd-title">BoardOps — Payment & Finance Data Flow Diagram</div>
+  <div class="dfd-subtitle">
+    Complete data flow across Billing, Payments, Funds, and Expenses — from both User and Admin perspectives.
+    Shows how money flows through the system, how bills are generated and paid, how refunds are processed,
+    and how the Funds overview aggregates everything.
+  </div>
+
+  <!-- Legend -->
+  <div class="legend-bar">
+    <div class="legend-item"><div class="legend-shape-entity"></div>External Entity (Actor)</div>
+    <div class="legend-item"><div class="legend-shape-process"></div>Process</div>
+    <div class="legend-item"><div class="legend-shape-store"></div>Data Store</div>
+    <div class="legend-item"><span class="legend-badge-user">USER</span> User action</div>
+    <div class="legend-item"><span class="legend-badge-admin">ADMIN</span> Admin action</div>
+    <div class="legend-item"><span class="legend-badge-system">SYSTEM</span> Auto / system</div>
+  </div>
+
+  <!-- Main DFD Grid: User Lane | Data Stores | Admin Lane -->
+  <div class="dfd-grid" style="position: relative;">
+
+    <!-- ════════════════════ USER LANE ════════════════════ -->
+    <div class="lane lane-user">
+      <div class="lane-header">👤 USER (Resident)</div>
+
+      <!-- Billing domain -->
+      <div class="domain-section">
+        <div class="domain-label">Billing — View</div>
+        <div class="process-node">
+          <div class="node-id">1</div>
+          <div class="node-title">View My Bills</div>
+          <div class="node-desc">See total, paid, due, status, due date. Receives notification when bill generated.</div>
+          <span class="role-tag user">USER</span>
+        </div>
+        <div class="flow-arrow">↓<div class="flow-arrow-label">reads</div></div>
+        <div class="process-node">
+          <div class="node-id">2</div>
+          <div class="node-title">Pay Bill</div>
+          <div class="node-desc">Submit payment linked to a specific bill (amount, method, reference).</div>
+          <span class="role-tag user">USER</span>
+        </div>
+      </div>
+
+      <!-- Payments domain -->
+      <div class="domain-section">
+        <div class="domain-label">Payments — Submit</div>
+        <div class="process-node">
+          <div class="node-id">3</div>
+          <div class="node-title">Submit Payment</div>
+          <div class="node-desc">Creates PENDING payment (linked to bill or unlinked deposit). Notifies all admins.</div>
+          <span class="role-tag user">USER</span>
+        </div>
+        <div class="flow-arrow">↓<div class="flow-arrow-label">status: PENDING</div></div>
+        <div class="process-node">
+          <div class="node-id">4</div>
+          <div class="node-title">Receive Notification</div>
+          <div class="node-desc">"Payment approved" / "Payment rejected" / "Refund processed" — pushed on status change.</div>
+          <span class="role-tag system">SYSTEM</span>
+        </div>
+      </div>
+
+      <!-- Funds/Expenses: User has no direct access -->
+      <div class="domain-section">
+        <div class="domain-label">Funds & Expenses</div>
+        <div class="process-node" style="opacity: 0.5; border-style: dashed;">
+          <div class="node-id" style="background: #94A3B8;">—</div>
+          <div class="node-title">No Access</div>
+          <div class="node-desc">Funds & Expenses are admin-only. Users can only view their own bills and payments.</div>
+          <span class="role-tag user" style="background: #E5E7EB; color: #6B7280;">USER</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════ DATA STORES (center) ════════════════════ -->
+    <div class="stores-column">
+      <div class="stores-title">🗄️ Data Stores</div>
+
+      <div class="data-store">
+        <div class="store-label">D1</div>
+        <div class="store-name">Bills</div>
+        <div class="store-fields">
+          userId, periodMonth/Year<br>
+          totalAmount, paidAmount, dueAmount<br>
+          status (GENERATED / PAID /<br>
+          PARTIALLY_PAID / OVERDUE /<br>
+          VOID / DELETED)<br>
+          dueDate, deletedAt
+        </div>
+      </div>
+
+      <div class="data-store">
+        <div class="store-label">D2</div>
+        <div class="store-name">Payments</div>
+        <div class="store-fields">
+          userId, billId?, amount, method<br>
+          status (PENDING / APPROVED /<br>
+          REJECTED / REFUNDED /<br>
+          VOID / DELETED)<br>
+          approvedBy, deletedAt
+        </div>
+      </div>
+
+      <div class="data-store">
+        <div class="store-label">D3</div>
+        <div class="store-name">Expenses</div>
+        <div class="store-fields">
+          title, amount, category<br>
+          quantity, unit, expenseDate<br>
+          paidTo, createdBy<br>
+          status (APPROVED / DELETED)<br>
+          deletedAt
+        </div>
+      </div>
+
+      <div class="data-store">
+        <div class="store-label">D4</div>
+        <div class="store-name">MealEntries</div>
+        <div class="store-fields">
+          userId, mealId, serviceDate<br>
+          status (ON / OFF / LOCKED)<br>
+          originalState, overrideFlag
+        </div>
+      </div>
+
+      <div class="data-store">
+        <div class="store-label">D5</div>
+        <div class="store-name">Notifications</div>
+        <div class="store-fields">
+          userId, title, description<br>
+          type, priority, route, readAt
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════════════════ ADMIN LANE ════════════════════ -->
+    <div class="lane lane-admin">
+      <div class="lane-header">🛡️ ADMIN</div>
+
+      <!-- Billing domain -->
+      <div class="domain-section">
+        <div class="domain-label">Billing — Generate</div>
+        <div class="process-node admin-action">
+          <div class="node-id">5</div>
+          <div class="node-title">Generate Bills</div>
+          <div class="node-desc">Calculates meal charges from MealEntries × rates + rent/cleaning. Creates or updates bills. Can run multiple times — payment history preserved.</div>
+          <span class="role-tag admin">ADMIN</span>
+        </div>
+        <div class="flow-arrow">↓<div class="flow-arrow-label">notifies user</div></div>
+        <div class="process-node admin-action">
+          <div class="node-id">6</div>
+          <div class="node-title">Manage Bills</div>
+          <div class="node-desc">View all bills, void (reverses payment), soft-delete (7-day queue), restore from deletion queue.</div>
+          <span class="role-tag admin">ADMIN</span>
+        </div>
+      </div>
+
+      <!-- Payments domain -->
+      <div class="domain-section">
+        <div class="domain-label">Payments — Approve / Refund</div>
+        <div class="process-node admin-action">
+          <div class="node-id">7</div>
+          <div class="node-title">Approve / Reject Payment</div>
+          <div class="node-desc">Approve → adds to bill paidAmount (recompute from scratch). Reject → reverses if was approved. Idempotent. Notifies user.</div>
+          <span class="role-tag admin">ADMIN</span>
+        </div>
+        <div class="flow-arrow">↓<div class="flow-arrow-label">recompute bill</div></div>
+        <div class="process-node admin-action">
+          <div class="node-id">8</div>
+          <div class="node-title">Edit / Void / Delete Payment</div>
+          <div class="node-desc">Edit fields (not amount on approved+linked). Void reverses bill. Soft-delete queues for 7 days. All recompute bill.</div>
+          <span class="role-tag admin">ADMIN</span>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="process-node admin-action">
+          <div class="node-id">9</div>
+          <div class="node-title">Process Refund</div>
+          <div class="node-desc">Auto-fetches users with credit (approved − billed − refunded). Creates REFUNDED payment linked to overpaid bill. Reduces bill paidAmount. Notifies user.</div>
+          <span class="role-tag admin">ADMIN</span>
+        </div>
+      </div>
+
+      <!-- Expenses domain -->
+      <div class="domain-section">
+        <div class="domain-label">Expenses — Track</div>
+        <div class="process-node admin-action">
+          <div class="node-id">10</div>
+          <div class="node-title">Add Expense</div>
+          <div class="node-desc">Record item purchased (title, qty, unit, cost, category, paidTo, date). Reduces remaining fund.</div>
+          <span class="role-tag admin">ADMIN</span>
+        </div>
+        <div class="flow-arrow">↓</div>
+        <div class="process-node admin-action">
+          <div class="node-id">11</div>
+          <div class="node-title">Manage Expenses</div>
+          <div class="node-desc">View by month, soft-delete with reason (7-day queue), restore from deletion queue.</div>
+          <span class="role-tag admin">ADMIN</span>
+        </div>
+      </div>
+
+      <!-- Funds domain -->
+      <div class="domain-section">
+        <div class="domain-label">Funds — Overview</div>
+        <div class="process-node admin-action">
+          <div class="node-id">12</div>
+          <div class="node-title">View Funds Dashboard</div>
+          <div class="node-desc">KPIs: Total Deposit, Remaining Fund, Refund Pending. Per-user breakdown: deposit paid vs need-to-pay. Search + filter (All/Due/Paid).</div>
+          <span class="role-tag admin">ADMIN</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SVG connector layer for cross-lane arrows -->
+    <svg class="connector-layer" id="connectorSvg">
+      <defs>
+        <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#3B82F6"/>
+        </marker>
+        <marker id="arrowAmber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#F59E0B"/>
+        </marker>
+        <marker id="arrowPurple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="#8B5CF6"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+
+  <!-- ════════════════════ FUNDS AGGREGATION FORMULA ════════════════════ -->
+  <div class="funds-aggregation">
+    <div class="funds-title">💰 Funds Overview — Aggregation Formula</div>
+    <div class="funds-formula">
+      <div class="funds-term">
+        <div class="term-label">Total Deposit</div>
+        <div class="term-source">Σ APPROVED Payments</div>
+      </div>
+      <div class="funds-operator">−</div>
+      <div class="funds-term">
+        <div class="term-label">Total Expenses</div>
+        <div class="term-source">Σ Expenses (non-deleted)</div>
+      </div>
+      <div class="funds-operator">=</div>
+      <div class="funds-result">
+        <div class="term-label">Remaining Fund</div>
+        <div class="term-source">Available Balance</div>
+      </div>
+    </div>
+    <div style="text-align: center; margin-top: 16px; font-size: 13px; color: #065F46; line-height: 1.6;">
+      Per-user deposit = Σ that user's APPROVED payments (month) · Per-user need-to-pay = bill dueAmount (period)<br>
+      Refund credit = (Σ APPROVED) − (Σ billed, past periods) − (Σ already REFUNDED)
+    </div>
+  </div>
+
+  <!-- ════════════════════ KEY FLOWS SUMMARY ════════════════════ -->
+  <div style="margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+    <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 12px; padding: 20px;">
+      <div style="font-size: 16px; font-weight: 700; color: #1E3A5F; margin-bottom: 12px;">Bill → Payment Flow</div>
+      <div style="font-size: 13px; color: #4B5563; line-height: 1.8;">
+        ① Admin generates bill → <strong>D1 Bills</strong> (status: GENERATED) + notify user → <strong>D5</strong><br>
+        ② User views bill → submits payment → <strong>D2 Payments</strong> (status: PENDING) + notify admins<br>
+        ③ Admin approves → <strong>D2</strong> (status: APPROVED) → recompute <strong>D1</strong> paidAmount/due/status → notify user<br>
+        ④ If overpaid → admin processes refund → <strong>D2</strong> (status: REFUNDED) → recompute <strong>D1</strong> → notify user
+      </div>
+    </div>
+    <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 12px; padding: 20px;">
+      <div style="font-size: 16px; font-weight: 700; color: #1E3A5F; margin-bottom: 12px;">Funds & Expense Flow</div>
+      <div style="font-size: 13px; color: #4B5563; line-height: 1.8;">
+        ① Admin adds expense → <strong>D3 Expenses</strong><br>
+        ② Funds dashboard reads <strong>D2</strong> (APPROVED) for deposits + <strong>D3</strong> for expenses<br>
+        ③ Remaining = Deposits − Expenses (real-time)<br>
+        ④ Per-user: deposit = Σ user's APPROVED payments · need-to-pay = <strong>D1</strong> dueAmount<br>
+        ⑤ Refund Pending KPI = count of users with credit > 0
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════ SYNC RULES ════════════════════ -->
+  <div style="margin-top: 20px; background: #FFF7ED; border: 1.5px solid #FDBA74; border-radius: 12px; padding: 20px;">
+    <div style="font-size: 16px; font-weight: 700; color: #9A3412; margin-bottom: 12px;">⚙️ Bill ↔ Payment Sync Rules (recomputeBillPaidState)</div>
+    <div style="font-size: 13px; color: #7C2D12; line-height: 1.8;">
+      Every payment status change (approve, reject, void, delete, refund, restore) triggers a <strong>full recompute</strong> of the linked bill:<br>
+      • <strong>paidAmount</strong> = Σ APPROVED payments − Σ REFUNDED payments (on that bill)<br>
+      • <strong>dueAmount</strong> = max(0, totalAmount − paidAmount)<br>
+      • <strong>status</strong> = PAID (if paid ≥ total) · PARTIALLY_PAID (if paid > 0) · GENERATED (if paid = 0)<br>
+      • Idempotent: re-approving an approved payment is a no-op (no double-counting)
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

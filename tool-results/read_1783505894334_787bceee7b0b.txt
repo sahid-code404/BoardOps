@@ -1,0 +1,1367 @@
+     1→"use client";
+     2→
+     3→import * as React from "react";
+     4→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     5→import { useForm, Controller, useWatch } from "react-hook-form";
+     6→import { zodResolver } from "@hookform/resolvers/zod";
+     7→import { z } from "zod";
+     8→import { motion, AnimatePresence } from "framer-motion";
+     9→import { toast } from "sonner";
+    10→import {
+    11→  Utensils,
+    12→  Plus,
+    13→  Search,
+    14→  Pencil,
+    15→  Trash2,
+    16→  Archive,
+    17→  Clock,
+    18→  Shield,
+    19→  AlertCircle,
+    20→  EyeOff,
+    21→  Sparkles,
+    22→  ArrowUpDown,
+    23→} from "lucide-react";
+    24→import { GlassCard } from "@/components/glass/glass-card";
+    25→import { GlassButton } from "@/components/glass/glass-button";
+    26→import { GlassInput, GlassTextarea } from "@/components/glass/glass-input";
+    27→import { GlassNav } from "@/components/glass/glass-nav";
+    28→import {
+    29→  StaggerGroup,
+    30→  StaggerItem,
+    31→} from "@/components/glass/page-transition";
+    32→import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
+    33→import {
+    34→  Dialog,
+    35→  DialogContent,
+    36→  DialogHeader,
+    37→  DialogTitle,
+    38→  DialogDescription,
+    39→  DialogFooter,
+    40→} from "@/components/ui/dialog";
+    41→import {
+    42→  Sheet,
+    43→  SheetContent,
+    44→  SheetHeader,
+    45→  SheetTitle,
+    46→  SheetDescription,
+    47→  SheetFooter,
+    48→} from "@/components/ui/sheet";
+    49→import {
+    50→  Select,
+    51→  SelectContent,
+    52→  SelectItem,
+    53→  SelectTrigger,
+    54→  SelectValue,
+    55→} from "@/components/ui/select";
+    56→import { Switch } from "@/components/ui/switch";
+    57→import { Label } from "@/components/ui/label";
+    58→import { Badge } from "@/components/ui/badge";
+    59→import {
+    60→  AlertDialog,
+    61→  AlertDialogAction,
+    62→  AlertDialogCancel,
+    63→  AlertDialogContent,
+    64→  AlertDialogDescription,
+    65→  AlertDialogFooter,
+    66→  AlertDialogHeader,
+    67→  AlertDialogTitle,
+    68→} from "@/components/ui/alert-dialog";
+    69→import { api, ApiError } from "@/lib/api-client";
+    70→import { useAuthStore } from "@/stores/use-auth-store";
+    71→import { useIsMobile } from "@/hooks/use-mobile";
+    72→import { cn } from "@/lib/utils";
+    73→
+    74→// ─────────────────────────────────────────────────────────────
+    75→// Types
+    76→// ─────────────────────────────────────────────────────────────
+    77→
+    78→type MealConfiguration = {
+    79→  id: string;
+    80→  name: string;
+    81→  displayName: string;
+    82→  description?: string;
+    83→  icon: string;
+    84→  color: string;
+    85→  mealType: string; // REGULAR | SPECIAL | GUEST_ONLY | FESTIVAL | CUSTOM
+    86→  status: string; // ACTIVE | INACTIVE | ARCHIVED
+    87→  displayOrder: number;
+    88→  defaultState: string; // ON | OFF
+    89→  defaultVisibility: string; // VISIBLE | HIDDEN
+    90→  cutoffStrategy: string; // PREVIOUS_DAY | SAME_DAY | CUSTOM_OFFSET
+    91→  cutoffOffsetMinutes: number;
+    92→  cutoffTime: string;
+    93→  startTime: string;
+    94→  endTime: string;
+    95→  notes?: string;
+    96→  createdAt: string;
+    97→  updatedAt: string;
+    98→};
+    99→
+   100→// ─────────────────────────────────────────────────────────────
+   101→// Constants
+   102→// ─────────────────────────────────────────────────────────────
+   103→
+   104→const MEAL_TYPES: { value: string; label: string; hint: string }[] = [
+   105→  { value: "REGULAR", label: "Regular", hint: "Daily standard meal" },
+   106→  { value: "SPECIAL", label: "Special", hint: "Special occasion meal" },
+   107→  { value: "GUEST_ONLY", label: "Guest Only", hint: "Available to guests only" },
+   108→  { value: "FESTIVAL", label: "Festival", hint: "Festival/holiday meal" },
+   109→  { value: "CUSTOM", label: "Custom", hint: "Custom type" },
+   110→];
+   111→
+   112→const CUTOFF_STRATEGIES: {
+   113→  value: string;
+   114→  label: string;
+   115→  hint: string;
+   116→}[] = [
+   117→  {
+   118→    value: "PREVIOUS_DAY",
+   119→    label: "Previous Day",
+   120→    hint: "Cutoff on the day before service",
+   121→  },
+   122→  {
+   123→    value: "SAME_DAY",
+   124→    label: "Same Day",
+   125→    hint: "Cutoff on the service day itself",
+   126→  },
+   127→  {
+   128→    value: "CUSTOM_OFFSET",
+   129→    label: "Custom Offset",
+   130→    hint: "Cutoff N minutes before service",
+   131→  },
+   132→];
+   133→
+   134→const COLOR_SWATCHES = [
+   135→  "#8b5cf6",
+   136→  "#ec4899",
+   137→  "#f59e0b",
+   138→  "#10b981",
+   139→  "#06b6d4",
+   140→  "#ef4444",
+   141→  "#14b8a6",
+   142→  "#f97316",
+   143→  "#a855f7",
+   144→  "#84cc16",
+   145→];
+   146→
+   147→const EMOJI_CHOICES = [
+   148→  "🍽️",
+   149→  "🌅",
+   150→  "🥐",
+   151→  "🍳",
+   152→  "☕",
+   153→  "🥗",
+   154→  "🍲",
+   155→  "🍱",
+   156→  "🍛",
+   157→  "🍝",
+   158→  "🌮",
+   159→  "🍔",
+   160→  "🍕",
+   161→  "🥪",
+   162→  "🍜",
+   163→  "🥘",
+   164→  "🍣",
+   165→  "🥟",
+   166→  "🍤",
+   167→  "🍦",
+   168→  "🍰",
+   169→  "🍵",
+   170→  "🧃",
+   171→  "🍪",
+   172→  "🍩",
+   173→  "🥤",
+   174→];
+   175→
+   176→// ─────────────────────────────────────────────────────────────
+   177→// Form schema
+   178→// ─────────────────────────────────────────────────────────────
+   179→
+   180→const mealSchema = z.object({
+   181→  name: z.string().min(2, "Name must be at least 2 characters"),
+   182→  displayName: z.string().min(2, "Display name must be at least 2 characters"),
+   183→  description: z.string().optional(),
+   184→  icon: z.string().min(1, "Pick an icon"),
+   185→  color: z.string().min(1, "Pick a color"),
+   186→  mealType: z.enum([
+   187→    "REGULAR",
+   188→    "SPECIAL",
+   189→    "GUEST_ONLY",
+   190→    "FESTIVAL",
+   191→    "CUSTOM",
+   192→  ]),
+   193→  displayOrder: z.coerce.number().int().min(0, "Must be ≥ 0"),
+   194→  defaultState: z.enum(["ON", "OFF"]),
+   195→  defaultVisibility: z.enum(["VISIBLE", "HIDDEN"]),
+   196→  cutoffStrategy: z.enum(["PREVIOUS_DAY", "SAME_DAY", "CUSTOM_OFFSET"]),
+   197→  cutoffTime: z
+   198→    .string()
+   199→    .regex(/^\d{2}:\d{2}$/, "Enter a valid time"),
+   200→  cutoffOffsetMinutes: z.coerce.number().int().min(0).max(1440),
+   201→  startTime: z.string().regex(/^\d{2}:\d{2}$/, "Enter a valid time"),
+   202→  endTime: z.string().regex(/^\d{2}:\d{2}$/, "Enter a valid time"),
+   203→  notes: z.string().optional(),
+   204→});
+   205→
+   206→type MealFormValues = z.infer<typeof mealSchema>;
+   207→type MealFormInput = z.input<typeof mealSchema>;
+   208→
+   209→const DEFAULT_FORM_VALUES: MealFormValues = {
+   210→  name: "",
+   211→  displayName: "",
+   212→  description: "",
+   213→  icon: "🍽️",
+   214→  color: COLOR_SWATCHES[0],
+   215→  mealType: "REGULAR",
+   216→  displayOrder: 0,
+   217→  defaultState: "ON",
+   218→  defaultVisibility: "VISIBLE",
+   219→  cutoffStrategy: "PREVIOUS_DAY",
+   220→  cutoffTime: "22:00",
+   221→  cutoffOffsetMinutes: 0,
+   222→  startTime: "08:00",
+   223→  endTime: "10:00",
+   224→  notes: "",
+   225→};
+   226→
+   227→// ─────────────────────────────────────────────────────────────
+   228→// Helpers
+   229→// ─────────────────────────────────────────────────────────────
+   230→
+   231→/**
+   232→ * Custom 12-hour time picker with AM/PM select.
+   233→ * Always displays 12-hour AM/PM format regardless of browser locale.
+   234→ * Stores/returns "HH:mm" (24-hour) format for backend compatibility.
+   235→ */
+   236→function TimePicker12({
+   237→  value,
+   238→  onChange,
+   239→  error,
+   240→}: {
+   241→  value: string;
+   242→  onChange: (v: string) => void;
+   243→  error?: string;
+   244→}) {
+   245→  // Parse "HH:mm" → { hour: 1-12, minute, period: AM|PM }
+   246→  const [h24, m] = (value || "08:00").split(":").map(Number);
+   247→  const period = h24 >= 12 ? "PM" : "AM";
+   248→  const hour12 = h24 % 12 === 0 ? 12 : h24 % 12;
+   249→  const minute = m || 0;
+   250→
+   251→  const update = (newHour12: number, newMinute: number, newPeriod: "AM" | "PM") => {
+   252→    let h = newHour12 % 12;
+   253→    if (newPeriod === "PM") h += 12;
+   254→    onChange(`${String(h).padStart(2, "0")}:${String(newMinute).padStart(2, "0")}`);
+   255→  };
+   256→
+   257→  return (
+   258→    <div className="flex items-center gap-1.5">
+   259→      {/* Hour (1-12) */}
+   260→      <select
+   261→        value={hour12}
+   262→        onChange={(e) => update(Number(e.target.value), minute, period)}
+   263→        className="h-10 rounded-2xl glass px-2 text-sm outline-none focus:ring-2 focus:ring-primary/40 cursor-pointer"
+   264→      >
+   265→        {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
+   266→          <option key={h} value={h}>{h}</option>
+   267→        ))}
+   268→      </select>
+   269→      <span className="text-muted-foreground text-sm">:</span>
+   270→      {/* Minute (00-59, step 5) */}
+   271→      <select
+   272→        value={minute}
+   273→        onChange={(e) => update(hour12, Number(e.target.value), period)}
+   274→        className="h-10 rounded-2xl glass px-2 text-sm outline-none focus:ring-2 focus:ring-primary/40 cursor-pointer"
+   275→      >
+   276→        {Array.from({ length: 12 }, (_, i) => i * 5).map((m) => (
+   277→          <option key={m} value={m}>{String(m).padStart(2, "0")}</option>
+   278→        ))}
+   279→      </select>
+   280→      {/* AM / PM */}
+   281→      <select
+   282→        value={period}
+   283→        onChange={(e) => update(hour12, minute, e.target.value as "AM" | "PM")}
+   284→        className="h-10 rounded-2xl glass px-2 text-sm outline-none focus:ring-2 focus:ring-primary/40 cursor-pointer"
+   285→      >
+   286→        <option value="AM">AM</option>
+   287→        <option value="PM">PM</option>
+   288→      </select>
+   289→      {error && <p className="text-[11px] text-destructive ml-1">{error}</p>}
+   290→    </div>
+   291→  );
+   292→}
+   293→
+   294→function formatTime12(t: string): string {
+   295→  const [h, m] = t.split(":").map(Number);
+   296→  const period = h >= 12 ? "PM" : "AM";
+   297→  const hr = h % 12 === 0 ? 12 : h % 12;
+   298→  return `${hr}:${String(m || 0).padStart(2, "0")} ${period}`;
+   299→}
+   300→
+   301→function computeCutoffPreview(
+   302→  strategy: string,
+   303→  cutoffTime: string,
+   304→  offsetMinutes: number
+   305→): string {
+   306→  const time12 = formatTime12(cutoffTime);
+   307→  switch (strategy) {
+   308→    case "PREVIOUS_DAY":
+   309→      return `Previous day, ${time12}`;
+   310→    case "SAME_DAY":
+   311→      return `Service day, ${time12}`;
+   312→    case "CUSTOM_OFFSET":
+   313→      return `${offsetMinutes} min before service`;
+   314→    default:
+   315→      return time12;
+   316→  }
+   317→}
+   318→
+   319→function mealTypeBadgeClass(type: string): string {
+   320→  switch (type) {
+   321→    case "REGULAR":
+   322→      return "bg-primary/15 text-primary border-primary/30";
+   323→    case "SPECIAL":
+   324→      return "bg-accent/15 text-accent border-accent/30";
+   325→    case "GUEST_ONLY":
+   326→      return "bg-warning/15 text-warning border-warning/30";
+   327→    case "FESTIVAL":
+   328→      return "bg-success/15 text-success border-success/30";
+   329→    default:
+   330→      return "bg-muted text-muted-foreground border-border";
+   331→  }
+   332→}
+   333→
+   334→// ─────────────────────────────────────────────────────────────
+   335→// Meal Form (used in both Dialog & Sheet)
+   336→// ─────────────────────────────────────────────────────────────
+   337→
+   338→function MealForm({
+   339→  values,
+   340→  onSubmit,
+   341→  onCancel,
+   342→  submitting,
+   343→  submitLabel,
+   344→}: {
+   345→  values: MealFormValues | null;
+   346→  onSubmit: (v: MealFormValues) => void;
+   347→  onCancel: () => void;
+   348→  submitting: boolean;
+   349→  submitLabel: string;
+   350→}) {
+   351→  const {
+   352→    register,
+   353→    handleSubmit,
+   354→    control,
+   355→    setValue,
+   356→    watch,
+   357→    formState: { errors },
+   358→  } = useForm<MealFormInput, unknown, MealFormValues>({
+   359→    resolver: zodResolver(mealSchema),
+   360→    defaultValues: values ?? DEFAULT_FORM_VALUES,
+   361→    mode: "onChange",
+   362→  });
+   363→
+   364→  const watchedStrategy = useWatch({ control, name: "cutoffStrategy" });
+   365→  const watchedCutoffTime = useWatch({ control, name: "cutoffTime" });
+   366→  const watchedOffset = useWatch({ control, name: "cutoffOffsetMinutes" });
+   367→  const watchedColor = useWatch({ control, name: "color" });
+   368→  const watchedIcon = useWatch({ control, name: "icon" });
+   369→
+   370→  const cutoffPreview = computeCutoffPreview(
+   371→    watchedStrategy,
+   372→    watchedCutoffTime,
+   373→    Number(watchedOffset ?? 0)
+   374→  );
+   375→
+   376→  return (
+   377→    <form
+   378→      onSubmit={handleSubmit(onSubmit)}
+   379→      className="space-y-4 max-h-[70vh] overflow-y-auto no-scrollbar px-1"
+   380→    >
+   381→      {/* Identity section */}
+   382→      <div className="grid grid-cols-1 gap-3">
+   383→        <GlassInput
+   384→          label="Internal name"
+   385→          placeholder="morning_tea"
+   386→          {...register("name")}
+   387→          error={errors.name?.message}
+   388→          hint="Lowercase identifier used by the system"
+   389→        />
+   390→        <GlassInput
+   391→          label="Display name"
+   392→          placeholder="Morning Tea"
+   393→          {...register("displayName")}
+   394→          error={errors.displayName?.message}
+   395→          hint="Shown to residents"
+   396→        />
+   397→      </div>
+   398→
+   399→      <GlassTextarea
+   400→        label="Description"
+   401→        placeholder="A short description of this meal..."
+   402→        rows={2}
+   403→        {...register("description")}
+   404→      />
+   405→
+   406→      {/* Icon picker */}
+   407→      <div>
+   408→        <Label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
+   409→          Icon
+   410→        </Label>
+   411→        <div className="glass-soft rounded-2xl p-3">
+   412→          <div className="flex items-center gap-3 mb-2">
+   413→            <div
+   414→              className="grid place-items-center h-11 w-11 rounded-2xl text-xl shrink-0"
+   415→              style={{ background: `${watchedColor}22` }}
+   416→            >
+   417→              <span aria-hidden>{watchedIcon}</span>
+   418→            </div>
+   419→            <GlassInput
+   420→              placeholder="Paste any emoji"
+   421→              className="flex-1"
+   422→              {...register("icon")}
+   423→            />
+   424→          </div>
+   425→          <div className="grid grid-cols-8 gap-1.5 mt-2 max-h-32 overflow-y-auto no-scrollbar">
+   426→            {EMOJI_CHOICES.map((emoji) => (
+   427→              <button
+   428→                key={emoji}
+   429→                type="button"
+   430→                onClick={() => setValue("icon", emoji, { shouldValidate: true })}
+   431→                className={cn(
+   432→                  "grid place-items-center h-9 w-9 rounded-xl text-base transition-all hover:scale-110",
+   433→                  watchedIcon === emoji
+   434→                    ? "bg-primary/20 ring-2 ring-primary"
+   435→                    : "bg-muted/40 hover:bg-muted/70"
+   436→                )}
+   437→              >
+   438→                {emoji}
+   439→              </button>
+   440→            ))}
+   441→          </div>
+   442→        </div>
+   443→        {errors.icon?.message && (
+   444→          <p className="mt-1.5 ml-1 text-xs text-destructive">
+   445→            {errors.icon.message}
+   446→          </p>
+   447→        )}
+   448→      </div>
+   449→
+   450→      {/* Color picker */}
+   451→      <div>
+   452→        <Label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
+   453→          Color
+   454→        </Label>
+   455→        <div className="glass-soft rounded-2xl p-3 flex flex-wrap items-center gap-2">
+   456→          {COLOR_SWATCHES.map((c) => (
+   457→            <button
+   458→              key={c}
+   459→              type="button"
+   460→              onClick={() => setValue("color", c, { shouldValidate: true })}
+   461→              className={cn(
+   462→                "h-8 w-8 rounded-full transition-transform hover:scale-110",
+   463→                watchedColor === c
+   464→                  ? "ring-2 ring-offset-2 ring-offset-background ring-foreground"
+   465→                  : ""
+   466→              )}
+   467→              style={{ background: c }}
+   468→              aria-label={`Pick color ${c}`}
+   469→            />
+   470→          ))}
+   471→          <input
+   472→            type="color"
+   473→            value={watchedColor}
+   474→            onChange={(e) =>
+   475→              setValue("color", e.target.value, { shouldValidate: true })
+   476→            }
+   477→            className="h-8 w-8 rounded-full bg-transparent cursor-pointer border-0 p-0"
+   478→            aria-label="Custom color"
+   479→          />
+   480→        </div>
+   481→      </div>
+   482→
+   483→      {/* Type + status */}
+   484→      <div className="grid grid-cols-1 gap-3">
+   485→        <div>
+   486→          <Label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
+   487→            Meal type
+   488→          </Label>
+   489→          <Controller
+   490→            control={control}
+   491→            name="mealType"
+   492→            render={({ field }) => (
+   493→              <Select value={field.value} onValueChange={field.onChange}>
+   494→                <SelectTrigger className="w-full h-11 rounded-2xl glass-soft">
+   495→                  <SelectValue />
+   496→                </SelectTrigger>
+   497→                <SelectContent>
+   498→                  {MEAL_TYPES.map((t) => (
+   499→                    <SelectItem key={t.value} value={t.value}>
+   500→                      <span className="font-medium">{t.label}</span>
+   501→                      <span className="text-xs text-muted-foreground ml-1">
+   502→                        · {t.hint}
+   503→                      </span>
+   504→                    </SelectItem>
+   505→                  ))}
+   506→                </SelectContent>
+   507→              </Select>
+   508→            )}
+   509→          />
+   510→        </div>
+   511→
+   512→        <GlassInput
+   513→          label="Display order"
+   514→          type="number"
+   515→          min={0}
+   516→          {...register("displayOrder")}
+   517→          error={errors.displayOrder?.message}
+   518→          icon={<ArrowUpDown className="h-4 w-4" />}
+   519→        />
+   520→      </div>
+   521→
+   522→      {/* Times */}
+   523→      <div className="grid grid-cols-2 gap-3">
+   524→        <div className="space-y-1.5">
+   525→          <Label className="ml-1 block text-xs font-medium text-muted-foreground">Service start</Label>
+   526→          <TimePicker12
+   527→            value={watch("startTime") || "08:00"}
+   528→            onChange={(v) => setValue("startTime", v, { shouldValidate: true, shouldDirty: true })}
+   529→          />
+   530→          {errors.startTime?.message && (
+   531→            <p className="text-[11px] text-destructive ml-1">{errors.startTime.message}</p>
+   532→          )}
+   533→        </div>
+   534→        <div className="space-y-1.5">
+   535→          <Label className="ml-1 block text-xs font-medium text-muted-foreground">Service end</Label>
+   536→          <TimePicker12
+   537→            value={watch("endTime") || "10:00"}
+   538→            onChange={(v) => setValue("endTime", v, { shouldValidate: true, shouldDirty: true })}
+   539→          />
+   540→          {errors.endTime?.message && (
+   541→            <p className="text-[11px] text-destructive ml-1">{errors.endTime.message}</p>
+   542→          )}
+   543→        </div>
+   544→      </div>
+   545→
+   546→      {/* Cutoff */}
+   547→      <div className="glass-soft rounded-2xl p-3 space-y-3">
+   548→        <div className="flex items-center gap-2">
+   549→          <Clock className="h-4 w-4 text-primary" />
+   550→          <p className="text-sm font-semibold">Cutoff configuration</p>
+   551→        </div>
+   552→        <div className="grid grid-cols-1 gap-3">
+   553→          <div>
+   554→            <Label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
+   555→              Cutoff strategy
+   556→            </Label>
+   557→            <Controller
+   558→              control={control}
+   559→              name="cutoffStrategy"
+   560→              render={({ field }) => (
+   561→                <Select value={field.value} onValueChange={field.onChange}>
+   562→                  <SelectTrigger className="w-full h-11 rounded-2xl glass-soft">
+   563→                    <SelectValue />
+   564→                  </SelectTrigger>
+   565→                  <SelectContent>
+   566→                    {CUTOFF_STRATEGIES.map((t) => (
+   567→                      <SelectItem key={t.value} value={t.value}>
+   568→                        <span className="font-medium">{t.label}</span>
+   569→                        <span className="text-xs text-muted-foreground ml-1">
+   570→                          · {t.hint}
+   571→                        </span>
+   572→                      </SelectItem>
+   573→                    ))}
+   574→                  </SelectContent>
+   575→                </Select>
+   576→              )}
+   577→            />
+   578→          </div>
+   579→          <div className="space-y-1.5">
+   580→            <Label className="ml-1 block text-xs font-medium text-muted-foreground">Cutoff time</Label>
+   581→            <TimePicker12
+   582→              value={watch("cutoffTime") || "16:00"}
+   583→              onChange={(v) => setValue("cutoffTime", v, { shouldValidate: true, shouldDirty: true })}
+   584→              error={errors.cutoffTime?.message}
+   585→            />
+   586→          </div>
+   587→        </div>
+   588→
+   589→        {watchedStrategy === "CUSTOM_OFFSET" && (
+   590→          <GlassInput
+   591→            label="Offset minutes (before service)"
+   592→            type="number"
+   593→            min={0}
+   594→            {...register("cutoffOffsetMinutes")}
+   595→            error={errors.cutoffOffsetMinutes?.message}
+   596→            hint="How many minutes before the service start time the meal locks"
+   597→          />
+   598→        )}
+   599→
+   600→        {/* Cutoff preview */}
+   601→        <div className="rounded-xl bg-primary/8 border border-primary/20 px-3 py-2 flex items-center gap-2">
+   602→          <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+   603→          <p className="text-xs">
+   604→            <span className="text-muted-foreground">Editable until: </span>
+   605→            <span className="font-semibold text-foreground">
+   606→              {cutoffPreview}
+   607→            </span>
+   608→          </p>
+   609→        </div>
+   610→      </div>
+   611→
+   612→      {/* Defaults */}
+   613→      <div className="grid grid-cols-1 gap-3">
+   614→        <div className="glass-soft rounded-2xl p-3 flex items-center justify-between">
+   615→          <div>
+   616→            <p className="text-sm font-medium">Default state</p>
+   617→            <p className="text-[11px] text-muted-foreground">
+   618→              Initial ON/OFF for new entries
+   619→            </p>
+   620→          </div>
+   621→          <Controller
+   622→            control={control}
+   623→            name="defaultState"
+   624→            render={({ field }) => (
+   625→              <Switch
+   626→                checked={field.value === "ON"}
+   627→                onCheckedChange={(c) =>
+   628→                  field.onChange(c ? "ON" : "OFF")
+   629→                }
+   630→              />
+   631→            )}
+   632→          />
+   633→        </div>
+   634→
+   635→        <div className="glass-soft rounded-2xl p-3 flex items-center justify-between">
+   636→          <div>
+   637→            <p className="text-sm font-medium">Default visibility</p>
+   638→            <p className="text-[11px] text-muted-foreground">
+   639→              Visible or hidden initially
+   640→            </p>
+   641→          </div>
+   642→          <Controller
+   643→            control={control}
+   644→            name="defaultVisibility"
+   645→            render={({ field }) => (
+   646→              <Switch
+   647→                checked={field.value === "VISIBLE"}
+   648→                onCheckedChange={(c) =>
+   649→                  field.onChange(c ? "VISIBLE" : "HIDDEN")
+   650→                }
+   651→              />
+   652→            )}
+   653→          />
+   654→        </div>
+   655→      </div>
+   656→
+   657→      {/* Notes */}
+   658→      <GlassTextarea
+   659→        label="Internal notes"
+   660→        placeholder="Optional notes for admins..."
+   661→        rows={2}
+   662→        {...register("notes")}
+   663→      />
+   664→
+   665→      {/* Footer */}
+   666→      <div className="flex items-center justify-end gap-2 pt-2 sticky bottom-0 bg-background/80 backdrop-blur-md">
+   667→        <GlassButton
+   668→          type="button"
+   669→          variant="ghost"
+   670→          onClick={onCancel}
+   671→          disabled={submitting}
+   672→        >
+   673→          Cancel
+   674→        </GlassButton>
+   675→        <GlassButton type="submit" loading={submitting}>
+   676→          {submitLabel}
+   677→        </GlassButton>
+   678→      </div>
+   679→    </form>
+   680→  );
+   681→}
+   682→
+   683→// ─────────────────────────────────────────────────────────────
+   684→// Meal Config Card
+   685→// ─────────────────────────────────────────────────────────────
+   686→
+   687→function MealConfigCard({
+   688→  meal,
+   689→  isAdmin,
+   690→  onEdit,
+   691→  onDelete,
+   692→  onStatusChange,
+   693→  statusLoading,
+   694→}: {
+   695→  meal: MealConfiguration;
+   696→  isAdmin: boolean;
+   697→  onEdit: () => void;
+   698→  onDelete: () => void;
+   699→  onStatusChange: (status: string) => void;
+   700→  statusLoading?: boolean;
+   701→}) {
+   702→  const cutoffPreview = computeCutoffPreview(
+   703→    meal.cutoffStrategy,
+   704→    meal.cutoffTime,
+   705→    meal.cutoffOffsetMinutes
+   706→  );
+   707→  const inactive = meal.status === "INACTIVE";
+   708→  const archived = meal.status === "ARCHIVED";
+   709→
+   710→  return (
+   711→    <motion.div
+   712→      whileHover={{ y: -4 }}
+   713→      transition={{ type: "spring", stiffness: 280, damping: 22 }}
+   714→      className="h-full"
+   715→    >
+   716→      <GlassCard
+   717→        className="p-4 h-full flex flex-col relative overflow-hidden"
+   718→        glow="primary"
+   719→      >
+   720→        {/* Color accent */}
+   721→        <div
+   722→          className="absolute top-0 left-0 right-0 h-1"
+   723→          style={{ background: meal.color }}
+   724→        />
+   725→
+   726→        {/* Header row */}
+   727→        <div className="flex items-start justify-between gap-3 mb-3">
+   728→          <div className="flex items-center gap-3 min-w-0">
+   729→            <div
+   730→              className="grid place-items-center h-12 w-12 rounded-2xl text-2xl shrink-0"
+   731→              style={{ background: `${meal.color}22` }}
+   732→            >
+   733→              <span aria-hidden>{meal.icon}</span>
+   734→            </div>
+   735→            <div className="min-w-0">
+   736→              <p className="font-semibold text-sm truncate">
+   737→                {meal.displayName}
+   738→              </p>
+   739→              <p className="text-[11px] text-muted-foreground truncate font-mono">
+   740→                {meal.name}
+   741→              </p>
+   742→            </div>
+   743→          </div>
+   744→          <div className="flex items-center gap-1 shrink-0">
+   745→            <Badge
+   746→              variant="outline"
+   747→              className={cn("text-[10px]", mealTypeBadgeClass(meal.mealType))}
+   748→            >
+   749→              {MEAL_TYPES.find((t) => t.value === meal.mealType)?.label ||
+   750→                meal.mealType}
+   751→            </Badge>
+   752→          </div>
+   753→        </div>
+   754→
+   755→        {/* Status badges */}
+   756→        <div className="flex items-center gap-1.5 flex-wrap mb-3">
+   757→          {archived ? (
+   758→            <Badge variant="secondary" className="text-[10px] bg-muted text-muted-foreground">
+   759→              <Archive className="h-2.5 w-2.5" /> Archived
+   760→            </Badge>
+   761→          ) : inactive ? (
+   762→            <Badge variant="secondary" className="text-[10px]">
+   763→              Inactive
+   764→            </Badge>
+   765→          ) : (
+   766→            <Badge className="bg-success/15 text-success border-success/30 text-[10px]">
+   767→              <Shield className="h-2.5 w-2.5" /> Active
+   768→            </Badge>
+   769→          )}
+   770→          <Badge variant="outline" className="text-[10px]">
+   771→            Order: {meal.displayOrder}
+   772→          </Badge>
+   773→        </div>
+   774→
+   775→        {/* Description */}
+   776→        {meal.description && (
+   777→          <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
+   778→            {meal.description}
+   779→          </p>
+   780→        )}
+   781→
+   782→        {/* Cutoff preview */}
+   783→        <div className="rounded-xl glass-soft px-3 py-2 mb-3">
+   784→          <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5 flex items-center gap-1">
+   785→            <Clock className="h-3 w-3" /> Cutoff preview
+   786→          </p>
+   787→          <p className="text-xs font-semibold">
+   788→            Editable until: {cutoffPreview}
+   789→          </p>
+   790→        </div>
+   791→
+   792→        {/* Times */}
+   793→        <div className="text-[11px] text-muted-foreground mb-3">
+   794→          <span className="font-medium text-foreground">Service: </span>
+   795→          {formatTime12(meal.startTime)} – {formatTime12(meal.endTime)}
+   796→        </div>
+   797→
+   798→        {/* Actions */}
+   799→        {isAdmin && (
+   800→          <div className="mt-auto space-y-2">
+   801→            {/* Status selector */}
+   802→            <Select
+   803→              value={meal.status}
+   804→              onValueChange={(v) => onStatusChange(v)}
+   805→              disabled={statusLoading}
+   806→            >
+   807→              <SelectTrigger className="h-9 rounded-xl glass-soft border-0 text-xs w-full">
+   808→                <div className="flex items-center gap-1.5">
+   809→                  {meal.status === "ACTIVE" && <Shield className="h-3 w-3 text-success" />}
+   810→                  {meal.status === "INACTIVE" && <EyeOff className="h-3 w-3 text-muted-foreground" />}
+   811→                  {meal.status === "ARCHIVED" && <Archive className="h-3 w-3 text-muted-foreground" />}
+   812→                  <SelectValue />
+   813→                </div>
+   814→              </SelectTrigger>
+   815→              <SelectContent>
+   816→                <SelectItem value="ACTIVE">
+   817→                  <span className="flex items-center gap-2">
+   818→                    <Shield className="h-3.5 w-3.5 text-success" /> Active
+   819→                  </span>
+   820→                </SelectItem>
+   821→                <SelectItem value="INACTIVE">
+   822→                  <span className="flex items-center gap-2">
+   823→                    <EyeOff className="h-3.5 w-3.5 text-muted-foreground" /> Inactive
+   824→                  </span>
+   825→                </SelectItem>
+   826→                <SelectItem value="ARCHIVED">
+   827→                  <span className="flex items-center gap-2">
+   828→                    <Archive className="h-3.5 w-3.5 text-muted-foreground" /> Archived
+   829→                  </span>
+   830→                </SelectItem>
+   831→              </SelectContent>
+   832→            </Select>
+   833→            {/* Edit + Delete */}
+   834→            <div className="flex items-center gap-2">
+   835→              <GlassButton
+   836→                variant="secondary"
+   837→                size="sm"
+   838→                className="flex-1"
+   839→                onClick={onEdit}
+   840→              >
+   841→                <Pencil className="h-3.5 w-3.5" /> Edit
+   842→              </GlassButton>
+   843→              <GlassButton
+   844→                variant="ghost"
+   845→                size="sm"
+   846→                onClick={onDelete}
+   847→                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+   848→              >
+   849→                <Trash2 className="h-3.5 w-3.5" />
+   850→              </GlassButton>
+   851→            </div>
+   852→          </div>
+   853→        )}
+   854→      </GlassCard>
+   855→    </motion.div>
+   856→  );
+   857→}
+   858→
+   859→// ─────────────────────────────────────────────────────────────
+   860→// Skeletons
+   861→// ─────────────────────────────────────────────────────────────
+   862→
+   863→function ConfigSkeleton() {
+   864→  return (
+   865→    <div className="grid-cards gap-4">
+   866→      {Array.from({ length: 6 }).map((_, i) => (
+   867→        <ShimmerSkeleton key={i} className="h-56" />
+   868→      ))}
+   869→    </div>
+   870→  );
+   871→}
+   872→
+   873→// ─────────────────────────────────────────────────────────────
+   874→// Main MealsConfigView
+   875→// ─────────────────────────────────────────────────────────────
+   876→
+   877→export function MealsConfigView() {
+   878→  const qc = useQueryClient();
+   879→  const user = useAuthStore((s) => s.user);
+   880→  const isMobile = useIsMobile();
+   881→  const isAdmin =
+   882→    user?.role === "ADMIN";
+   883→
+   884→  const [search, setSearch] = React.useState("");
+   885→  const [typeFilter, setTypeFilter] = React.useState<string>("ALL");
+   886→  const [statusFilter, setStatusFilter] = React.useState<string>("ALL");
+   887→
+   888→  const [formOpen, setFormOpen] = React.useState(false);
+   889→  const [editing, setEditing] = React.useState<MealConfiguration | null>(null);
+   890→  const [deleteTarget, setDeleteTarget] =
+   891→    React.useState<MealConfiguration | null>(null);
+   892→
+   893→  const queryKey = React.useMemo(() => ["meals", "config"] as const, []);
+   894→
+   895→  const { data, isLoading, isError, error } = useQuery({
+   896→    queryKey,
+   897→    queryFn: async () => {
+   898→      const r = await api.get<{ success: boolean; data: MealConfiguration[] }>("/meals/config");
+   899→      return r.data;
+   900→    },
+   901→    staleTime: 30_000,
+   902→  });
+   903→
+   904→  const createMutation = useMutation({
+   905→    mutationFn: async (v: MealFormValues) => {
+   906→      const r = await api.post<{ success: boolean; data: MealConfiguration }>("/meals/config", v);
+   907→      return r.data;
+   908→    },
+   909→    onSuccess: () => {
+   910→      toast.success("Meal created successfully");
+   911→      qc.invalidateQueries({ queryKey });
+   912→      setFormOpen(false);
+   913→      setEditing(null);
+   914→    },
+   915→    onError: (e) => {
+   916→      toast.error(
+   917→        e instanceof ApiError
+   918→          ? e.message
+   919→          : "Failed to create meal. Please try again."
+   920→      );
+   921→    },
+   922→  });
+   923→
+   924→  const updateMutation = useMutation({
+   925→    mutationFn: async ({ id, values }: { id: string; values: MealFormValues }) => {
+   926→      const r = await api.put<{ success: boolean; data: MealConfiguration }>(`/meals/config/${id}`, values);
+   927→      return r.data;
+   928→    },
+   929→    onSuccess: () => {
+   930→      toast.success("Meal updated successfully");
+   931→      qc.invalidateQueries({ queryKey });
+   932→      setFormOpen(false);
+   933→      setEditing(null);
+   934→    },
+   935→    onError: (e) => {
+   936→      toast.error(
+   937→        e instanceof ApiError
+   938→          ? e.message
+   939→          : "Failed to update meal. Please try again."
+   940→      );
+   941→    },
+   942→  });
+   943→
+   944→  const deleteMutation = useMutation({
+   945→    mutationFn: async (id: string) => {
+   946→      await api.delete(`/meals/config/${id}`);
+   947→    },
+   948→    onSuccess: () => {
+   949→      toast.success("Meal deleted");
+   950→      qc.invalidateQueries({ queryKey });
+   951→      setDeleteTarget(null);
+   952→    },
+   953→    onError: (e) => {
+   954→      toast.error(
+   955→        e instanceof ApiError
+   956→          ? e.message
+   957→          : "Failed to delete meal. Please try again."
+   958→      );
+   959→    },
+   960→  });
+   961→
+   962→  const statusMutation = useMutation({
+   963→    mutationFn: async ({ id, status }: { id: string; status: string }) => {
+   964→      const res = await api.put<{ success: boolean; data: MealConfiguration }>(
+   965→        `/meals/config/${id}`,
+   966→        { status }
+   967→      );
+   968→      return res.data;
+   969→    },
+   970→    onSuccess: (_, { status }) => {
+   971→      const label = status === "ACTIVE" ? "activated" : status === "INACTIVE" ? "deactivated" : "archived";
+   972→      toast.success(`Meal ${label}`);
+   973→      qc.invalidateQueries({ queryKey });
+   974→    },
+   975→    onError: (e) => {
+   976→      toast.error(
+   977→        e instanceof ApiError
+   978→          ? e.message
+   979→          : "Failed to update meal status. Please try again."
+   980→      );
+   981→    },
+   982→  });
+   983→
+   984→  const handleSubmit = (v: MealFormValues) => {
+   985→    if (editing) {
+   986→      updateMutation.mutate({ id: editing.id, values: v });
+   987→    } else {
+   988→      createMutation.mutate(v);
+   989→    }
+   990→  };
+   991→
+   992→  const openCreate = () => {
+   993→    setEditing(null);
+   994→    setFormOpen(true);
+   995→  };
+   996→
+   997→  const openEdit = (m: MealConfiguration) => {
+   998→    setEditing(m);
+   999→    setFormOpen(true);
+  1000→  };
+  1001→
+  1002→  // Filtering
+  1003→  const filtered = React.useMemo(() => {
+  1004→    if (!data) return [];
+  1005→    return data.filter((m) => {
+  1006→      if (typeFilter !== "ALL" && m.mealType !== typeFilter) return false;
+  1007→      if (statusFilter !== "ALL" && m.status !== statusFilter) return false;
+  1008→      if (search.trim()) {
+  1009→        const q = search.toLowerCase();
+  1010→        return (
+  1011→          m.name.toLowerCase().includes(q) ||
+  1012→          m.displayName.toLowerCase().includes(q) ||
+  1013→          (m.description || "").toLowerCase().includes(q)
+  1014→        );
+  1015→      }
+  1016→      return true;
+  1017→    });
+  1018→  }, [data, typeFilter, statusFilter, search]);
+  1019→
+  1020→  const submitting =
+  1021→    createMutation.isPending || updateMutation.isPending;
+  1022→
+  1023→  // Filter bar
+  1024→  const filterBar = (
+  1025→    <div className="flex flex-col gap-3">
+  1026→      <div className="flex-1">
+  1027→        <GlassInput
+  1028→          placeholder="Search meals by name or description..."
+  1029→          value={search}
+  1030→          onChange={(e) => setSearch(e.target.value)}
+  1031→          icon={<Search className="h-4 w-4" />}
+  1032→        />
+  1033→      </div>
+  1034→      <div className="flex items-center gap-2">
+  1035→        <Select value={typeFilter} onValueChange={setTypeFilter}>
+  1036→          <SelectTrigger className="h-11 rounded-2xl glass-soft w-full">
+  1037→            <SelectValue placeholder="Type" />
+  1038→          </SelectTrigger>
+  1039→          <SelectContent>
+  1040→            <SelectItem value="ALL">All types</SelectItem>
+  1041→            {MEAL_TYPES.map((t) => (
+  1042→              <SelectItem key={t.value} value={t.value}>
+  1043→                {t.label}
+  1044→              </SelectItem>
+  1045→            ))}
+  1046→          </SelectContent>
+  1047→        </Select>
+  1048→        <Select value={statusFilter} onValueChange={setStatusFilter}>
+  1049→          <SelectTrigger className="h-11 rounded-2xl glass-soft w-full">
+  1050→            <SelectValue placeholder="Status" />
+  1051→          </SelectTrigger>
+  1052→          <SelectContent>
+  1053→            <SelectItem value="ALL">All status</SelectItem>
+  1054→            <SelectItem value="ACTIVE">Active</SelectItem>
+  1055→            <SelectItem value="INACTIVE">Inactive</SelectItem>
+  1056→            <SelectItem value="ARCHIVED">Archived</SelectItem>
+  1057→          </SelectContent>
+  1058→        </Select>
+  1059→      </div>
+  1060→    </div>
+  1061→  );
+  1062→
+  1063→  return (
+  1064→    <StaggerGroup className="space-y-4 pb-6">
+  1065→      {/* Action bar — centered transparent glass card button */}
+  1066→      {isAdmin && (
+  1067→        <StaggerItem>
+  1068→          <div className="flex items-center justify-center">
+  1069→            <GlassButton
+  1070→              variant="ghost"
+  1071→              onClick={openCreate}
+  1072→              size="lg"
+  1073→              className="shrink-0 glass text-primary hover:text-primary font-semibold"
+  1074→            >
+  1075→              <Plus className="h-5 w-5" /> Create Meal
+  1076→            </GlassButton>
+  1077→          </div>
+  1078→        </StaggerItem>
+  1079→      )}
+  1080→
+  1081→      {/* Filters */}
+  1082→      <StaggerItem>
+  1083→        <GlassCard className="p-3" hover={false}>
+  1084→          {filterBar}
+  1085→        </GlassCard>
+  1086→      </StaggerItem>
+  1087→
+  1088→      {/* Content */}
+  1089→      <StaggerItem>
+  1090→        <AnimatePresence mode="wait">
+  1091→          {isLoading ? (
+  1092→            <motion.div
+  1093→              key="loading"
+  1094→              initial={{ opacity: 0 }}
+  1095→              animate={{ opacity: 1 }}
+  1096→              exit={{ opacity: 0 }}
+  1097→            >
+  1098→              <ConfigSkeleton />
+  1099→            </motion.div>
+  1100→          ) : isError ? (
+  1101→            <motion.div
+  1102→              key="error"
+  1103→              initial={{ opacity: 0 }}
+  1104→              animate={{ opacity: 1 }}
+  1105→              exit={{ opacity: 0 }}
+  1106→            >
+  1107→              <GlassCard className="p-8 text-center" hover={false}>
+  1108→                <div className="grid place-items-center gap-3">
+  1109→                  <div className="grid place-items-center h-14 w-14 rounded-3xl bg-destructive/15">
+  1110→                    <AlertCircle className="h-7 w-7 text-destructive" />
+  1111→                  </div>
+  1112→                  <p className="font-semibold text-lg">
+  1113→                    Couldn&apos;t load meal configurations
+  1114→                  </p>
+  1115→                  <p className="text-sm text-muted-foreground max-w-sm">
+  1116→                    {error instanceof ApiError
+  1117→                      ? error.message
+  1118→                      : "Something went wrong. Please try again."}
+  1119→                  </p>
+  1120→                  <GlassButton
+  1121→                    variant="secondary"
+  1122→                    size="sm"
+  1123→                    onClick={() =>
+  1124→                      qc.invalidateQueries({ queryKey: ["meals", "config"] })
+  1125→                    }
+  1126→                  >
+  1127→                    Retry
+  1128→                  </GlassButton>
+  1129→                </div>
+  1130→              </GlassCard>
+  1131→            </motion.div>
+  1132→          ) : filtered.length === 0 ? (
+  1133→            <motion.div
+  1134→              key="empty"
+  1135→              initial={{ opacity: 0 }}
+  1136→              animate={{ opacity: 1 }}
+  1137→              exit={{ opacity: 0 }}
+  1138→            >
+  1139→              <GlassCard className="p-10 text-center" hover={false}>
+  1140→                <div className="grid place-items-center gap-3">
+  1141→                  <div className="grid place-items-center h-14 w-14 rounded-3xl bg-muted/40">
+  1142→                    <Utensils className="h-7 w-7 text-muted-foreground" />
+  1143→                  </div>
+  1144→                  <p className="font-semibold text-lg">
+  1145→                    {data && data.length > 0
+  1146→                      ? "No meals match your filters"
+  1147→                      : "No meals configured yet"}
+  1148→                  </p>
+  1149→                  <p className="text-sm text-muted-foreground max-w-sm">
+  1150→                    {data && data.length > 0
+  1151→                      ? "Try adjusting your search or filters."
+  1152→                      : isAdmin
+  1153→                        ? "Create your first meal configuration to get started."
+  1154→                        : "Your administrator hasn't configured any meals yet."}
+  1155→                  </p>
+  1156→                  {isAdmin &&
+  1157→                    (data && data.length > 0 ? (
+  1158→                      <GlassButton
+  1159→                        variant="secondary"
+  1160→                        size="sm"
+  1161→                        onClick={() => {
+  1162→                          setSearch("");
+  1163→                          setTypeFilter("ALL");
+  1164→                          setStatusFilter("ALL");
+  1165→                        }}
+  1166→                      >
+  1167→                        Clear filters
+  1168→                      </GlassButton>
+  1169→                    ) : (
+  1170→                      <GlassButton size="sm" onClick={openCreate}>
+  1171→                        <Plus className="h-4 w-4" /> Create Meal
+  1172→                      </GlassButton>
+  1173→                    ))}
+  1174→                </div>
+  1175→              </GlassCard>
+  1176→            </motion.div>
+  1177→          ) : (
+  1178→            <motion.div
+  1179→              key="list"
+  1180→              initial={{ opacity: 0 }}
+  1181→              animate={{ opacity: 1 }}
+  1182→              exit={{ opacity: 0 }}
+  1183→            >
+  1184→              <StaggerGroup className="grid-cards gap-4">
+  1185→                {filtered.map((m) => (
+  1186→                  <StaggerItem key={m.id} className="h-full">
+  1187→                    <MealConfigCard
+  1188→                      meal={m}
+  1189→                      isAdmin={!!isAdmin}
+  1190→                      onEdit={() => openEdit(m)}
+  1191→                      onDelete={() => setDeleteTarget(m)}
+  1192→                      onStatusChange={(status) =>
+  1193→                        statusMutation.mutate({ id: m.id, status })
+  1194→                      }
+  1195→                      statusLoading={
+  1196→                        statusMutation.isPending &&
+  1197→                        statusMutation.variables?.id === m.id
+  1198→                      }
+  1199→                    />
+  1200→                  </StaggerItem>
+  1201→                ))}
+  1202→              </StaggerGroup>
+  1203→            </motion.div>
+  1204→          )}
+  1205→        </AnimatePresence>
+  1206→      </StaggerItem>
+  1207→
+  1208→      {/* Create / Edit form — Dialog on desktop, bottom Sheet on mobile */}
+  1209→      <AnimatePresence>
+  1210→        {formOpen && (
+  1211→          isMobile ? (
+  1212→            <Sheet
+  1213→              key="sheet"
+  1214→              open={formOpen}
+  1215→              onOpenChange={(o) => {
+  1216→                setFormOpen(o);
+  1217→                if (!o) setEditing(null);
+  1218→              }}
+  1219→            >
+  1220→              <SheetContent
+  1221→                side="bottom"
+  1222→                className="glass-strong max-h-[92vh] flex flex-col rounded-t-3xl safe-bottom"
+  1223→              >
+  1224→                <SheetHeader>
+  1225→                  <SheetTitle>
+  1226→                    {editing ? "Edit meal" : "Create new meal"}
+  1227→                  </SheetTitle>
+  1228→                  <SheetDescription>
+  1229→                    {editing
+  1230→                      ? `Update configuration for ${editing.displayName}`
+  1231→                      : "Configure a new meal type for your residents."}
+  1232→                  </SheetDescription>
+  1233→                </SheetHeader>
+  1234→                <div className="flex-1 overflow-y-auto px-4 pb-2">
+  1235→                  <MealForm
+  1236→                    values={
+  1237→                      editing
+  1238→                        ? ({
+  1239→                            name: editing.name,
+  1240→                            displayName: editing.displayName,
+  1241→                            description: editing.description || "",
+  1242→                            icon: editing.icon,
+  1243→                            color: editing.color,
+  1244→                            mealType: editing.mealType as MealFormValues["mealType"],
+  1245→                            displayOrder: editing.displayOrder,
+  1246→                            defaultState: editing.defaultState as MealFormValues["defaultState"],
+  1247→                            defaultVisibility:
+  1248→                              editing.defaultVisibility as MealFormValues["defaultVisibility"],
+  1249→                            cutoffStrategy:
+  1250→                              editing.cutoffStrategy as MealFormValues["cutoffStrategy"],
+  1251→                            cutoffTime: editing.cutoffTime,
+  1252→                            cutoffOffsetMinutes: editing.cutoffOffsetMinutes,
+  1253→                            startTime: editing.startTime,
+  1254→                            endTime: editing.endTime,
+  1255→                            notes: editing.notes || "",
+  1256→                          } as MealFormValues)
+  1257→                        : null
+  1258→                    }
+  1259→                    onSubmit={handleSubmit}
+  1260→                    onCancel={() => {
+  1261→                      setFormOpen(false);
+  1262→                      setEditing(null);
+  1263→                    }}
+  1264→                    submitting={submitting}
+  1265→                    submitLabel={editing ? "Save changes" : "Create meal"}
+  1266→                  />
+  1267→                </div>
+  1268→              </SheetContent>
+  1269→            </Sheet>
+  1270→          ) : (
+  1271→            <Dialog
+  1272→              key="dialog"
+  1273→              open={formOpen}
+  1274→              onOpenChange={(o) => {
+  1275→                setFormOpen(o);
+  1276→                if (!o) setEditing(null);
+  1277→              }}
+  1278→            >
+  1279→              <DialogContent className="glass-strong max-w-2xl max-h-[92vh] flex flex-col">
+  1280→                <DialogHeader>
+  1281→                  <DialogTitle>
+  1282→                    {editing ? "Edit meal" : "Create new meal"}
+  1283→                  </DialogTitle>
+  1284→                  <DialogDescription>
+  1285→                    {editing
+  1286→                      ? `Update configuration for ${editing.displayName}`
+  1287→                      : "Configure a new meal type for your residents."}
+  1288→                  </DialogDescription>
+  1289→                </DialogHeader>
+  1290→                <MealForm
+  1291→                  values={
+  1292→                    editing
+  1293→                      ? ({
+  1294→                          name: editing.name,
+  1295→                          displayName: editing.displayName,
+  1296→                          description: editing.description || "",
+  1297→                          icon: editing.icon,
+  1298→                          color: editing.color,
+  1299→                          mealType: editing.mealType as MealFormValues["mealType"],
+  1300→                          displayOrder: editing.displayOrder,
+  1301→                          defaultState: editing.defaultState as MealFormValues["defaultState"],
+  1302→                          defaultVisibility:
+  1303→                            editing.defaultVisibility as MealFormValues["defaultVisibility"],
+  1304→                          cutoffStrategy:
+  1305→                            editing.cutoffStrategy as MealFormValues["cutoffStrategy"],
+  1306→                          cutoffTime: editing.cutoffTime,
+  1307→                          cutoffOffsetMinutes: editing.cutoffOffsetMinutes,
+  1308→                          startTime: editing.startTime,
+  1309→                          endTime: editing.endTime,
+  1310→                          notes: editing.notes || "",
+  1311→                        } as MealFormValues)
+  1312→                      : null
+  1313→                  }
+  1314→                  onSubmit={handleSubmit}
+  1315→                  onCancel={() => {
+  1316→                    setFormOpen(false);
+  1317→                    setEditing(null);
+  1318→                  }}
+  1319→                  submitting={submitting}
+  1320→                  submitLabel={editing ? "Save changes" : "Create meal"}
+  1321→                />
+  1322→              </DialogContent>
+  1323→            </Dialog>
+  1324→          ))
+  1325→        }
+  1326→      </AnimatePresence>
+  1327→
+  1328→      {/* Delete confirmation */}
+  1329→      <AlertDialog
+  1330→        open={!!deleteTarget}
+  1331→        onOpenChange={(o) => !o && setDeleteTarget(null)}
+  1332→      >
+  1333→        <AlertDialogContent className="glass-strong">
+  1334→          <AlertDialogHeader>
+  1335→            <AlertDialogTitle>Delete this meal?</AlertDialogTitle>
+  1336→            <AlertDialogDescription>
+  1337→              <span className="block">
+  1338→                <span className="font-medium text-foreground">
+  1339→                  {deleteTarget?.displayName}
+  1340→                </span>{" "}
+  1341→                will be permanently deleted along with all related meal entries, history, and overrides. This cannot be undone.
+  1342→                meal entries will remain accessible.
+  1343→              </span>
+  1344→              <span className="block mt-2 text-warning">
+  1345→                This action is irreversible.
+  1346→              </span>
+  1347→            </AlertDialogDescription>
+  1348→          </AlertDialogHeader>
+  1349→          <AlertDialogFooter>
+  1350→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1351→            <AlertDialogAction
+  1352→              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+  1353→              onClick={() =>
+  1354→                deleteTarget && deleteMutation.mutate(deleteTarget.id)
+  1355→              }
+  1356→            >
+  1357→              {deleteMutation.isPending ? "Deleting..." : "Delete meal"}
+  1358→            </AlertDialogAction>
+  1359→          </AlertDialogFooter>
+  1360→        </AlertDialogContent>
+  1361→      </AlertDialog>
+  1362→    </StaggerGroup>
+  1363→  );
+  1364→}
+  1365→
+  1366→export default MealsConfigView;
+  1367→

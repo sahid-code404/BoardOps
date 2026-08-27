@@ -1,0 +1,989 @@
+     1→"use client";
+     2→
+     3→import { useMemo, useState } from "react";
+     4→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     5→import { motion } from "framer-motion";
+     6→import { toast } from "sonner";
+     7→import {
+     8→  Wallet,
+     9→  CheckCircle2,
+    10→  Clock,
+    11→  XCircle,
+    12→  IndianRupee,
+    13→  Plus,
+    14→  CreditCard,
+    15→  Banknote,
+    16→  Building2,
+    17→  Smartphone,
+    18→  Wallet as WalletIcon,
+    19→  Search,
+    20→  ArrowUpRight,
+    21→  ArrowDownRight,
+    22→} from "lucide-react";
+    23→
+    24→import { api } from "@/lib/api-client";
+    25→import { cn } from "@/lib/utils";
+    26→import { useAuthStore } from "@/stores/use-auth-store";
+    27→
+    28→import { GlassCard } from "@/components/glass/glass-card";
+    29→import { GlassButton } from "@/components/glass/glass-button";
+    30→import { GlassInput, GlassTextarea } from "@/components/glass/glass-input";
+    31→import { AnimatedCounter } from "@/components/glass/animated-counter";
+    32→import {
+    33→  StaggerGroup,
+    34→  StaggerItem,
+    35→} from "@/components/glass/page-transition";
+    36→import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
+    37→
+    38→import { Badge } from "@/components/ui/badge";
+    39→import {
+    40→  Dialog,
+    41→  DialogContent,
+    42→  DialogDescription,
+    43→  DialogFooter,
+    44→  DialogHeader,
+    45→  DialogTitle,
+    46→} from "@/components/ui/dialog";
+    47→import {
+    48→  Select,
+    49→  SelectContent,
+    50→  SelectItem,
+    51→  SelectTrigger,
+    52→  SelectValue,
+    53→} from "@/components/ui/select";
+    54→import {
+    55→  Table,
+    56→  TableBody,
+    57→  TableCell,
+    58→  TableHead,
+    59→  TableHeader,
+    60→  TableRow,
+    61→} from "@/components/ui/table";
+    62→import {
+    63→  AlertDialog,
+    64→  AlertDialogAction,
+    65→  AlertDialogCancel,
+    66→  AlertDialogContent,
+    67→  AlertDialogDescription,
+    68→  AlertDialogFooter,
+    69→  AlertDialogHeader,
+    70→  AlertDialogTitle,
+    71→} from "@/components/ui/alert-dialog";
+    72→
+    73→// ─────────────────────────────────────────────────────────────
+    74→// Types
+    75→// ─────────────────────────────────────────────────────────────
+    76→
+    77→type PaymentStatus = "PENDING" | "APPROVED" | "REJECTED" | "REFUNDED";
+    78→type PaymentMethod = "CASH" | "UPI" | "CARD" | "BANK_TRANSFER" | "WALLET";
+    79→
+    80→type Payment = {
+    81→  id: string;
+    82→  amount: number;
+    83→  method: PaymentMethod;
+    84→  status: PaymentStatus;
+    85→  reference: string | null;
+    86→  notes: string | null;
+    87→  billId: string | null;
+    88→  createdAt: string;
+    89→  user: { name: string; email: string };
+    90→};
+    91→
+    92→type ApiResponse<T> = { success: boolean; data: T; error?: string };
+    93→
+    94→type BillListItem = {
+    95→  id: string;
+    96→  periodMonth: number;
+    97→  periodYear: number;
+    98→  dueAmount: number;
+    99→  status: string;
+   100→  user: { name: string };
+   101→};
+   102→
+   103→// ─────────────────────────────────────────────────────────────
+   104→// Style maps
+   105→// ─────────────────────────────────────────────────────────────
+   106→
+   107→const STATUS_STYLES: Record<
+   108→  PaymentStatus,
+   109→  { className: string; label: string }
+   110→> = {
+   111→  APPROVED: {
+   112→    className: "bg-success/15 text-success border-success/30",
+   113→    label: "Approved",
+   114→  },
+   115→  PENDING: {
+   116→    className: "bg-warning/15 text-warning border-warning/30",
+   117→    label: "Pending",
+   118→  },
+   119→  REJECTED: {
+   120→    className: "bg-destructive/15 text-destructive border-destructive/30",
+   121→    label: "Rejected",
+   122→  },
+   123→  REFUNDED: {
+   124→    className: "bg-info/15 text-info border-info/30",
+   125→    label: "Refunded",
+   126→  },
+   127→};
+   128→
+   129→const METHOD_META: Record<
+   130→  PaymentMethod,
+   131→  { label: string; icon: React.ReactNode; className: string }
+   132→> = {
+   133→  CASH: {
+   134→    label: "Cash",
+   135→    icon: <Banknote className="h-3.5 w-3.5" />,
+   136→    className: "bg-success/10 text-success border-success/20",
+   137→  },
+   138→  UPI: {
+   139→    label: "UPI",
+   140→    icon: <Smartphone className="h-3.5 w-3.5" />,
+   141→    className: "bg-primary/10 text-primary border-primary/20",
+   142→  },
+   143→  CARD: {
+   144→    label: "Card",
+   145→    icon: <CreditCard className="h-3.5 w-3.5" />,
+   146→    className: "bg-info/10 text-info border-info/20",
+   147→  },
+   148→  BANK_TRANSFER: {
+   149→    label: "Bank",
+   150→    icon: <Building2 className="h-3.5 w-3.5" />,
+   151→    className: "bg-warning/10 text-warning border-warning/20",
+   152→  },
+   153→  WALLET: {
+   154→    label: "Wallet",
+   155→    icon: <WalletIcon className="h-3.5 w-3.5" />,
+   156→    className: "bg-secondary text-secondary-foreground border-border",
+   157→  },
+   158→};
+   159→
+   160→function formatINR(n: number) {
+   161→  return `₹${Math.round(n).toLocaleString("en-IN")}`;
+   162→}
+   163→
+   164→function formatDate(iso: string) {
+   165→  return new Date(iso).toLocaleDateString("en-IN", {
+   166→    day: "numeric",
+   167→    month: "short",
+   168→    year: "numeric",
+   169→  });
+   170→}
+   171→
+   172→function formatDateTime(iso: string) {
+   173→  return new Date(iso).toLocaleString("en-IN", {
+   174→    day: "numeric",
+   175→    month: "short",
+   176→    hour: "2-digit",
+   177→    minute: "2-digit",
+   178→  });
+   179→}
+   180→
+   181→// ─────────────────────────────────────────────────────────────
+   182→// Main view
+   183→// ─────────────────────────────────────────────────────────────
+   184→
+   185→export function PaymentsView() {
+   186→  const user = useAuthStore((s) => s.user);
+   187→  const isAdmin = user?.role === "ADMIN";
+   188→  const qc = useQueryClient();
+   189→
+   190→  const [search, setSearch] = useState("");
+   191→  const [statusFilter, setStatusFilter] = useState<PaymentStatus | "ALL">("ALL");
+   192→  const [methodFilter, setMethodFilter] = useState<PaymentMethod | "ALL">("ALL");
+   193→
+   194→  const [submitOpen, setSubmitOpen] = useState(false);
+   195→  const [actionTarget, setActionTarget] = useState<{
+   196→    payment: Payment;
+   197→    action: "APPROVE" | "REJECT";
+   198→  } | null>(null);
+   199→
+   200→  const { data: payments = [], isLoading } = useQuery({
+   201→    queryKey: ["payments"],
+   202→    queryFn: async () => {
+   203→      const r = await api.get<ApiResponse<Payment[]>>("/payments");
+   204→      return r.data;
+   205→    },
+   206→  });
+   207→
+   208→  const submitMutation = useMutation({
+   209→    mutationFn: (payload: {
+   210→      amount: number;
+   211→      method: PaymentMethod;
+   212→      billId?: string;
+   213→      reference?: string;
+   214→      notes?: string;
+   215→    }) =>
+   216→      api.post<ApiResponse<Payment>>("/payments", payload),
+   217→    onSuccess: () => {
+   218→      toast.success("Payment submitted — pending admin approval");
+   219→      setSubmitOpen(false);
+   220→      qc.invalidateQueries({ queryKey: ["payments"] });
+   221→    },
+   222→    onError: (e: Error) => toast.error(e.message || "Failed to submit payment"),
+   223→  });
+   224→
+   225→  const actionMutation = useMutation({
+   226→    mutationFn: ({
+   227→      id,
+   228→      action,
+   229→    }: {
+   230→      id: string;
+   231→      action: "APPROVE" | "REJECT";
+   232→    }) => api.patch<ApiResponse<Payment>>(`/payments/${id}`, { action }),
+   233→    onSuccess: (_data, vars) => {
+   234→      toast.success(
+   235→        vars.action === "APPROVE"
+   236→          ? "Payment approved — bill updated"
+   237→          : "Payment rejected"
+   238→      );
+   239→      setActionTarget(null);
+   240→      qc.invalidateQueries({ queryKey: ["payments"] });
+   241→      qc.invalidateQueries({ queryKey: ["bills"] });
+   242→    },
+   243→    onError: (e: Error) => toast.error(e.message || "Action failed"),
+   244→  });
+   245→
+   246→  // KPIs
+   247→  const kpis = useMemo(() => {
+   248→    const approved = payments.filter((p) => p.status === "APPROVED");
+   249→    const totalApproved = approved.reduce((s, p) => s + p.amount, 0);
+   250→    const pending = payments.filter((p) => p.status === "PENDING").length;
+   251→    const rejected = payments.filter((p) => p.status === "REJECTED").length;
+   252→    const now = new Date();
+   253→    const monthTotal = approved
+   254→      .filter((p) => {
+   255→        const d = new Date(p.createdAt);
+   256→        return (
+   257→          d.getMonth() === now.getMonth() &&
+   258→          d.getFullYear() === now.getFullYear()
+   259→        );
+   260→      })
+   261→      .reduce((s, p) => s + p.amount, 0);
+   262→    return { totalApproved, pending, rejected, monthTotal };
+   263→  }, [payments]);
+   264→
+   265→  // Filtered list
+   266→  const filtered = useMemo(() => {
+   267→    const q = search.trim().toLowerCase();
+   268→    return payments.filter((p) => {
+   269→      if (statusFilter !== "ALL" && p.status !== statusFilter) return false;
+   270→      if (methodFilter !== "ALL" && p.method !== methodFilter) return false;
+   271→      if (!q) return true;
+   272→      return (
+   273→        p.user.name?.toLowerCase().includes(q) ||
+   274→        p.user.email?.toLowerCase().includes(q) ||
+   275→        (p.reference || "").toLowerCase().includes(q)
+   276→      );
+   277→    });
+   278→  }, [payments, search, statusFilter, methodFilter]);
+   279→
+   280→  const pendingPayments = payments.filter((p) => p.status === "PENDING");
+   281→
+   282→  if (isLoading) {
+   283→    return (
+   284→      <div className="space-y-4">
+   285→        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+   286→          {Array.from({ length: 4 }).map((_, i) => (
+   287→            <ShimmerSkeleton key={i} className="h-32" />
+   288→          ))}
+   289→        </div>
+   290→        <ShimmerSkeleton className="h-14 w-full" />
+   291→        <div className="grid gap-3">
+   292→          {Array.from({ length: 5 }).map((_, i) => (
+   293→            <ShimmerSkeleton key={i} className="h-20" />
+   294→          ))}
+   295→        </div>
+   296→      </div>
+   297→    );
+   298→  }
+   299→
+   300→  return (
+   301→    <StaggerGroup className="space-y-4 md:space-y-6">
+   302→      {/* Action bar */}
+   303→      <StaggerItem>
+   304→        <div className="flex items-center justify-end gap-3">
+   305→          <p className="text-sm text-muted-foreground hidden sm:block">
+   306→            {isAdmin
+   307→              ? "Approve payments & track transactions"
+   308→              : "Submit payments & track history"}
+   309→          </p>
+   310→          {!isAdmin && (
+   311→            <GlassButton
+   312→              size="lg"
+   313→              onClick={() => setSubmitOpen(true)}
+   314→              className="shrink-0"
+   315→            >
+   316→              <Plus className="h-4 w-4" />
+   317→              Submit Payment
+   318→            </GlassButton>
+   319→          )}
+   320→        </div>
+   321→      </StaggerItem>
+   322→
+   323→      {/* KPIs */}
+   324→      <StaggerItem>
+   325→        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+   326→          <KpiCard
+   327→            label="Total Approved"
+   328→            value={kpis.totalApproved}
+   329→            icon={<CheckCircle2 className="h-5 w-5" />}
+   330→            color="success"
+   331→            prefix="₹"
+   332→          />
+   333→          <KpiCard
+   334→            label="Pending Approvals"
+   335→            value={kpis.pending}
+   336→            icon={<Clock className="h-5 w-5" />}
+   337→            color="warning"
+   338→          />
+   339→          <KpiCard
+   340→            label="Rejected"
+   341→            value={kpis.rejected}
+   342→            icon={<XCircle className="h-5 w-5" />}
+   343→            color="danger"
+   344→          />
+   345→          <KpiCard
+   346→            label="This Month"
+   347→            value={kpis.monthTotal}
+   348→            icon={<Wallet className="h-5 w-5" />}
+   349→            color="info"
+   350→            prefix="₹"
+   351→          />
+   352→        </div>
+   353→      </StaggerItem>
+   354→
+   355→      {/* Admin: Pending payments section */}
+   356→      {isAdmin && pendingPayments.length > 0 && (
+   357→        <StaggerItem>
+   358→          <GlassCard className="p-5 md:p-6" hover={false} glow="warning">
+   359→            <div className="flex items-center justify-between mb-4">
+   360→              <div>
+   361→                <h3 className="font-semibold text-lg flex items-center gap-2">
+   362→                  <Clock className="h-5 w-5 text-warning" />
+   363→                  Pending Approvals
+   364→                  <Badge variant="outline" className="bg-warning/15 text-warning border-warning/30 rounded-full">
+   365→                    {pendingPayments.length}
+   366→                  </Badge>
+   367→                </h3>
+   368→                <p className="text-xs text-muted-foreground">
+   369→                  Review and approve or reject incoming payments.
+   370→                </p>
+   371→              </div>
+   372→            </div>
+   373→            <StaggerGroup className="space-y-2">
+   374→              {pendingPayments.slice(0, 4).map((p) => (
+   375→                <StaggerItem key={p.id}>
+   376→                  <PendingRow
+   377→                    payment={p}
+   378→                    onApprove={() =>
+   379→                      setActionTarget({ payment: p, action: "APPROVE" })
+   380→                    }
+   381→                    onReject={() =>
+   382→                      setActionTarget({ payment: p, action: "REJECT" })
+   383→                    }
+   384→                    loading={
+   385→                      actionMutation.isPending &&
+   386→                      actionTarget?.payment.id === p.id
+   387→                    }
+   388→                  />
+   389→                </StaggerItem>
+   390→              ))}
+   391→            </StaggerGroup>
+   392→          </GlassCard>
+   393→        </StaggerItem>
+   394→      )}
+   395→
+   396→      {/* Filters */}
+   397→      <StaggerItem>
+   398→        <GlassCard className="p-3 md:p-4" hover={false}>
+   399→          <div className="flex flex-col md:flex-row gap-3">
+   400→            <div className="flex-1 min-w-0">
+   401→              <GlassInput
+   402→                placeholder="Search by name, email, reference…"
+   403→                value={search}
+   404→                onChange={(e) => setSearch(e.target.value)}
+   405→                icon={<Search />}
+   406→              />
+   407→            </div>
+   408→            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+   409→              {(
+   410→                ["ALL", "APPROVED", "PENDING", "REJECTED", "REFUNDED"] as const
+   411→              ).map((s) => {
+   412→                const active = statusFilter === s;
+   413→                return (
+   414→                  <button
+   415→                    key={s}
+   416→                    onClick={() => setStatusFilter(s)}
+   417→                    className={cn(
+   418→                      "px-3.5 py-2 text-xs font-medium rounded-full whitespace-nowrap transition-all",
+   419→                      active
+   420→                        ? "bg-primary text-primary-foreground shadow-md shadow-primary/30"
+   421→                        : "glass-soft text-muted-foreground hover:text-foreground"
+   422→                    )}
+   423→                  >
+   424→                    {s === "ALL" ? "All" : STATUS_STYLES[s].label}
+   425→                  </button>
+   426→                );
+   427→              })}
+   428→            </div>
+   429→            <Select
+   430→              value={methodFilter}
+   431→              onValueChange={(v) => setMethodFilter(v as PaymentMethod | "ALL")}
+   432→            >
+   433→              <SelectTrigger className="w-full md:w-40 h-11 rounded-2xl">
+   434→                <SelectValue placeholder="Method" />
+   435→              </SelectTrigger>
+   436→              <SelectContent>
+   437→                <SelectItem value="ALL">All Methods</SelectItem>
+   438→                {Object.entries(METHOD_META).map(([k, m]) => (
+   439→                  <SelectItem key={k} value={k}>
+   440→                    {m.label}
+   441→                  </SelectItem>
+   442→                ))}
+   443→              </SelectContent>
+   444→            </Select>
+   445→          </div>
+   446→        </GlassCard>
+   447→      </StaggerItem>
+   448→
+   449→      {/* List */}
+   450→      <StaggerItem>
+   451→        {filtered.length === 0 ? (
+   452→          <GlassCard className="p-10 md:p-16" hover={false}>
+   453→            <div className="flex flex-col items-center justify-center text-center gap-3">
+   454→              <div className="grid place-items-center h-14 w-14 rounded-3xl bg-muted/40">
+   455→                <IndianRupee className="h-6 w-6 text-muted-foreground" />
+   456→              </div>
+   457→              <div>
+   458→                <p className="font-medium">No payments found</p>
+   459→                <p className="text-sm text-muted-foreground">
+   460→                  Submit a payment or adjust your filters.
+   461→                </p>
+   462→              </div>
+   463→            </div>
+   464→          </GlassCard>
+   465→        ) : (
+   466→          <>
+   467→            {/* Mobile cards */}
+   468→            <div className="md:hidden space-y-3">
+   469→              <StaggerGroup className="space-y-3">
+   470→                {filtered.map((p) => (
+   471→                  <StaggerItem key={p.id}>
+   472→                    <PaymentCard payment={p} isAdmin={isAdmin} />
+   473→                  </StaggerItem>
+   474→                ))}
+   475→              </StaggerGroup>
+   476→            </div>
+   477→
+   478→            {/* Desktop table */}
+   479→            <GlassCard className="hidden md:block p-2" hover={false}>
+   480→              <Table>
+   481→                <TableHeader>
+   482→                  <TableRow className="border-border/60">
+   483→                    {isAdmin && <TableHead className="pl-4">Resident</TableHead>}
+   484→                    <TableHead className={isAdmin ? "" : "pl-4"}>Amount</TableHead>
+   485→                    <TableHead>Method</TableHead>
+   486→                    <TableHead>Status</TableHead>
+   487→                    <TableHead>Reference</TableHead>
+   488→                    <TableHead>Date</TableHead>
+   489→                    {!isAdmin && <TableHead className="text-right pr-4">Notes</TableHead>}
+   490→                  </TableRow>
+   491→                </TableHeader>
+   492→                <TableBody>
+   493→                  {filtered.map((p) => (
+   494→                    <TableRow key={p.id} className="border-border/40">
+   495→                      {isAdmin && (
+   496→                        <TableCell className="pl-4">
+   497→                          <div className="flex flex-col">
+   498→                            <span className="font-medium">{p.user.name}</span>
+   499→                            <span className="text-xs text-muted-foreground">
+   500→                              {p.user.email}
+   501→                            </span>
+   502→                          </div>
+   503→                        </TableCell>
+   504→                      )}
+   505→                      <TableCell className="font-semibold tabular-nums">
+   506→                        {formatINR(p.amount)}
+   507→                      </TableCell>
+   508→                      <TableCell>
+   509→                        <Badge
+   510→                          variant="outline"
+   511→                          className={cn("rounded-full", METHOD_META[p.method].className)}
+   512→                        >
+   513→                          {METHOD_META[p.method].icon}
+   514→                          {METHOD_META[p.method].label}
+   515→                        </Badge>
+   516→                      </TableCell>
+   517→                      <TableCell>
+   518→                        <Badge
+   519→                          variant="outline"
+   520→                          className={cn(
+   521→                            "rounded-full",
+   522→                            STATUS_STYLES[p.status].className
+   523→                          )}
+   524→                        >
+   525→                          {STATUS_STYLES[p.status].label}
+   526→                        </Badge>
+   527→                      </TableCell>
+   528→                      <TableCell className="text-sm text-muted-foreground">
+   529→                        {p.reference || "—"}
+   530→                      </TableCell>
+   531→                      <TableCell className="text-sm text-muted-foreground">
+   532→                        {formatDate(p.createdAt)}
+   533→                      </TableCell>
+   534→                      {!isAdmin && (
+   535→                        <TableCell className="text-right pr-4 text-xs text-muted-foreground max-w-[200px] truncate">
+   536→                          {p.notes || "—"}
+   537→                        </TableCell>
+   538→                      )}
+   539→                    </TableRow>
+   540→                  ))}
+   541→                </TableBody>
+   542→              </Table>
+   543→            </GlassCard>
+   544→          </>
+   545→        )}
+   546→      </StaggerItem>
+   547→
+   548→      {/* Submit Payment Dialog */}
+   549→      <SubmitPaymentDialog
+   550→        open={submitOpen}
+   551→        onOpenChange={setSubmitOpen}
+   552→        onSubmit={(payload) => submitMutation.mutate(payload)}
+   553→        loading={submitMutation.isPending}
+   554→      />
+   555→
+   556→      {/* Approve/Reject confirm */}
+   557→      <AlertDialog
+   558→        open={!!actionTarget}
+   559→        onOpenChange={(o) => !o && setActionTarget(null)}
+   560→      >
+   561→        <AlertDialogContent className="rounded-3xl">
+   562→          <AlertDialogHeader>
+   563→            <AlertDialogTitle>
+   564→              {actionTarget?.action === "APPROVE"
+   565→                ? "Approve payment?"
+   566→                : "Reject payment?"}
+   567→            </AlertDialogTitle>
+   568→            <AlertDialogDescription>
+   569→              {actionTarget && (
+   570→                <>
+   571→                  {actionTarget.action === "APPROVE" ? (
+   572→                    <>
+   573→                      Approve{" "}
+   574→                      <span className="font-medium text-foreground">
+   575→                        {formatINR(actionTarget.payment.amount)}
+   576→                      </span>{" "}
+   577→                      from{" "}
+   578→                      <span className="font-medium text-foreground">
+   579→                        {actionTarget.payment.user.name}
+   580→                      </span>
+   581→                      ? The linked bill will be updated.
+   582→                    </>
+   583→                  ) : (
+   584→                    <>
+   585→                      Reject the{" "}
+   586→                      <span className="font-medium text-foreground">
+   587→                        {formatINR(actionTarget.payment.amount)}
+   588→                      </span>{" "}
+   589→                      payment from{" "}
+   590→                      <span className="font-medium text-foreground">
+   591→                        {actionTarget.payment.user.name}
+   592→                      </span>
+   593→                      ?
+   594→                    </>
+   595→                  )}
+   596→                </>
+   597→              )}
+   598→            </AlertDialogDescription>
+   599→          </AlertDialogHeader>
+   600→          <AlertDialogFooter>
+   601→            <AlertDialogCancel className="rounded-2xl">Cancel</AlertDialogCancel>
+   602→            <AlertDialogAction
+   603→              className={cn(
+   604→                "rounded-2xl",
+   605→                actionTarget?.action === "APPROVE"
+   606→                  ? "bg-success text-white hover:bg-success/90"
+   607→                  : "bg-destructive text-white hover:bg-destructive/90"
+   608→              )}
+   609→              onClick={() =>
+   610→                actionTarget &&
+   611→                actionMutation.mutate({
+   612→                  id: actionTarget.payment.id,
+   613→                  action: actionTarget.action,
+   614→                })
+   615→              }
+   616→              disabled={actionMutation.isPending}
+   617→            >
+   618→              {actionMutation.isPending
+   619→                ? "Processing…"
+   620→                : actionTarget?.action === "APPROVE"
+   621→                  ? "Approve"
+   622→                  : "Reject"}
+   623→            </AlertDialogAction>
+   624→          </AlertDialogFooter>
+   625→        </AlertDialogContent>
+   626→      </AlertDialog>
+   627→    </StaggerGroup>
+   628→  );
+   629→}
+   630→
+   631→// ─────────────────────────────────────────────────────────────
+   632→// Sub-components
+   633→// ─────────────────────────────────────────────────────────────
+   634→
+   635→function KpiCard({
+   636→  label,
+   637→  value,
+   638→  icon,
+   639→  color,
+   640→  prefix,
+   641→}: {
+   642→  label: string;
+   643→  value: number;
+   644→  icon: React.ReactNode;
+   645→  color: "primary" | "success" | "warning" | "danger" | "info";
+   646→  prefix?: string;
+   647→}) {
+   648→  const colorVar =
+   649→    color === "primary"
+   650→      ? "var(--primary)"
+   651→      : color === "success"
+   652→        ? "var(--success)"
+   653→        : color === "warning"
+   654→          ? "var(--warning)"
+   655→          : color === "danger"
+   656→            ? "var(--destructive)"
+   657→            : "var(--info)";
+   658→  return (
+   659→    <GlassCard
+   660→      className="p-4 md:p-5"
+   661→      glow={color === "danger" ? "danger" : color === "warning" ? "warning" : color === "success" ? "success" : "primary"}
+   662→    >
+   663→      <div className="flex items-start justify-between mb-3">
+   664→        <div
+   665→          className="grid place-items-center h-10 w-10 rounded-2xl"
+   666→          style={{
+   667→            background: `color-mix(in oklch, ${colorVar} 15%, transparent)`,
+   668→            color: colorVar,
+   669→          }}
+   670→        >
+   671→          {icon}
+   672→        </div>
+   673→      </div>
+   674→      <p className="text-xs text-muted-foreground">{label}</p>
+   675→      <div className="text-2xl md:text-3xl font-bold tracking-tight tabular-nums">
+   676→        <AnimatedCounter value={value} prefix={prefix || ""} />
+   677→      </div>
+   678→    </GlassCard>
+   679→  );
+   680→}
+   681→
+   682→function PendingRow({
+   683→  payment,
+   684→  onApprove,
+   685→  onReject,
+   686→  loading,
+   687→}: {
+   688→  payment: Payment;
+   689→  onApprove: () => void;
+   690→  onReject: () => void;
+   691→  loading: boolean;
+   692→}) {
+   693→  return (
+   694→    <motion.div
+   695→      whileHover={{ x: 2 }}
+   696→      className="glass-soft rounded-2xl p-3 flex items-center gap-3"
+   697→    >
+   698→      <div
+   699→        className={cn(
+   700→          "grid place-items-center h-10 w-10 rounded-xl shrink-0",
+   701→          METHOD_META[payment.method].className
+   702→        )}
+   703→      >
+   704→        {METHOD_META[payment.method].icon}
+   705→      </div>
+   706→      <div className="min-w-0 flex-1">
+   707→        <div className="flex items-center gap-2">
+   708→          <p className="font-medium truncate">{payment.user.name}</p>
+   709→          <span className="text-xs text-muted-foreground truncate">
+   710→            · {METHOD_META[payment.method].label}
+   711→          </span>
+   712→        </div>
+   713→        <p className="text-xs text-muted-foreground truncate">
+   714→          {formatDateTime(payment.createdAt)}
+   715→          {payment.reference ? ` · Ref ${payment.reference}` : ""}
+   716→        </p>
+   717→      </div>
+   718→      <div className="text-right shrink-0">
+   719→        <p className="font-bold tabular-nums">{formatINR(payment.amount)}</p>
+   720→      </div>
+   721→      <div className="flex items-center gap-1.5 shrink-0">
+   722→        <GlassButton
+   723→          size="sm"
+   724→          variant="success"
+   725→          onClick={onApprove}
+   726→          loading={loading}
+   727→          className="!h-8 !px-3"
+   728→        >
+   729→          <CheckCircle2 className="h-3.5 w-3.5" />
+   730→          Approve
+   731→        </GlassButton>
+   732→        <GlassButton
+   733→          size="sm"
+   734→          variant="danger"
+   735→          onClick={onReject}
+   736→          loading={loading}
+   737→          className="!h-8 !px-3"
+   738→        >
+   739→          <XCircle className="h-3.5 w-3.5" />
+   740→        </GlassButton>
+   741→      </div>
+   742→    </motion.div>
+   743→  );
+   744→}
+   745→
+   746→function PaymentCard({
+   747→  payment,
+   748→  isAdmin,
+   749→}: {
+   750→  payment: Payment;
+   751→  isAdmin: boolean;
+   752→}) {
+   753→  return (
+   754→    <motion.div
+   755→      whileTap={{ scale: 0.99 }}
+   756→      className="glass rounded-3xl p-4"
+   757→    >
+   758→      <div className="flex items-start justify-between gap-3 mb-3">
+   759→        <div className="flex items-center gap-3 min-w-0">
+   760→          <div
+   761→            className={cn(
+   762→              "grid place-items-center h-11 w-11 rounded-2xl shrink-0",
+   763→              METHOD_META[payment.method].className
+   764→            )}
+   765→          >
+   766→            {METHOD_META[payment.method].icon}
+   767→          </div>
+   768→          <div className="min-w-0">
+   769→            <p className="font-semibold truncate">
+   770→              {isAdmin ? payment.user.name : METHOD_META[payment.method].label}
+   771→            </p>
+   772→            <p className="text-xs text-muted-foreground truncate">
+   773→              {formatDateTime(payment.createdAt)}
+   774→              {payment.reference ? ` · Ref ${payment.reference}` : ""}
+   775→            </p>
+   776→          </div>
+   777→        </div>
+   778→        <Badge
+   779→          variant="outline"
+   780→          className={cn("rounded-full", STATUS_STYLES[payment.status].className)}
+   781→        >
+   782→          {STATUS_STYLES[payment.status].label}
+   783→        </Badge>
+   784→      </div>
+   785→      <div className="flex items-end justify-between">
+   786→        <div>
+   787→          <p className="text-[10px] text-muted-foreground uppercase">Amount</p>
+   788→          <p className="text-2xl font-bold tabular-nums">
+   789→            {formatINR(payment.amount)}
+   790→          </p>
+   791→        </div>
+   792→        <Badge
+   793→          variant="outline"
+   794→          className={cn("rounded-full", METHOD_META[payment.method].className)}
+   795→        >
+   796→          {METHOD_META[payment.method].icon}
+   797→          {METHOD_META[payment.method].label}
+   798→        </Badge>
+   799→      </div>
+   800→      {payment.notes && (
+   801→        <p className="mt-3 text-xs text-muted-foreground glass-soft rounded-2xl p-2.5">
+   802→          {payment.notes}
+   803→        </p>
+   804→      )}
+   805→    </motion.div>
+   806→  );
+   807→}
+   808→
+   809→// ─────────────────────────────────────────────────────────────
+   810→// Submit payment dialog
+   811→// ─────────────────────────────────────────────────────────────
+   812→
+   813→function SubmitPaymentDialog({
+   814→  open,
+   815→  onOpenChange,
+   816→  onSubmit,
+   817→  loading,
+   818→}: {
+   819→  open: boolean;
+   820→  onOpenChange: (o: boolean) => void;
+   821→  onSubmit: (payload: {
+   822→    amount: number;
+   823→    method: PaymentMethod;
+   824→    billId?: string;
+   825→    reference?: string;
+   826→    notes?: string;
+   827→  }) => void;
+   828→  loading: boolean;
+   829→}) {
+   830→  const [amount, setAmount] = useState("");
+   831→  const [method, setMethod] = useState<PaymentMethod>("UPI");
+   832→  const [billId, setBillId] = useState<string>("NONE");
+   833→  const [reference, setReference] = useState("");
+   834→  const [notes, setNotes] = useState("");
+   835→  const [error, setError] = useState<string>("");
+   836→
+   837→  // Load user's outstanding bills for selection
+   838→  const { data: bills = [] } = useQuery({
+   839→    queryKey: ["bills"],
+   840→    queryFn: async () => {
+   841→      const r = await api.get<ApiResponse<BillListItem[]>>("/bills");
+   842→      return r.data;
+   843→    },
+   844→    enabled: open,
+   845→  });
+   846→
+   847→  const outstanding = bills.filter(
+   848→    (b) => b.status !== "PAID" && b.status !== "VOID" && b.dueAmount > 0
+   849→  );
+   850→
+   851→  function reset() {
+   852→    setAmount("");
+   853→    setMethod("UPI");
+   854→    setBillId("NONE");
+   855→    setReference("");
+   856→    setNotes("");
+   857→    setError("");
+   858→  }
+   859→
+   860→  function handleClose(o: boolean) {
+   861→    if (!o) reset();
+   862→    onOpenChange(o);
+   863→  }
+   864→
+   865→  function handleSubmit() {
+   866→    const amt = parseFloat(amount);
+   867→    if (!amt || amt <= 0) {
+   868→      setError("Enter a valid amount greater than 0");
+   869→      return;
+   870→    }
+   871→    onSubmit({
+   872→      amount: amt,
+   873→      method,
+   874→      billId: billId === "NONE" ? undefined : billId,
+   875→      reference: reference.trim() || undefined,
+   876→      notes: notes.trim() || undefined,
+   877→    });
+   878→  }
+   879→
+   880→  return (
+   881→    <Dialog open={open} onOpenChange={handleClose}>
+   882→      <DialogContent className="rounded-3xl max-w-md">
+   883→        <DialogHeader>
+   884→          <DialogTitle className="flex items-center gap-2">
+   885→            <Wallet className="h-5 w-5 text-primary" />
+   886→            Submit a Payment
+   887→          </DialogTitle>
+   888→          <DialogDescription>
+   889→            Your payment will be reviewed by an administrator before being
+   890→            applied to your bill.
+   891→          </DialogDescription>
+   892→        </DialogHeader>
+   893→
+   894→        <div className="space-y-3">
+   895→          <GlassInput
+   896→            label="Amount (₹)"
+   897→            type="number"
+   898→            inputMode="decimal"
+   899→            placeholder="0.00"
+   900→            value={amount}
+   901→            onChange={(e) => {
+   902→              setAmount(e.target.value);
+   903→              setError("");
+   904→            }}
+   905→            error={error}
+   906→            icon={<IndianRupee />}
+   907→          />
+   908→
+   909→          <div className="space-y-1.5">
+   910→            <label className="text-xs font-medium text-muted-foreground ml-1">
+   911→              Method
+   912→            </label>
+   913→            <Select
+   914→              value={method}
+   915→              onValueChange={(v) => setMethod(v as PaymentMethod)}
+   916→            >
+   917→              <SelectTrigger className="w-full h-11 rounded-2xl">
+   918→                <SelectValue />
+   919→              </SelectTrigger>
+   920→              <SelectContent>
+   921→                {Object.entries(METHOD_META).map(([k, m]) => (
+   922→                  <SelectItem key={k} value={k}>
+   923→                    {m.label}
+   924→                  </SelectItem>
+   925→                ))}
+   926→              </SelectContent>
+   927→            </Select>
+   928→          </div>
+   929→
+   930→          {outstanding.length > 0 && (
+   931→            <div className="space-y-1.5">
+   932→              <label className="text-xs font-medium text-muted-foreground ml-1">
+   933→                Apply to bill (optional)
+   934→              </label>
+   935→              <Select value={billId} onValueChange={setBillId}>
+   936→                <SelectTrigger className="w-full h-11 rounded-2xl">
+   937→                  <SelectValue placeholder="Select a bill" />
+   938→                </SelectTrigger>
+   939→                <SelectContent>
+   940→                  <SelectItem value="NONE">No specific bill</SelectItem>
+   941→                  {outstanding.map((b) => (
+   942→                    <SelectItem key={b.id} value={b.id}>
+   943→                      {b.user.name} — {formatMonthLabel(b.periodMonth, b.periodYear)} · ₹
+   944→                      {Math.round(b.dueAmount).toLocaleString("en-IN")} due
+   945→                    </SelectItem>
+   946→                  ))}
+   947→                </SelectContent>
+   948→              </Select>
+   949→            </div>
+   950→          )}
+   951→
+   952→          <GlassInput
+   953→            label="Reference (optional)"
+   954→            placeholder="UTR / Txn ID"
+   955→            value={reference}
+   956→            onChange={(e) => setReference(e.target.value)}
+   957→            icon={<ArrowUpRight />}
+   958→          />
+   959→
+   960→          <GlassTextarea
+   961→            label="Notes (optional)"
+   962→            placeholder="Any note for the admin…"
+   963→            value={notes}
+   964→            onChange={(e) => setNotes(e.target.value)}
+   965→            rows={2}
+   966→          />
+   967→        </div>
+   968→
+   969→        <DialogFooter>
+   970→          <GlassButton variant="ghost" onClick={() => handleClose(false)}>
+   971→            Cancel
+   972→          </GlassButton>
+   973→          <GlassButton onClick={handleSubmit} loading={loading}>
+   974→            <ArrowDownRight className="h-4 w-4" />
+   975→            Submit
+   976→          </GlassButton>
+   977→        </DialogFooter>
+   978→      </DialogContent>
+   979→    </Dialog>
+   980→  );
+   981→}
+   982→
+   983→function formatMonthLabel(month: number, year: number) {
+   984→  return new Date(year, month, 1).toLocaleDateString("en-IN", {
+   985→    month: "short",
+   986→    year: "numeric",
+   987→  });
+   988→}
+   989→

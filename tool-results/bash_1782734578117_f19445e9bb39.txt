@@ -1,0 +1,200 @@
+- Left unchanged: line 1155 `grid grid-cols-2 gap-3` containing Quantity + Unit GlassInput/Select (form field grid).
+
+Edits to `src/components/features/users/users-view.tsx`:
+- KPI grid (Total Users / Active / Pending Approval / Suspended KpiCards) `grid grid-cols-2 gap-3` → `grid-kpi gap-3` (line 410).
+- Left unchanged: line 605 `grid grid-cols-2 gap-3` containing Email + Phone GlassInputs (form field grid), line 620 `grid grid-cols-2 gap-3` containing Room + Gender GlassInput/Select (form field grid).
+
+Edits to `src/components/features/kitchen/kitchen-view.tsx`:
+- KPI grid (Total Meals / Guests / Meals OFF KpiCards) `grid grid-cols-3 gap-3` → `grid-kpi gap-3` (line 172).
+- Per-meal content card grid (MealCard components) `grid grid-cols-1 gap-3` → `grid-cards gap-3` (line 220).
+- KitchenSkeleton KPI grid `grid grid-cols-3 gap-3` → `grid-kpi gap-3` (line 402 — mirrors the KPI grid).
+- KitchenSkeleton content card grid `grid grid-cols-1 gap-3` → `grid-cards gap-3` (line 408 — mirrors the MealCard grid).
+
+Edits to `src/components/features/variables/variables-view.tsx`:
+- Stats bar KPI grid (StatCard: Total / System / Custom / Active) `grid grid-cols-2 gap-3` → `grid-kpi gap-3` (line 278).
+- AccordionContent variable card grid (VariableCard) `grid grid-cols-1 gap-3 pb-3 pt-1` → `grid-cards gap-3 pb-3 pt-1` (line 408 — kept the `pb-3 pt-1` classes).
+- VariablesSkeleton stats grid `grid grid-cols-2 gap-3` → `grid-kpi gap-3` (line 929 — mirrors the stats bar).
+- Left unchanged: line 851 `grid grid-cols-2 gap-3` containing Unit + Category GlassInput/Select (form field grid).
+
+Edits to `src/components/features/meals/meals-config-view.tsx`:
+- ConfigSkeleton meal card grid `grid grid-cols-1 gap-4` → `grid-cards gap-4` (line 791 — mirrors the MealConfigCard list).
+- Main meal config cards list `StaggerGroup className="grid grid-cols-1 gap-4"` → `grid-cards gap-4` (line 1105).
+- Left unchanged: 5 form field grids (line 318 Identity section with GlassInput, line 420 Type + status with Select, line 459 Times with GlassInput, line 480 Cutoff with Select, line 539 Defaults with Switch).
+- Left unchanged: line 361 `grid grid-cols-8 gap-1.5` (time slot picker — 8-col small UI grid, not in scope).
+
+Edits to `src/components/features/auth/profile-view.tsx`:
+- Loading skeleton content grid `grid grid-cols-1 gap-4` → `grid-cards gap-4` (line 228 — mirrors Info Cards).
+- Quick action cards grid (QuickActionCard: Change Password / Sessions / etc.) `grid grid-cols-1 gap-3` → `grid-cards gap-3` (line 300).
+- Info Cards grid (InfoCard: Contact + Preferences) `grid grid-cols-1 gap-4` → `grid-cards gap-4` (line 331).
+- Left unchanged: line 758 `grid grid-cols-2 gap-3` containing Phone + Room GlassInputs (form field grid), line 792 `grid grid-cols-2 gap-3` containing Theme + Language Selects (form field grid).
+
+Edits to `src/components/features/personalization/personalization-view.tsx`:
+- Loading skeleton content grid `grid grid-cols-1 gap-4` → `grid-cards gap-4` (line 137 — mirrors the main Controls + Preview layout).
+- Main layout grid (Controls left + Live Preview right) `grid grid-cols-1 gap-4` → `grid-cards gap-4` (line 176 — on desktop the 280px minmax will let Controls and Preview sit side-by-side again at ~576px each inside the 1152px container).
+- Left unchanged: line 186 `grid grid-cols-2 gap-3` (PRESETS theme cards — 8 small color swatch + name cards, preserved per MOBILE-FIRST-C; conservative call since these are inside the Controls column which itself auto-fits, and 2-col still reads cleanly), line 258 `grid grid-cols-5 gap-2` (RADIUS_OPTIONS — 5 small radius buttons), line 346 `grid grid-cols-2 gap-2` (mini-app preview KPI swatches — demo UI), line 433 `grid grid-cols-3 gap-2` (color swatches — small UI elements).
+
+Edits to `src/components/features/settings/settings-view.tsx`:
+- No edits — the only fixed grid in this file is line 498 (Category + Type Selects — form field grid). Verified by `rg "grid grid-cols" settings-view.tsx` → single match, kept as-is.
+
+Edits to `src/components/features/notifications/notifications-view.tsx`:
+- No edits — `rg "grid grid-cols" notifications-view.tsx` returned 0 matches. No fixed grids in this file.
+
+Final verification grep — `rg "grid grid-cols-[123] gap-[34]" src/components/features/` now returns only 14 matches, all of which are intentionally-preserved form field grids (GlassInput/Select pairs) or the personalization PRESETS grid. Specifically:
+- 8 form field grids: expenses-view.tsx:1155 (Quantity+Unit), billing-view.tsx:624 (Month+Year), settings-view.tsx:498 (Category+Type), variables-view.tsx:851 (Unit+Category), meals-config-view.tsx:318/420/459/480/539 (5 form sections), profile-view.tsx:758 (Phone+Room), profile-view.tsx:792 (Theme+Language), users-view.tsx:605 (Email+Phone), users-view.tsx:620 (Room+Gender).
+- 1 preserved small UI grid: personalization-view.tsx:186 (PRESETS theme cards).
+
+Verification:
+- `cd /home/z/my-project && bun run lint` → 0 errors, 1 pre-existing warning in variables-view.tsx (`react-hooks/incompatible-library` on `form.watch` at line 734 — pre-existing, called out as acceptable in the task spec).
+- `tail -25 dev.log` → healthy dev server: multiple `✓ Compiled in <X>ms` lines and `GET /api/... 200` lines (users / notifications / kitchen / dashboard / payments / expenses). No compile errors, no runtime errors. All 11 edited files hot-reloaded cleanly.
+- Did NOT modify: globals.css (already had the 3 new utility classes — verified), any API routes, any layout components, any component logic, state, mutations, queries, content/text, icon sizes, color classes, animation classes, or any files outside the 12 listed target files.
+
+Stage Summary:
+- All KPI stat grids across the app (dashboard, billing, payments, expenses, users, kitchen, variables) now use `.grid-kpi gap-3` — `repeat(auto-fit, minmax(min(150px, 100%), 1fr))`. On mobile (~375px) → 2 cols; on tablet (~768px) → 3-4 cols; on desktop (1152px container) → 4-6 cols. Each KPI card now dynamically resizes to fill available horizontal space instead of being locked to 2 or 3 columns.
+- All larger content card grids (kitchen MealCard, variables VariableCard, meals-config MealConfigCard, profile QuickActionCard, profile InfoCard) now use `.grid-cards gap-3` or `.grid-cards gap-4` — `repeat(auto-fit, minmax(min(280px, 100%), 1fr))`. On mobile → 1 col; on tablet → 2 cols; on desktop → 3-4 cols. Cards now flow into multiple columns on wider screens instead of stacking vertically.
+- Personalization main layout grid (Controls + Live Preview) now uses `.grid-cards gap-4` — on desktop, Controls and Preview sit side-by-side again at ~576px each (which was the original design intent before the mobile-first task collapsed it to 1 col). On mobile/tablet portrait they stack vertically.
+- All loading skeletons that mirror KPI/content grids were updated to use the same `.grid-kpi` / `.grid-cards` class as their real-grid counterpart, so the loading state matches the final layout (skeleton columns scale with viewport width too).
+- All form field grids (GlassInput/Select/Textarea pairs like Email+Phone, Month+Year, Quantity+Unit, Phone+Room, Theme+Language, Category+Type, Unit+Category) were left as `grid grid-cols-2 gap-3` — form inputs stay side-by-side at 2 columns since they're narrow fields, not auto-sizing cards.
+- Small UI element grids (PRESETS theme swatches, RADIUS_OPTIONS, color swatches, mini-app preview) were left unchanged — they're compact UI elements that already fit cleanly in their containers.
+- File size delta is minimal — each edit only shortened class strings (replacing `grid grid-cols-N` with `grid-kpi`/`grid-cards`), no logic added or removed. No non-target files modified. Lint clean (0 errors). Dev server healthy.
+
+---
+Task ID: OPTIMIZE-UI
+Agent: optimize-ui-agent
+Task: Optimize UI/UX and performance without removing animations/blur/transparency
+
+Work Log:
+- Read worklog.md tail for recent context (DYNAMIC-GRIDS — grid-kpi/grid-cards utility classes already in place; dev server running healthy on port 3000).
+- Audited the 8 specified files for performance issues. Verified `useMemo` is already in place for `kpis`, `filtered`, `filteredUsers`, `sourceBills`/`sourcePayments`/`sourceExpenses` (simple ternaries — stable per render), `totals`, `byCategory`, `kpis` across billing/payments/expenses/users/kitchen. Confirmed TopBar already has `refetchInterval: 30_000` + `staleTime: 10_000` on the unread-count query — no changes needed there.
+
+Edits to `src/components/features/billing/billing-view.tsx`:
+- Import: added `memo`, `useEffect` to the named React imports.
+- Debounced search: split `search` state into `searchInput` (drives the GlassInput) and `search` (the debounced value, 200ms after typing stops, used in the `filtered` useMemo). Added a `useEffect` with `setTimeout`/`clearTimeout`. Prevents re-filtering the list on every keystroke.
+- Bills query: added `placeholderData: (prev) => prev` (stale-while-revalidate — eliminates the flash of empty content when switching months). Destructured `isFetching`.
+- Deleted-bills query: added `placeholderData: (prev) => prev`.
+- Subtle refetch indicator: added a thin `motion.div` (h-0.5, bg-primary/60, animated scaleX from 0→1) wrapped in `AnimatePresence` at the top of the `StaggerGroup`. Shows on every refetch (month change, mutation invalidation) but NOT on initial load (the full skeleton handles that, since `isLoading` is true only on first load with `placeholderData`).
+- Wrapped `BillRow` in `memo(function BillRow(...) { ... })`. Note: inline `onView`/`onVoid`/`onDelete`/`onRestore` arrows in the `.map()` callback create new refs on every render, defeating memo during search-driven re-renders — acknowledged as a known limitation per the task spec (not converting to `useCallback` to avoid overcomplicating). Memo still helps when the parent re-renders for OTHER reasons.
+- Wrapped `BillDetail` in `memo(function BillDetail(...) { ... })` too (rendered inside a Dialog; memoized so it doesn't re-render on parent search/filter changes while open).
+
+Edits to `src/components/features/billing/payments-view.tsx`:
+- Import: added `memo`, `useCallback`, `useEffect`.
+- Debounced search: same `searchInput`/`search` split with 200ms debounce.
+- All three queries (all-payments KPIs, month-filtered payments, deleted-payments queue): added `placeholderData: (prev) => prev`. Destructured `isFetching` from the month-filtered payments query.
+- Subtle refetch indicator: same thin animated `motion.div` at the top of the `StaggerGroup`.
+- Wrapped `PendingRow` and `PaymentRow` in `memo(function ... { ... })`.
+- Wrapped `openEditForm` and `closeEditForm` in `useCallback` with empty deps (they only call stable state setters). They're called from inline arrows in the `.map()` callback AND from the `PaymentEditSheet`'s `onOpenChange`, so the stable refs help avoid re-renders of the sheet body.
+
+Edits to `src/components/features/billing/expenses-view.tsx`:
+- Import: added `memo`, `useCallback`, `useEffect`.
+- Debounced search: same `searchInput`/`search` split with 200ms debounce.
+- Expenses query + deleted-expenses query: added `placeholderData: (prev) => prev`. Destructured `isFetching`.
+- Subtle refetch indicator: same thin animated `motion.div` at the top of the `StaggerGroup`.
+- Wrapped `ExpenseRow` in `memo(function ... { ... })`.
+- Wrapped `openAddForm`, `openEditForm`, `closeForm`, `handleSubmit` in `useCallback`. `handleSubmit` has `[addMutation, editMutation]` deps (the `.mutate` functions are stable per react-query, but listing the mutation objects satisfies `react-hooks/exhaustive-deps`). `openAddForm`/`openEditForm`/`closeForm` have empty deps (only call state setters).
+
+Edits to `src/components/features/users/users-view.tsx`:
+- Import: added `memo`, `useCallback`, `useEffect` (already had `useState`, `useMemo`).
+- Debounced search: same `searchInput`/`search` split with 200ms debounce. IMPORTANT: `search` (the debounced value) is used in the `queryKey: ["users", { search }]` AND in the API params `q: search` — NOT `searchInput`. This means the API refetch is also debounced (only fires 200ms after typing stops), which is the desired behavior — was previously refetching on every keystroke.
+- Destructured `isFetching` from the users query (already had `placeholderData: (prev) => prev`).
+- Subtle refetch indicator: same thin animated `motion.div` at the top of the `StaggerGroup`.
+- Wrapped `UserRow` in `memo(function ... { ... })`.
+- Wrapped `handleAction`, `submitEdit`, `submitConfirm`, `submitAssignRole`, `submitDelete` in `useCallback`. CRITICAL: moved these handlers ABOVE the `if (!isAdmin)` early return so the `useCallback` hooks run unconditionally on every render (rules of hooks — hooks cannot be called conditionally). The handlers don't depend on `isAdmin`, only on stable state setters and the mutation objects, so moving them above the early return is safe.
+  - `handleAction` deps: `[actionMutation, restoreDeletedMutation]` (the `.mutate` functions are stable).
+  - `submitEdit` deps: `[editUser, editForm, editMutation]`.
+  - `submitConfirm` deps: `[confirm, reason, actionMutation]`.
+  - `submitAssignRole` deps: `[assignRole, newRole, assignReason, actionMutation]`.
+  - `submitDelete` deps: `[deleteTarget, deleteReason, deleteMutation]`.
+
+Edits to `src/components/features/dashboard/dashboard-view.tsx`:
+- Added `placeholderData: (prev) => prev` to the dashboard query. Already had `refetchInterval: 30000`. With placeholderData, the existing `if (isLoading || !data)` check now only shows the full skeleton on the very first load (no cached data); subsequent 30s refetches keep the previous data visible (no flash).
+
+Edits to `src/components/features/kitchen/kitchen-view.tsx`:
+- Increased `refetchInterval` from `15_000` to `30_000` (halves the API load while still being responsive for a live kitchen dashboard). Kept `refetchOnWindowFocus: true` (returns to the tab → fresh counts immediately).
+- Added `placeholderData: (prev) => prev` — keeps the previous day's data visible while a new date loads (no flash when navigating between dates). The existing `if (isLoading) return <KitchenSkeleton />` now only shows the skeleton on the very first load (no cached data); date changes show previous data + subtle background refresh.
+
+No changes to:
+- `src/components/layout/app-shell.tsx` — only contains the AnimatePresence page transition wrapper; no queries or list rendering to optimize.
+- `src/components/layout/top-bar.tsx` — already had `refetchInterval: 30_000` + `staleTime: 10_000` on the unread-count query (verified). No list rendering, no row components, no search input.
+
+Verification:
+- `cd /home/z/my-project && bun run lint` → 0 errors, 1 pre-existing warning in `variables-view.tsx` (`react-hooks/incompatible-library` on `form.watch` at line 739 — pre-existing, called out as acceptable in the task spec; NOT in any of the 8 files I edited).
+- `tail -20 dev.log` → healthy dev server: multiple `✓ Compiled in <X>ms` lines and `GET / 200`, `GET /api/dashboard 200`, `GET /api/notifications?unread=true 200` lines. No compile errors, no runtime errors after my edits. (One transient parsing error appeared in the log from a brief intermediate state mid-edit — `Expected ',', got 'const'` — but it was fixed within seconds by closing the `memo(function ... { })` wrappers with `});`, and subsequent compiles succeeded.)
+- Did NOT modify: any CSS, any glass classes, any API routes, any prisma schema, any backend files, any animations (Framer Motion / CSS transitions), any backdrop-filter blur, any transparency/opacity, any visual design, any features or functionality.
+
+Stage Summary:
+- React rendering performance: All 5 row components rendered inside `.map()` loops (`BillRow`, `BillDetail`, `PendingRow`, `PaymentRow`, `ExpenseRow`, `UserRow`) are now wrapped in `React.memo`. When the parent re-renders (e.g., on filter pill change, mutation completion, query refetch), only rows whose props actually changed re-render — the rest skip their render function. Known limitation: inline `onXxx={() => ...}` arrows in the `.map()` callbacks create new function references on every render, defeating memo during search-driven re-renders; per the task spec, NOT converting these to `useCallback` to avoid overcomplicating the code. The debounced search (200ms) means the parent re-renders far less frequently during typing, which is the bigger win.
+- Event handler stability: `openEditForm`, `closeEditForm` (payments-view), `openAddForm`, `openEditForm`, `closeForm`, `handleSubmit` (expenses-view), and `handleAction`, `submitEdit`, `submitConfirm`, `submitAssignRole`, `submitDelete` (users-view) are now wrapped in `useCallback` with proper dependency arrays. The users-view handlers were moved above the `if (!isAdmin)` early return to satisfy the rules of hooks (hooks must be called unconditionally).
+- Query performance: All list-fetching queries (`bills`, `payments` ×3, `expenses` ×2, `dashboard`, `kitchen`, `users`) now use `placeholderData: (prev) => prev` — implementing stale-while-revalidate. Switching months/dates no longer shows a flash of empty content; the previous data stays visible while the new data loads in the background. Kitchen refetch interval doubled from 15s → 30s (halves API load for the live dashboard). TopBar's notification query already had the correct `refetchInterval: 30_000` + `staleTime: 10_000`.
+- UX polish: Search inputs across billing/payments/expenses/users now debounce the actual filter value by 200ms — the user can type freely without the list re-filtering on every keystroke (especially important for large lists of 500+ items). For users-view, the debounce also applies to the API queryKey, so the `/api/users?q=...` request only fires 200ms after typing stops (was firing on every keystroke before). All four list views (billing/payments/expenses/users) now show a subtle thin animated progress bar at the top of the list when `isFetching` is true (refetch in flight) — replaces the previous behavior of showing the full skeleton on every month change. The full skeleton now only shows on the very first load (when `isLoading` is true and there's no cached data), thanks to `placeholderData`.
+- Files modified: 6 of the 8 specified files (billing-view, payments-view, expenses-view, users-view, dashboard-view, kitchen-view). The other 2 (app-shell, top-bar) needed no changes — verified during audit.
+- Net effect: smoother list interactions (no flashing on month/date changes, no per-keystroke re-filtering), fewer API calls (kitchen 30s vs 15s, users debounced query), and fewer React renders (memoized rows, stable callbacks). Zero impact on animations, blur, transparency, or visual design.
+
+---
+Task ID: PAY-REFUND
+Agent: pay-refund-agent
+Task: Add Pay Refund feature — backend refund API + frontend glass card button + dialogs
+
+Work Log:
+- Read worklog.md tail for recent context (DYNAMIC-GRIDS, OPTIMIZE-UI tasks — grid-kpi/grid-cards utilities, debounced search, memoized rows, placeholderData already in place; dev server running healthy on port 3000).
+- Verified the data model and helpers: `Bill` model has `paidAmount`, `totalAmount`, `dueAmount`, `status` (DRAFT | GENERATED | PARTIALLY_PAID | PAID | OVERDUE | VOID | DELETED), `userId`, `user` relation; `Payment` model has `status` (PENDING | APPROVED | REJECTED | REFUNDED | VOID | DELETED), `method` (CASH | UPI | CARD | BANK_TRANSFER | WALLET), `approvedBy`, `billId`. Confirmed `requireRole` (session.ts), `ok`/`err`/`handleApiError` (api-response.ts), `logAudit` (audit.ts), `createNotification` (notify.ts — supports `title`, `description`, `type`, `priority`, `route`) all exist and match the patterns used by the existing `/api/payments/route.ts`. Checked `GlassButton` supports `variant="danger"` + `loading` + `size="lg"`, `GlassInput`/`GlassTextarea` accept `label` (and `GlassInput` accepts `icon` + spreads remaining props to the input element).
+
+Created `/home/z/my-project/src/app/api/payments/refund/route.ts` (new file, ~160 lines):
+- `GET /api/payments/refund` (admin only): queries all non-deleted/non-VOID bills where `paidAmount > totalAmount` using Prisma's field-comparison filter `paidAmount: { gt: db.bill.fields.totalAmount }`. Includes the `user` relation (`id`, `name`, `email`, `avatarUrl`, `room`). Groups by `userId` in a `Map`, summing the credit (`paidAmount - totalAmount`) across all overpaid bills for that user and collecting per-bill details (`id`, `periodMonth`, `periodYear`, `totalAmount`, `paidAmount`, `credit`). Returns an array sorted by `creditAmount` descending.
+- `POST /api/payments/refund` (admin only): validates `{ userId, amount: positive number, billId?: string, notes?: string }` with zod. Looks up the user's bills — either a specific `billId` or all non-VOID/non-DELETED bills ordered by `createdAt desc`. Computes the total credit; if insufficient, returns 422 with `User only has ₹X credit (requested ₹Y)`. Creates a `Payment` record with `method: "REFUND"`, `status: "REFUNDED"`, `reference: "REFUND"`, `approvedBy: admin.id`. Then reduces the bills' `paidAmount` from the most-recent-first (or just the specified billId) until the refund amount is fully consumed, recomputing `dueAmount = max(0, totalAmount - newPaidAmount)` and setting `status` to `PAID` (due===0) / `GENERATED` (paid===0) / `PARTIALLY_PAID`. Sends a HIGH-priority INFO notification to the user (`route: "billing"`) via `createNotification`. Logs `PAYMENT_REFUND` audit entry via `logAudit`. Returns 201 with the created payment.
+- Error handling: all `requireRole` failures (UNAUTHORIZED/FORBIDDEN/ACCOUNT_NOT_ACTIVE) and ZodErrors are caught by `handleApiError`; the credit-insufficient check returns a structured 422 via `err(...)`.
+
+Edits to `/home/z/my-project/src/components/features/billing/payments-view.tsx`:
+- Imports: verified all needed icons/components are already imported — `RotateCcw`, `IndianRupee` (lucide-react), `Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter` (ui/dialog), `Avatar, AvatarFallback` (ui/avatar), `GlassInput, GlassTextarea` (glass/glass-input), `GlassButton`, `StaggerGroup, StaggerItem`, `motion, AnimatePresence`, `cn`, `api`, `toast`, `useMutation`, `useQueryClient`. `gradientFor` and `initials` helpers already defined at module scope. No new imports needed.
+- Added state block after `voidTarget` (lines 265–278): `refundOpen`, `refundUsers` (typed array of `{ userId, name, email, avatarUrl, room, creditAmount }`), `refundLoading`, `refundTarget` (`{ userId, name, creditAmount } | null`), `refundAmount` (string), `refundNotes` (string).
+- Added `fetchRefundUsers` async function and `refundMutation` useMutation after `closeEditForm` (lines 434–468). `fetchRefundUsers` calls `api.get<{ success, data }>("/payments/refund")` and opens the user-list dialog. `refundMutation.mutate` posts `{ userId, amount: parseFloat(refundAmount), notes }` and on success: shows a toast, clears `refundTarget`/`refundAmount`/`refundNotes`, invalidates both `["payments"]` and `["bills"]` query keys, and re-fetches the refund users list so the just-refunded user disappears (or their credit decreases) immediately.
+- Added "Pay Refund" button (lines 584–600) between the month picker and the non-admin action bar — `isAdmin &&` gated, centered via `flex items-center justify-center`, `GlassButton variant="ghost" size="lg"` with `glass text-primary hover:text-primary font-semibold` classes (matches the "Generate Bills" centered transparent glass card style in billing-view). Uses `RotateCcw` icon. `loading={refundLoading}` shows the spinner during the GET fetch.
+- Added two `Dialog`s at the end of the `StaggerGroup` (lines 1003–1097):
+  - User-list dialog (`open={refundOpen && !refundTarget}`): header with `RotateCcw` icon + "Users with Credit Balance" title + description. Empty-state shows "No users have credit balance right now." Otherwise maps `refundUsers` to centered buttons: gradient `AvatarFallback` (initials), name + email (truncated), and right-aligned `₹X credit` badge in success color. Clicking a user sets `refundTarget`, prefills `refundAmount` with the full credit, and opens the confirm dialog.
+  - Confirm/amount dialog (`open={!!refundTarget}`): header shows target name + available credit. Body has `GlassInput` (type=number, IndianRupee icon, label="Refund Amount (₹)") and `GlassTextarea` (label="Notes (optional)"). Footer has Cancel (`variant="ghost"`) + Process Refund (`variant="danger"`, `RotateCcw` icon). The Process button is disabled when amount is empty/≤0 or exceeds available credit. `onOpenChange` clears all three fields on dismiss.
+
+Verification:
+- `cd /home/z/my-project && bun run lint` → 0 errors, 1 pre-existing warning in `variables-view.tsx` (line 739, `react-hooks/incompatible-library` on `form.watch` — pre-existing, called out as acceptable in the OPTIMIZE-UI worklog entry; NOT in any file I edited).
+- `tail -20 dev.log` → healthy dev server: multiple `✓ Compiled in <X>ms` lines (207ms, 101ms, 91ms, 167ms) and `GET /api/notifications?unread=true 200` lines (11–23ms). No compile errors, no runtime errors. The two new files (route.ts and edited payments-view.tsx) hot-reloaded cleanly.
+- Did NOT modify: any other files, the prisma schema, any other API routes, any glass components, any CSS, any animations/blur/transparency, any other features.
+
+Stage Summary:
+- Backend: new `/api/payments/refund` route with GET (list users with credit balance, grouped & summed) and POST (process refund — creates REFUNDED payment record, reduces bill paidAmount across one-or-more bills, recomputes dueAmount/status, sends HIGH-priority notification, logs PAYMENT_REFUND audit). Admin-only via `requireRole("ADMIN")`. Validates input with zod; returns structured 422 if credit is insufficient.
+- Frontend: new "Pay Refund" centered glass card button (admin only) placed between the month picker and the KPIs in `payments-view.tsx`. Clicking opens a user-list dialog showing every user with credit (avatar, name, email, ₹credit badge). Selecting a user opens a confirm dialog with a prefilled amount input (IndianRupee icon) + optional notes textarea + danger-styled Process Refund button (disabled when amount invalid or exceeds credit). On success: toast notification, dialog closes, `["payments"]` and `["bills"]` queries invalidated, refund users list re-fetched so the UI stays in sync.
+- Net effect: admins can now refund excess deposits to overpaying users with full audit trail + user notification, entirely from the Payments section. Reuses all existing glass UI primitives, matches the centered-glass-card-button pattern of "Generate Bills" in billing-view, and respects the existing memoization/debounce/placeholderData architecture. Lint clean (0 errors). Dev server healthy.
+
+---
+Task ID: USER-MEALS
+Agent: user-meals-agent
+Task: Build user-facing Meals page with meal cards + toggle + cutoff validation
+
+Work Log:
+- Read worklog.md tail for recent context (OPTIMIZE-UI, PAY-REFUND tasks — memoized rows, debounced search, placeholderData, glass primitives all in place; dev server running healthy on port 3000).
+- Audited existing infrastructure before writing any code:
+  - `use-app-store.ts`: the `View` type is named `ViewKey` (not `View`); contains a union of 13 view strings. Added `"user-meals"` to the union (between `meals` and `kitchen`).
+  - `nav-config.ts`: imports `UtensilsCrossed` but NOT `Utensils` — added `Utensils` to the lucide-react import. NAV_ITEMS uses a flat array with `view`/`label`/`icon`/`roles`/`primary`/`primaryRoles`/`rail` fields. Added the new item with `primaryRoles: ["USER"]` so it shows on the USER mobile bottom bar (matching how `billing` is set up) while still being accessible to ADMIN via the rail/sidebar. Added `"user-meals": "Meals"` to NAV_LABELS.
+  - `nav-groups.ts`: Workspace group filter is a hardcoded array `["dashboard", "meals", "kitchen"]`. Added `"user-meals"` to that array so the new item lands in the Workspace section alongside the other meal-related views.
+  - `page.tsx`: uses a flat list of `{view === "x" && <XView />}` conditionals (not a switch). Added `{view === "user-meals" && <UserMealsView />}` and the import. Fixed a stray double-brace `}}` that appeared mid-edit.
+  - `/api/meals/entries` route: **CRITICAL DISCOVERY** — the actual response shape differs from the task spec's description. The spec said the endpoint returns `{ success, data: MealEntry[] }` where each entry has a nested `meal` object with `cutoffTime`. The ACTUAL response is `{ success, data: { meals: MealConfiguration[], byDate: Record<string, FlatEntry[]> } }` where (a) entries are grouped by date key, (b) each entry is FLAT (no nested `meal` object — fields are `mealId`/`mealName`/`mealDisplayName`/`mealIcon`/`mealColor`/`startTime`/`endTime`/`mealType`), and (c) entries do NOT include `cutoffTime` (only the top-level `meals` array of raw MealConfiguration objects has `cutoffTime`). Since the task explicitly forbade modifying any API routes or backend files, I adapted the frontend's `queryFn` to normalize the response into the shape the spec's rendering code expects: extract `byDate[dateStr] ?? []`, build a `Map<mealId, MealConfig>` from `r.data.meals`, and map each flat entry into a `MealEntry` with a nested `meal` object (looking up `cutoffTime` from the map). This preserves the spec's intended component code (`entry.meal.displayName`, `entry.meal.cutoffTime`, etc.) without touching the backend.
+  - `/api/meals/toggle` route: confirmed body `{ entryId, status: "ON"|"OFF" }`, returns 422 with a message when the meal is locked/past-cutoff. The frontend's `onError` surfaces `e.message` via toast — matches the API's error envelope (`body?.error` → `ApiError.message`).
+  - `api-client.ts`: `api.get` returns the full `{ success, data }` envelope (callers access `.data`). `api.patch` accepts `(path, data)`. Both confirmed compatible with the spec's usage.
+  - Glass primitives: verified `GlassCard` (supports `glow`/`hover` props), `AnimatedCounter` (accepts `value`), `StaggerGroup`/`StaggerItem` (motion variants), `ShimmerSkeleton` (accepts `className`). All exist and match the spec's usage. `grid-kpi` CSS class exists (auto-fit grid, minmax 150px). `glass-soft`/`glass-strong` classes exist. Color utilities `bg-success`/`text-success`/`bg-warning`/`text-warning`/`bg-destructive`/`text-destructive` all defined via Tailwind v4 theme variables.
+  - `kitchen-view.tsx`: confirmed the date-capsule design pattern (prev/today/next buttons with `glass-strong` round buttons + `glass-soft` capsule center) and the `toDateString(d)` local-time YYYY-MM-DD helper. Reused the same helper in user-meals-view for timezone consistency (the API parses `date` param via `new Date(specificDate)` then `setHours(0,0,0,0)` in local time, so local-time date strings avoid off-by-one drift).
+  - eslint config: `@typescript-eslint/no-unused-vars` and `no-unused-vars` are both OFF, so unused imports won't error. Still removed the unused `GlassButton` import from the spec for cleanliness (the spec imported it but never used it).
+
+Created `/home/z/my-project/src/components/features/meals/user-meals-view.tsx` (new file, ~340 lines):
+- Imports: `useState, useMemo, memo` from react (used `memo` instead of `React.memo` per the task note — cleaner, no need for a default `React` import); `useQuery, useMutation, useQueryClient` from `@tanstack/react-query`; `motion, AnimatePresence` from framer-motion; `toast` from sonner; `format, addDays, isSameDay` from date-fns; 8 lucide icons (`ChevronLeft, ChevronRight, Calendar, RotateCcw, Utensils, Lock, Check, X`); `api` from `@/lib/api-client`; `cn` from `@/lib/utils`; `GlassCard`, `AnimatedCounter`, `StaggerGroup, StaggerItem`, `ShimmerSkeleton` from glass primitives. Deliberately omitted the spec's unused `GlassButton` import.
+- Types: defined `MealConfig`, `FlatEntry` (matches the actual API's flat entry shape), `MealEntry` (normalized with nested `meal` object — the shape the spec's rendering code expects), and `EntriesResponse = { meals: MealConfig[]; byDate: Record<string, FlatEntry[]> }`.
+- Helpers: `toDateString(d)` — local-time YYYY-MM-DD (matches kitchen-view); `to12h(t)` — converts "HH:mm" to "h:mm AM/PM".
+- `UserMealsView` component: date state (`selectedDate`, default `new Date()`), `isToday` derived via `isSameDay`. `dateStr` built via `toDateString`. `useQuery` with key `["user-meals", dateStr]` and `placeholderData: (prev) => prev` (stale-while-revalidate — no flash when navigating between dates, matching the OPTIMIZE-UI convention). `queryFn` normalizes the API response as described above. `toggleMutation` calls `api.patch("/meals/toggle", { entryId, status })`; on success invalidates both `["user-meals"]` and `["kitchen"]` query keys (so the admin kitchen dashboard stays in sync when a user toggles a meal); on error shows a toast with `e.message`. `stats` useMemo computes ON/OFF/Locked counts. Loading skeleton renders a `ShimmerSkeleton` for the date picker + 3 KPI cards.
+- Render: `StaggerGroup` wrapper with 3 `StaggerItem` blocks: (1) date picker capsule (prev/next `motion.button` with `whileTap` scale + center capsule showing "Today"/"d MMM" + "EEE, d MMM yyyy" + reset-to-today `RotateCcw` icon when not today); (2) 3-column KPI grid (Meals ON with success glow + Check icon, Meals OFF with warning glow + X icon, Locked with danger glow + Lock icon — each with `AnimatedCounter`); (3) meal cards list with `AnimatePresence mode="popLayout"` and `motion.div layout` per card for smooth reordering. Empty state shows a centered `Utensils` icon + "No meals configured for this date." message.
+- `MealCard` component (wrapped in `memo`): displays meal icon (emoji in a tinted rounded square using `color-mix(in oklch, ${color} 15%, transparent)`), display name, time range (start–end in 12h format), locked badge if applicable, and a toggle switch (14×8 rounded-full button with a 6×6 white knob that animates position via `motion.span layout` with spring physics). Toggle is disabled when `isLocked || loading`. Status row at the bottom shows "ON"/"OFF"/"🔒 Locked" pill + cutoff time in 12h format (only when not locked and cutoffTime is present).
+
+Verification:
+- `cd /home/z/my-project && bun run lint` → 0 errors, 1 pre-existing warning in `variables-view.tsx` (line 739, `react-hooks/incompatible-library` on `form.watch` — pre-existing, called out in prior worklog entries; NOT in any file I edited).
+- `tail -20 dev.log` → healthy dev server. After my edits: `✓ Compiled in 1225ms` (successful recompile of the new file), `GET / 200`, `GET /api/auth/me 200`, `GET /api/meals/entries?date=2026-06-29 200 in 144ms` (the new UserMealsView mounted and successfully fetched meal entries for today), `GET /api/notifications?unread=true 200`. Two transient 500s on the notifications endpoint appeared mid-session (pre-existing endpoint I did NOT touch) and recovered to 200 immediately. No compile errors, no runtime errors from the new view.
+- Did NOT modify: any API routes, prisma schema, backend files, glass components, CSS, other views, or the command palette (the task scope was limited to 4 nav/store files + 1 new component + page.tsx wiring).
+
+Stage Summary:
+- New "Meals" nav item (`user-meals` view) is now available to both USER and ADMIN roles, appearing in the Workspace group of the sidebar/rail. For USER role it also shows on the mobile bottom bar (via `primaryRoles: ["USER"]`), making it the user's primary way to manage their daily meal status — distinct from the admin-only "Meal Configuration" view (`meals`) which manages meal type definitions.
+- The `UserMealsView` renders a date capsule picker (prev/next/today, matching the kitchen-view design), 3 KPI cards (Meals ON / Meals OFF / Locked with animated counters + colored glass glows), and a list of meal cards. Each meal card shows the meal's emoji icon (tinted with its configured color), display name, service time window, a glass toggle switch, and a status pill + cutoff time. Toggling calls `PATCH /api/meals/toggle` with cutoff validation on the backend; locked meals (past cutoff) show a 🔒 badge and a disabled toggle. The toggle mutation invalidates both `["user-meals"]` (refetches this view) and `["kitchen"]` (refreshes the admin kitchen dashboard counts in the background).
+- Key adaptation: the task spec assumed the `/api/meals/entries` endpoint returns a flat array of entries with a nested `meal` object including `cutoffTime`. The actual API returns `{ meals, byDate }` with flat entries (no nested meal, no cutoffTime on entries). Rather than modifying the backend (forbidden by the task), the frontend's `queryFn` normalizes the response — extracting entries from `byDate[dateStr]` and looking up `cutoffTime` from the `meals` array via a `Map`. This preserves the spec's intended rendering code unchanged while correctly adapting to the real API contract.
+- Architecture consistency: reuses all existing glass UI primitives (`GlassCard`, `AnimatedCounter`, `StaggerGroup`/`StaggerItem`, `ShimmerSkeleton`), the established date-capsule pattern from kitchen-view, the local-time `toDateString` helper (avoids TZ drift), `placeholderData: (prev) => prev` for stale-while-revalidate (no flash on date change), `memo` for the `MealCard` row component (avoids re-rendering unchanged cards when the parent re-renders on toggle), and sonner toasts for error surfacing. Lint clean (0 errors). Dev server healthy with the new view successfully fetching `/api/meals/entries?date=2026-06-29 200`.

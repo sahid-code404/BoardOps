@@ -1,0 +1,768 @@
+     1→"use client";
+     2→
+     3→import { useState, useMemo, memo, useCallback, useRef, useEffect } from "react";
+     4→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     5→import { motion, AnimatePresence } from "framer-motion";
+     6→import { toast } from "sonner";
+     7→import { isSameMonth, isSameDay, format, addDays, startOfMonth, endOfMonth, eachDayOfInterval, getDay } from "date-fns";
+     8→import {
+     9→  ChevronLeft,
+    10→  ChevronRight,
+    11→  Calendar,
+    12→  RotateCcw,
+    13→  Utensils,
+    14→  Lock,
+    15→  Check,
+    16→  X,
+    17→  ChevronDown,
+    18→  CalendarDays,
+    19→  List,
+    20→  Sun,
+    21→} from "lucide-react";
+    22→import { api } from "@/lib/api-client";
+    23→import { cn } from "@/lib/utils";
+    24→import { GlassCard } from "@/components/glass/glass-card";
+    25→import { GlassButton } from "@/components/glass/glass-button";
+    26→import { AnimatedCounter } from "@/components/glass/animated-counter";
+    27→import {
+    28→  StaggerGroup,
+    29→  StaggerItem,
+    30→} from "@/components/glass/page-transition";
+    31→import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
+    32→
+    33→// ─────────────────────────────────────────────────────────────
+    34→// Types
+    35→// ─────────────────────────────────────────────────────────────
+    36→
+    37→type MealConfig = {
+    38→  id: string;
+    39→  name: string;
+    40→  displayName: string;
+    41→  icon: string;
+    42→  color: string;
+    43→  startTime: string;
+    44→  endTime: string;
+    45→  cutoffTime: string;
+    46→};
+    47→
+    48→type FlatEntry = {
+    49→  id: string;
+    50→  mealId: string;
+    51→  mealName: string;
+    52→  mealDisplayName: string;
+    53→  mealIcon: string;
+    54→  mealColor: string;
+    55→  serviceDate: string;
+    56→  status: string;
+    57→  editableUntil: string;
+    58→  locked: boolean;
+    59→  overrideFlag: boolean;
+    60→  startTime: string;
+    61→  endTime: string;
+    62→  mealType: string;
+    63→};
+    64→
+    65→type MealEntry = {
+    66→  id: string;
+    67→  status: string;
+    68→  locked: boolean;
+    69→  editableUntil: string;
+    70→  serviceDate: string;
+    71→  meal: {
+    72→    id: string;
+    73→    name: string;
+    74→    displayName: string;
+    75→    icon: string;
+    76→    color: string;
+    77→    startTime: string;
+    78→    endTime: string;
+    79→    cutoffTime: string;
+    80→  };
+    81→};
+    82→
+    83→type EntriesResponse = {
+    84→  meals: MealConfig[];
+    85→  byDate: Record<string, FlatEntry[]>;
+    86→};
+    87→
+    88→type ApiResponse<T> = { success: boolean; data: T };
+    89→type ViewMode = "agenda" | "calendar" | "day";
+    90→
+    91→// ─────────────────────────────────────────────────────────────
+    92→// Helpers
+    93→// ─────────────────────────────────────────────────────────────
+    94→
+    95→function toDateString(d: Date): string {
+    96→  const y = d.getFullYear();
+    97→  const m = String(d.getMonth() + 1).padStart(2, "0");
+    98→  const day = String(d.getDate()).padStart(2, "0");
+    99→  return `${y}-${m}-${day}`;
+   100→}
+   101→
+   102→function to12h(t: string): string {
+   103→  const [h, m] = t.split(":").map(Number);
+   104→  const period = h >= 12 ? "PM" : "AM";
+   105→  const hr = h % 12 || 12;
+   106→  return `${hr}:${String(m).padStart(2, "0")} ${period}`;
+   107→}
+   108→
+   109→function parseDateStr(s: string): Date {
+   110→  const [y, m, d] = s.split("-").map(Number);
+   111→  return new Date(y, m - 1, d);
+   112→}
+   113→
+   114→const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+   115→
+   116→// ─────────────────────────────────────────────────────────────
+   117→// Main view
+   118→// ─────────────────────────────────────────────────────────────
+   119→
+   120→export function UserMealsView() {
+   121→  const qc = useQueryClient();
+   122→  const now = new Date();
+   123→  const [viewMode, setViewMode] = useState<ViewMode>("agenda");
+   124→  const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
+   125→  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+   126→  const [selectedDay, setSelectedDay] = useState(new Date());
+   127→  const isThisMonth = isSameMonth(new Date(selectedYear, selectedMonth, 1), now);
+   128→  const [expandedDay, setExpandedDay] = useState<string | null>(toDateString(now));
+   129→
+   130→  // Month query — for agenda + calendar views
+   131→  const { data: monthData, isLoading: monthLoading } = useQuery({
+   132→    queryKey: ["user-meals", { month: selectedMonth, year: selectedYear }],
+   133→    queryFn: async () => {
+   134→      const r = await api.get<ApiResponse<EntriesResponse>>("/meals/entries", {
+   135→        params: { month: selectedMonth, year: selectedYear },
+   136→      });
+   137→      return r.data;
+   138→    },
+   139→    placeholderData: (prev) => prev,
+   140→    enabled: viewMode !== "day",
+   141→  });
+   142→
+   143→  // Single-day query — for day view
+   144→  const dayStr = toDateString(selectedDay);
+   145→  const { data: dayData, isLoading: dayLoading } = useQuery({
+   146→    queryKey: ["user-meals-day", dayStr],
+   147→    queryFn: async () => {
+   148→      const r = await api.get<ApiResponse<EntriesResponse>>("/meals/entries", {
+   149→        params: { date: dayStr },
+   150→      });
+   151→      return r.data;
+   152→    },
+   153→    placeholderData: (prev) => prev,
+   154→    enabled: viewMode === "day",
+   155→  });
+   156→
+   157→  const toggleMutation = useMutation({
+   158→    mutationFn: async ({ entryId, status }: { entryId: string; status: "ON" | "OFF" }) => {
+   159→      await api.patch("/meals/toggle", { entryId, status });
+   160→    },
+   161→    onSuccess: () => {
+   162→      qc.invalidateQueries({ queryKey: ["user-meals"] });
+   163→      qc.invalidateQueries({ queryKey: ["user-meals-day"] });
+   164→      qc.invalidateQueries({ queryKey: ["kitchen"] });
+   165→    },
+   166→    onError: (e: Error) => toast.error(e.message || "Failed to toggle meal"),
+   167→  });
+   168→
+   169→  // Normalize month data into sorted days array
+   170→  const days = useMemo(() => {
+   171→    const src = monthData;
+   172→    if (!src) return [];
+   173→    const mealMap = new Map(src.meals.map((m) => [m.id, m]));
+   174→    const result: { dateStr: string; date: Date; entries: MealEntry[] }[] = [];
+   175→    const dateKeys = Object.keys(src.byDate).sort();
+   176→    for (const dateStr of dateKeys) {
+   177→      const flatEntries = src.byDate[dateStr];
+   178→      if (!flatEntries || flatEntries.length === 0) continue;
+   179→      const entries: MealEntry[] = flatEntries.map((f) => {
+   180→        const meal = mealMap.get(f.mealId);
+   181→        return {
+   182→          id: f.id, status: f.status, locked: f.locked,
+   183→          editableUntil: f.editableUntil, serviceDate: f.serviceDate,
+   184→          meal: {
+   185→            id: f.mealId, name: f.mealName, displayName: f.mealDisplayName,
+   186→            icon: f.mealIcon, color: f.mealColor,
+   187→            startTime: f.startTime, endTime: f.endTime,
+   188→            cutoffTime: meal?.cutoffTime ?? "",
+   189→          },
+   190→        };
+   191→      });
+   192→      result.push({ dateStr, date: parseDateStr(dateStr), entries });
+   193→    }
+   194→    return result;
+   195→  }, [monthData]);
+   196→
+   197→  // Map for quick lookup by dateStr
+   198→  const dayMap = useMemo(() => {
+   199→    const m = new Map<string, MealEntry[]>();
+   200→    for (const d of days) m.set(d.dateStr, d.entries);
+   201→    return m;
+   202→  }, [days]);
+   203→
+   204→  // Day view entries
+   205→  const dayEntries = useMemo(() => {
+   206→    if (!dayData) return [];
+   207→    const mealMap = new Map(dayData.meals.map((m) => [m.id, m]));
+   208→    const flat = dayData.byDate[dayStr] ?? [];
+   209→    return flat.map<MealEntry>((f) => {
+   210→      const meal = mealMap.get(f.mealId);
+   211→      return {
+   212→        id: f.id, status: f.status, locked: f.locked,
+   213→        editableUntil: f.editableUntil, serviceDate: f.serviceDate,
+   214→        meal: {
+   215→          id: f.mealId, name: f.mealName, displayName: f.mealDisplayName,
+   216→          icon: f.mealIcon, color: f.mealColor,
+   217→          startTime: f.startTime, endTime: f.endTime,
+   218→          cutoffTime: meal?.cutoffTime ?? "",
+   219→        },
+   220→      };
+   221→    });
+   222→  }, [dayData, dayStr]);
+   223→
+   224→  // Month stats
+   225→  const stats = useMemo(() => {
+   226→    let on = 0, off = 0, locked = 0;
+   227→    for (const day of days) {
+   228→      for (const e of day.entries) {
+   229→        if (e.status === "ON" || e.status === "LOCKED") on++;
+   230→        else if (e.status === "OFF") off++;
+   231→        if (e.locked || e.status === "LOCKED") locked++;
+   232→      }
+   233→    }
+   234→    return { on, off, locked };
+   235→  }, [days]);
+   236→
+   237→  // Day stats
+   238→  const dayStats = useMemo(() => {
+   239→    const on = dayEntries.filter((e) => e.status === "ON" || e.status === "LOCKED").length;
+   240→    const off = dayEntries.filter((e) => e.status === "OFF").length;
+   241→    const locked = dayEntries.filter((e) => e.locked || e.status === "LOCKED").length;
+   242→    return { on, off, locked };
+   243→  }, [dayEntries]);
+   244→
+   245→  const handleToggleDay = useCallback((dateStr: string) => {
+   246→    setExpandedDay((prev) => (prev === dateStr ? null : dateStr));
+   247→  }, []);
+   248→
+   249→  // Auto-scroll to today's row when agenda view loads or month changes
+   250→  const todayRef = useRef<HTMLDivElement>(null);
+   251→  const todayDateStr = toDateString(now);
+   252→  const isLoading = viewMode === "day" ? dayLoading : monthLoading;
+   253→  useEffect(() => {
+   254→    if (viewMode !== "agenda" || isLoading || days.length === 0) return;
+   255→    // Only auto-scroll if today is in the current month's data
+   256→    const hasToday = days.some((d) => d.dateStr === todayDateStr);
+   257→    if (!hasToday) return;
+   258→    // Small delay to let the DOM render after loading
+   259→    const t = setTimeout(() => {
+   260→      todayRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+   261→    }, 300);
+   262→    return () => clearTimeout(t);
+   263→  }, [viewMode, isLoading, days, todayDateStr]);
+   264→
+   265→  if (isLoading) {
+   266→    return (
+   267→      <div className="space-y-4">
+   268→        <ShimmerSkeleton className="h-14 w-full" />
+   269→        <div className="grid grid-cols-3 gap-3">
+   270→          <ShimmerSkeleton className="h-28" />
+   271→          <ShimmerSkeleton className="h-28" />
+   272→          <ShimmerSkeleton className="h-28" />
+   273→        </div>
+   274→        <div className="space-y-3">
+   275→          {Array.from({ length: 5 }).map((_, i) => (
+   276→            <ShimmerSkeleton key={i} className="h-16" />
+   277→          ))}
+   278→        </div>
+   279→      </div>
+   280→    );
+   281→  }
+   282→
+   283→  return (
+   284→    <StaggerGroup className="space-y-4 pb-6">
+   285→      {/* Picker — month picker for agenda/calendar, day picker for day view */}
+   286→      {viewMode === "day" ? (
+   287→        <StaggerItem>
+   288→          <div className="flex items-center justify-center gap-4">
+   289→            <motion.button
+   290→              whileTap={{ scale: 0.9 }}
+   291→              onClick={() => setSelectedDay((d) => addDays(d, -1))}
+   292→              aria-label="Previous day"
+   293→              className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   294→            >
+   295→              <ChevronLeft className="h-5 w-5" />
+   296→            </motion.button>
+   297→            <button
+   298→              onClick={() => !isSameDay(selectedDay, now) && setSelectedDay(new Date())}
+   299→              className="flex-1 max-w-[280px] flex items-center justify-center gap-2.5 glass-soft rounded-full px-6 py-2.5 transition-all hover:ring-1 hover:ring-primary/30"
+   300→            >
+   301→              <Calendar className="h-4 w-4 text-primary shrink-0" />
+   302→              <div className="leading-tight text-center">
+   303→                <p className="text-sm font-bold text-primary">
+   304→                  {isSameDay(selectedDay, now) ? "Today" : format(selectedDay, "d MMM")}
+   305→                </p>
+   306→                <p className="text-[11px] text-muted-foreground">
+   307→                  {format(selectedDay, "EEE, d MMM yyyy")}
+   308→                </p>
+   309→              </div>
+   310→              {!isSameDay(selectedDay, now) && (
+   311→                <RotateCcw className="h-3 w-3 text-muted-foreground shrink-0" />
+   312→              )}
+   313→            </button>
+   314→            <motion.button
+   315→              whileTap={{ scale: 0.9 }}
+   316→              onClick={() => setSelectedDay((d) => addDays(d, 1))}
+   317→              aria-label="Next day"
+   318→              className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   319→            >
+   320→              <ChevronRight className="h-5 w-5" />
+   321→            </motion.button>
+   322→          </div>
+   323→        </StaggerItem>
+   324→      ) : (
+   325→        <StaggerItem>
+   326→          <div className="flex items-center justify-center gap-4">
+   327→            <motion.button
+   328→              whileTap={{ scale: 0.9 }}
+   329→              onClick={() => {
+   330→                const d = new Date(selectedYear, selectedMonth - 1, 1);
+   331→                setSelectedMonth(d.getMonth());
+   332→                setSelectedYear(d.getFullYear());
+   333→              }}
+   334→              aria-label="Previous month"
+   335→              className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   336→            >
+   337→              <ChevronLeft className="h-5 w-5" />
+   338→            </motion.button>
+   339→            <button
+   340→              onClick={() => {
+   341→                if (!isThisMonth) {
+   342→                  setSelectedMonth(now.getMonth());
+   343→                  setSelectedYear(now.getFullYear());
+   344→                }
+   345→              }}
+   346→              className="flex-1 max-w-[280px] flex items-center justify-center gap-2.5 glass-soft rounded-full px-6 py-2.5 transition-all hover:ring-1 hover:ring-primary/30"
+   347→            >
+   348→              <Calendar className="h-4 w-4 text-primary shrink-0" />
+   349→              <div className="leading-tight text-center">
+   350→                <p className="text-sm font-bold text-primary">
+   351→                  {new Date(selectedYear, selectedMonth).toLocaleDateString("en-US", { month: "long" })}
+   352→                </p>
+   353→                <p className="text-[11px] text-muted-foreground">{selectedYear}</p>
+   354→              </div>
+   355→              {!isThisMonth && (
+   356→                <RotateCcw className="h-3 w-3 text-muted-foreground shrink-0" />
+   357→              )}
+   358→            </button>
+   359→            <motion.button
+   360→              whileTap={{ scale: 0.9 }}
+   361→              onClick={() => {
+   362→                const d = new Date(selectedYear, selectedMonth + 1, 1);
+   363→                setSelectedMonth(d.getMonth());
+   364→                setSelectedYear(d.getFullYear());
+   365→              }}
+   366→              aria-label="Next month"
+   367→              className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   368→            >
+   369→              <ChevronRight className="h-5 w-5" />
+   370→            </motion.button>
+   371→          </div>
+   372→        </StaggerItem>
+   373→      )}
+   374→
+   375→      {/* KPI cards */}
+   376→      <StaggerItem>
+   377→        <div className="grid grid-cols-3 gap-3">
+   378→          <GlassCard className="p-4" glow="success" hover={false}>
+   379→            <div className="grid place-items-center h-10 w-10 rounded-2xl bg-success/15 text-success mb-3">
+   380→              <Check className="h-5 w-5" />
+   381→            </div>
+   382→            <p className="text-xs text-muted-foreground">Meals ON</p>
+   383→            <div className="text-2xl font-bold tracking-tight">
+   384→              <AnimatedCounter value={viewMode === "day" ? dayStats.on : stats.on} />
+   385→            </div>
+   386→          </GlassCard>
+   387→          <GlassCard className="p-4" glow="warning" hover={false}>
+   388→            <div className="grid place-items-center h-10 w-10 rounded-2xl bg-warning/15 text-warning mb-3">
+   389→              <X className="h-5 w-5" />
+   390→            </div>
+   391→            <p className="text-xs text-muted-foreground">Meals OFF</p>
+   392→            <div className="text-2xl font-bold tracking-tight">
+   393→              <AnimatedCounter value={viewMode === "day" ? dayStats.off : stats.off} />
+   394→            </div>
+   395→          </GlassCard>
+   396→          <GlassCard className="p-4" glow="danger" hover={false}>
+   397→            <div className="grid place-items-center h-10 w-10 rounded-2xl bg-destructive/15 text-destructive mb-3">
+   398→              <Lock className="h-5 w-5" />
+   399→            </div>
+   400→            <p className="text-xs text-muted-foreground">Locked</p>
+   401→            <div className="text-2xl font-bold tracking-tight">
+   402→              <AnimatedCounter value={viewMode === "day" ? dayStats.locked : stats.locked} />
+   403→            </div>
+   404→          </GlassCard>
+   405→        </div>
+   406→      </StaggerItem>
+   407→
+   408→      {/* View mode toggle — segmented control (below KPIs) */}
+   409→      <StaggerItem>
+   410→        <div className="flex items-center justify-center">
+   411→          <div className="inline-flex items-center gap-1 glass-soft rounded-2xl p-1">
+   412→            {([
+   413→              { mode: "agenda" as const, label: "Agenda", icon: List },
+   414→              { mode: "calendar" as const, label: "Calendar", icon: CalendarDays },
+   415→              { mode: "day" as const, label: "Day", icon: Sun },
+   416→            ]).map((opt) => {
+   417→              const active = viewMode === opt.mode;
+   418→              const Icon = opt.icon;
+   419→              return (
+   420→                <button
+   421→                  key={opt.mode}
+   422→                  onClick={() => setViewMode(opt.mode)}
+   423→                  className={cn(
+   424→                    "inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-[11px] font-medium transition-all shrink-0",
+   425→                    active
+   426→                      ? "bg-primary text-primary-foreground shadow-md shadow-primary/30"
+   427→                      : "text-muted-foreground hover:text-foreground"
+   428→                  )}
+   429→                >
+   430→                  <Icon className="h-3.5 w-3.5" />
+   431→                  {opt.label}
+   432→                </button>
+   433→              );
+   434→            })}
+   435→          </div>
+   436→        </div>
+   437→      </StaggerItem>
+   438→
+   439→      {/* Content — agenda / calendar / day */}
+   440→      {viewMode === "agenda" && (
+   441→        <StaggerItem>
+   442→          {days.length === 0 ? (
+   443→            <GlassCard className="p-10 text-center" hover={false}>
+   444→              <Utensils className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+   445→              <p className="text-sm text-muted-foreground">
+   446→                No meals configured for {new Date(selectedYear, selectedMonth).toLocaleDateString("en-US", { month: "long", year: "numeric" })}.
+   447→              </p>
+   448→            </GlassCard>
+   449→          ) : (
+   450→            <div className="space-y-2">
+   451→              <AnimatePresence mode="popLayout">
+   452→                {days.map((day) => (
+   453→                  <motion.div
+   454→                    key={day.dateStr}
+   455→                    ref={day.dateStr === todayDateStr ? todayRef : undefined}
+   456→                    layout
+   457→                    initial={{ opacity: 0, y: 8 }}
+   458→                    animate={{ opacity: 1, y: 0 }}
+   459→                    exit={{ opacity: 0, scale: 0.98 }}
+   460→                    transition={{ type: "spring", stiffness: 280, damping: 26 }}
+   461→                  >
+   462→                    <DayRow
+   463→                      dateStr={day.dateStr}
+   464→                      date={day.date}
+   465→                      entries={day.entries}
+   466→                      isExpanded={expandedDay === day.dateStr}
+   467→                      onToggleExpand={() => handleToggleDay(day.dateStr)}
+   468→                      onToggleMeal={(entryId, status) =>
+   469→                        toggleMutation.mutate({ entryId, status })
+   470→                      }
+   471→                      loading={toggleMutation.isPending}
+   472→                    />
+   473→                  </motion.div>
+   474→                ))}
+   475→              </AnimatePresence>
+   476→            </div>
+   477→          )}
+   478→        </StaggerItem>
+   479→      )}
+   480→
+   481→      {viewMode === "calendar" && (
+   482→        <StaggerItem>
+   483→          <GlassCard className="p-4" hover={false}>
+   484→            {/* Weekday headers */}
+   485→            <div className="grid grid-cols-7 gap-1 mb-2">
+   486→              {WEEKDAYS.map((wd) => (
+   487→                <div key={wd} className="text-center text-[10px] font-medium text-muted-foreground py-1">
+   488→                  {wd}
+   489→                </div>
+   490→              ))}
+   491→            </div>
+   492→            {/* Calendar grid */}
+   493→            <div className="grid grid-cols-7 gap-1">
+   494→              {(() => {
+   495→                const monthStart = startOfMonth(new Date(selectedYear, selectedMonth, 1));
+   496→                const monthEnd = endOfMonth(monthStart);
+   497→                const startPad = getDay(monthStart);
+   498→                const allDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
+   499→                const cells: (Date | null)[] = [];
+   500→                for (let i = 0; i < startPad; i++) cells.push(null);
+   501→                allDays.forEach((d) => cells.push(d));
+   502→                while (cells.length % 7 !== 0) cells.push(null);
+   503→
+   504→                return cells.map((date, i) => {
+   505→                  if (!date) return <div key={`pad-${i}`} className="aspect-square" />;
+   506→                  const ds = toDateString(date);
+   507→                  const entries = dayMap.get(ds) ?? [];
+   508→                  const isToday = ds === toDateString(now);
+   509→                  const onCount = entries.filter((e) => e.status === "ON" || e.status === "LOCKED").length;
+   510→                  const offCount = entries.filter((e) => e.status === "OFF").length;
+   511→                  const hasLocked = entries.some((e) => e.locked || e.status === "LOCKED");
+   512→                  const isPast = date < now && !isToday;
+   513→
+   514→                  return (
+   515→                    <button
+   516→                      key={ds}
+   517→                      onClick={() => {
+   518→                        setSelectedDay(date);
+   519→                        setViewMode("day");
+   520→                      }}
+   521→                      className={cn(
+   522→                        "aspect-square rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all text-[10px]",
+   523→                        isToday
+   524→                          ? "bg-primary/15 ring-1 ring-primary/40"
+   525→                          : entries.length > 0
+   526→                            ? "glass-soft hover:ring-1 hover:ring-primary/30"
+   527→                            : "opacity-40",
+   528→                        isPast && "opacity-60"
+   529→                      )}
+   530→                    >
+   531→                      <span className={cn("font-bold", isToday ? "text-primary" : "text-foreground")}>
+   532→                        {format(date, "d")}
+   533→                      </span>
+   534→                      {entries.length > 0 && (
+   535→                        <div className="flex items-center gap-0.5">
+   536→                          {onCount > 0 && (
+   537→                            <span className="h-1.5 w-1.5 rounded-full bg-success" />
+   538→                          )}
+   539→                          {offCount > 0 && (
+   540→                            <span className="h-1.5 w-1.5 rounded-full bg-warning" />
+   541→                          )}
+   542→                          {hasLocked && (
+   543→                            <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+   544→                          )}
+   545→                        </div>
+   546→                      )}
+   547→                    </button>
+   548→                  );
+   549→                });
+   550→              })()}
+   551→            </div>
+   552→            {/* Legend */}
+   553→            <div className="flex items-center justify-center gap-4 mt-3 pt-3 border-t border-border/40">
+   554→              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+   555→                <span className="h-1.5 w-1.5 rounded-full bg-success" /> ON
+   556→              </span>
+   557→              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+   558→                <span className="h-1.5 w-1.5 rounded-full bg-warning" /> OFF
+   559→              </span>
+   560→              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+   561→                <span className="h-1.5 w-1.5 rounded-full bg-destructive" /> Locked
+   562→              </span>
+   563→            </div>
+   564→          </GlassCard>
+   565→        </StaggerItem>
+   566→      )}
+   567→
+   568→      {viewMode === "day" && (
+   569→        <StaggerItem>
+   570→          {dayEntries.length === 0 ? (
+   571→            <GlassCard className="p-10 text-center" hover={false}>
+   572→              <Utensils className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+   573→              <p className="text-sm text-muted-foreground">
+   574→                No meals configured for {format(selectedDay, "d MMMM yyyy")}.
+   575→              </p>
+   576→            </GlassCard>
+   577→          ) : (
+   578→            <div className="space-y-3">
+   579→              <AnimatePresence mode="popLayout">
+   580→                {dayEntries.map((entry) => (
+   581→                  <motion.div
+   582→                    key={entry.id}
+   583→                    layout
+   584→                    initial={{ opacity: 0, y: 12, scale: 0.98 }}
+   585→                    animate={{ opacity: 1, y: 0, scale: 1 }}
+   586→                    exit={{ opacity: 0, scale: 0.95 }}
+   587→                    transition={{ type: "spring", stiffness: 280, damping: 26 }}
+   588→                  >
+   589→                    <DayMealCard
+   590→                      entry={entry}
+   591→                      onToggle={(newStatus) =>
+   592→                        toggleMutation.mutate({ entryId: entry.id, status: newStatus })
+   593→                      }
+   594→                      loading={toggleMutation.isPending}
+   595→                    />
+   596→                  </motion.div>
+   597→                ))}
+   598→              </AnimatePresence>
+   599→            </div>
+   600→          )}
+   601→        </StaggerItem>
+   602→      )}
+   603→    </StaggerGroup>
+   604→  );
+   605→}
+   606→
+   607→// ─────────────────────────────────────────────────────────────
+   608→// Day row — for agenda view (collapsible)
+   609→// ─────────────────────────────────────────────────────────────
+   610→
+   611→const DayRow = memo(function DayRow({
+   612→  dateStr, date, entries, isExpanded, onToggleExpand, onToggleMeal, loading,
+   613→}: {
+   614→  dateStr: string; date: Date; entries: MealEntry[];
+   615→  isExpanded: boolean; onToggleExpand: () => void;
+   616→  onToggleMeal: (entryId: string, status: "ON" | "OFF") => void; loading: boolean;
+   617→}) {
+   618→  const isToday = toDateString(new Date()) === dateStr;
+   619→  const onCount = entries.filter((e) => e.status === "ON" || e.status === "LOCKED").length;
+   620→  const offCount = entries.filter((e) => e.status === "OFF").length;
+   621→  const lockedCount = entries.filter((e) => e.locked || e.status === "LOCKED").length;
+   622→
+   623→  return (
+   624→    <GlassCard className="overflow-hidden" hover={false}>
+   625→      <button
+   626→        onClick={onToggleExpand}
+   627→        className="w-full flex items-center gap-3 p-3 hover:bg-secondary/20 transition-colors"
+   628→      >
+   629→        <div className={cn("grid place-items-center h-11 w-11 rounded-2xl shrink-0 flex-col", isToday ? "bg-primary/15" : "bg-muted/40")}>
+   630→          <span className={cn("text-xs font-bold leading-none", isToday ? "text-primary" : "text-muted-foreground")}>
+   631→            {format(date, "EEE").toUpperCase()}
+   632→          </span>
+   633→          <span className={cn("text-sm font-bold leading-none mt-0.5", isToday ? "text-primary" : "text-foreground")}>
+   634→            {format(date, "d")}
+   635→          </span>
+   636→        </div>
+   637→        <div className="flex-1 min-w-0 text-left">
+   638→          <p className={cn("text-sm font-medium", isToday && "text-primary")}>
+   639→            {isToday ? "Today" : format(date, "EEEE, d MMMM")}
+   640→          </p>
+   641→          <div className="flex items-center gap-2 mt-0.5">
+   642→            {onCount > 0 && (
+   643→              <span className="inline-flex items-center gap-0.5 text-[10px] bg-success/15 text-success px-1.5 py-0.5 rounded-full font-medium">
+   644→                <Check className="h-2.5 w-2.5" /> {onCount} ON
+   645→              </span>
+   646→            )}
+   647→            {offCount > 0 && (
+   648→              <span className="inline-flex items-center gap-0.5 text-[10px] bg-warning/15 text-warning px-1.5 py-0.5 rounded-full font-medium">
+   649→                <X className="h-2.5 w-2.5" /> {offCount} OFF
+   650→              </span>
+   651→            )}
+   652→            {lockedCount > 0 && (
+   653→              <span className="inline-flex items-center gap-0.5 text-[10px] bg-destructive/15 text-destructive px-1.5 py-0.5 rounded-full font-medium">
+   654→                <Lock className="h-2.5 w-2.5" /> {lockedCount}
+   655→              </span>
+   656→            )}
+   657→          </div>
+   658→        </div>
+   659→        <motion.div animate={{ rotate: isExpanded ? 180 : 0 }} transition={{ duration: 0.2 }}>
+   660→          <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+   661→        </motion.div>
+   662→      </button>
+   663→      <AnimatePresence initial={false}>
+   664→        {isExpanded && (
+   665→          <motion.div
+   666→            initial={{ height: 0, opacity: 0 }}
+   667→            animate={{ height: "auto", opacity: 1 }}
+   668→            exit={{ height: 0, opacity: 0 }}
+   669→            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+   670→            className="overflow-hidden"
+   671→          >
+   672→            <div className="px-3 pb-3 space-y-2">
+   673→              {entries.map((entry) => (
+   674→                <MealCard
+   675→                  key={entry.id}
+   676→                  entry={entry}
+   677→                  onToggle={(newStatus) => onToggleMeal(entry.id, newStatus)}
+   678→                  loading={loading}
+   679→                />
+   680→              ))}
+   681→            </div>
+   682→          </motion.div>
+   683→        )}
+   684→      </AnimatePresence>
+   685→    </GlassCard>
+   686→  );
+   687→});
+   688→
+   689→// ─────────────────────────────────────────────────────────────
+   690→// Compact meal card — for agenda expanded view
+   691→// ─────────────────────────────────────────────────────────────
+   692→
+   693→const MealCard = memo(function MealCard({
+   694→  entry, onToggle, loading,
+   695→}: {
+   696→  entry: MealEntry; onToggle: (status: "ON" | "OFF") => void; loading: boolean;
+   697→}) {
+   698→  const isOn = entry.status === "ON" || entry.status === "LOCKED";
+   699→  const isLocked = entry.locked || entry.status === "LOCKED";
+   700→
+   701→  return (
+   702→    <div className="flex items-center gap-3 p-2.5 rounded-2xl glass-soft">
+   703→      <div className="grid place-items-center h-10 w-10 rounded-xl shrink-0 text-xl" style={{ background: `color-mix(in oklch, ${entry.meal.color} 15%, transparent)` }}>
+   704→        {entry.meal.icon}
+   705→      </div>
+   706→      <div className="flex-1 min-w-0">
+   707→        <p className="text-sm font-medium truncate">{entry.meal.displayName}</p>
+   708→        <div className="flex items-center gap-2 mt-0.5">
+   709→          <span className="text-[11px] text-muted-foreground">{to12h(entry.meal.startTime)} – {to12h(entry.meal.endTime)}</span>
+   710→          {isLocked && <Lock className="h-2.5 w-2.5 text-destructive" />}
+   711→        </div>
+   712→      </div>
+   713→      <button
+   714→        onClick={() => !isLocked && onToggle(isOn ? "OFF" : "ON")}
+   715→        disabled={isLocked || loading}
+   716→        className={cn("relative inline-flex h-7 w-12 items-center rounded-full transition-all shrink-0", isOn ? "bg-success shadow-sm shadow-success/30" : "bg-muted", (isLocked || loading) && "opacity-50 cursor-not-allowed")}
+   717→      >
+   718→        <motion.span layout transition={{ type: "spring", stiffness: 500, damping: 30 }} className={cn("inline-block h-5 w-5 rounded-full bg-white shadow-sm", isOn ? "ml-auto mr-1" : "ml-1")} />
+   719→      </button>
+   720→    </div>
+   721→  );
+   722→});
+   723→
+   724→// ─────────────────────────────────────────────────────────────
+   725→// Full meal card — for day view (larger, with cutoff info)
+   726→// ─────────────────────────────────────────────────────────────
+   727→
+   728→const DayMealCard = memo(function DayMealCard({
+   729→  entry, onToggle, loading,
+   730→}: {
+   731→  entry: MealEntry; onToggle: (status: "ON" | "OFF") => void; loading: boolean;
+   732→}) {
+   733→  const isOn = entry.status === "ON" || entry.status === "LOCKED";
+   734→  const isLocked = entry.locked || entry.status === "LOCKED";
+   735→
+   736→  return (
+   737→    <GlassCard className="p-4" hover={false}>
+   738→      <div className="flex items-center gap-3">
+   739→        <div className="grid place-items-center h-12 w-12 rounded-2xl shrink-0 text-2xl" style={{ background: `color-mix(in oklch, ${entry.meal.color} 15%, transparent)` }}>
+   740→          {entry.meal.icon}
+   741→        </div>
+   742→        <div className="flex-1 min-w-0">
+   743→          <h3 className="font-semibold truncate">{entry.meal.displayName}</h3>
+   744→          <div className="flex items-center gap-2 mt-0.5">
+   745→            <span className="text-xs text-muted-foreground">{to12h(entry.meal.startTime)} – {to12h(entry.meal.endTime)}</span>
+   746→            {isLocked && <span className="inline-flex items-center gap-0.5 text-[10px] text-destructive"><Lock className="h-2.5 w-2.5" /> Locked</span>}
+   747→          </div>
+   748→        </div>
+   749→        <button
+   750→          onClick={() => !isLocked && onToggle(isOn ? "OFF" : "ON")}
+   751→          disabled={isLocked || loading}
+   752→          className={cn("relative inline-flex h-8 w-14 items-center rounded-full transition-all shrink-0", isOn ? "bg-success shadow-md shadow-success/30" : "bg-muted", (isLocked || loading) && "opacity-50 cursor-not-allowed")}
+   753→        >
+   754→          <motion.span layout transition={{ type: "spring", stiffness: 500, damping: 30 }} className={cn("inline-block h-6 w-6 rounded-full bg-white shadow-md", isOn ? "ml-auto mr-1" : "ml-1")} />
+   755→        </button>
+   756→      </div>
+   757→      <div className="flex items-center justify-between mt-3">
+   758→        <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium", isOn ? "bg-success/15 text-success" : "bg-muted text-muted-foreground")}>
+   759→          {isLocked ? "🔒 Locked" : isOn ? "ON" : "OFF"}
+   760→        </span>
+   761→        {!isLocked && entry.meal.cutoffTime && (
+   762→          <span className="text-[10px] text-muted-foreground">Cutoff: {to12h(entry.meal.cutoffTime)}</span>
+   763→        )}
+   764→      </div>
+   765→    </GlassCard>
+   766→  );
+   767→});
+   768→

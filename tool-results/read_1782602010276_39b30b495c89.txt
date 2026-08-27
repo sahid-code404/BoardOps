@@ -1,0 +1,1013 @@
+ 17696→# BOARDOPS - PART 17
+ 17697→## DESIGN SYSTEM AND UI REQUIREMENTS
+ 17698→The visual design of BoardOps is a premium liquid-glass aesthetic inspired by Apple's design language, Linear, Notion, Stripe Dashboard, and Vercel. The core visual elements include frosted glass panels with backdrop blur effects, semi-transparent layered surfaces with subtle gradients, generously rounded corners ranging from 12px to 32px depending on component size, soft ambient shadows with multiple layers for depth, glassmorphic cards that appear to float above the background, and a refined color palette with both dark and light mode support. The background features subtle animated gradient meshes and mesh gradients that shift slowly to create a living, breathing interface. Every interactive element must have smooth hover states, press states, focus states, and transition animations. Page transitions must use Framer Motion with staggered children animations so elements appear sequentially rather than all at once. Cards should have a subtle scale and glow effect on hover. Buttons should have a ripple or glow effect on click. Toggles should animate smoothly between states. Tables should have row hover highlights and staggered entry animations. Forms should have floating labels, smooth focus transitions, and inline validation feedback. Loading states should use skeleton loaders with shimmer effects rather than spinners. Empty states should have beautiful illustrations or icons with helpful text. Error states should have clear messaging with recovery actions. Toast notifications should slide in from the top with glassmorphic styling. The dashboard should feature animated counters that count up when they come into view. Charts should animate their paths and bars on mount. The navigation should have an animated active indicator that slides between menu items. The entire interface must be responsive across mobile phones, tablets, and desktops with layouts that gracefully adapt. Accessibility must follow WCAG 2.1 AA standards with proper ARIA labels, keyboard navigation, screen reader support, and color contrast ratios.
+ 17699→
+ 17700→The frontend is built as a single-page application using React 19 with Vite as the build tool. The project structure follows a feature-based organization where each feature module contains its own components, hooks, services, types, and utilities. The top-level directories include app for app-level configuration, pages for route components, components for shared UI components, features for feature-specific modules, hooks for custom hooks, services for API clients, stores for Zustand stores, providers for context providers, types for TypeScript types, constants for application constants, utils for utility functions, assets for static assets, and styles for global styles. The routing is handled by React Router v7 with protected routes that check authentication and role before rendering. The layout system includes an auth layout for login and registration pages, a user layout for the user dashboard with a bottom navigation bar on mobile and a sidebar on desktop, and an admin layout for the admin panel with a sidebar navigation. The state management uses Zustand for client-side state such as current user, theme, and UI state, and TanStack Query for server-side state including all API data with automatic caching, refetching, and optimistic updates. The design system is implemented using Tailwind CSS v4 with custom design tokens for colors, spacing, typography, shadows, border radius, and animation durations. The liquid-glass effect is achieved through a combination of backdrop-blur, semi-transparent backgrounds, border gradients, and layered box shadows. ShadCN UI components are customized to match the glassmorphic design language. Framer Motion is used for page transitions, card animations, staggered list animations, toggle animations, and micro-interactions. The application is configured as a progressive web app with a service worker for offline caching, a web manifest for installation, and push notification readiness.
+ 17701→Design and build a world-class, production-ready SaaS web application with a premium mobile-first experience that feels comparable to Apple, Linear, Stripe Dashboard, Arc Browser, Vercel, Notion, Raycast, and iOS. The application must not look like a typical admin dashboard or Bootstrap website. Every screen should feel handcrafted, elegant, modern, immersive, and enterprise-grade. The interface should immediately communicate premium quality and attention to detail.
+ 17702→
+ 17703→Use a Mobile-First design philosophy. Every screen, interaction, navigation flow, animation, and component must be designed for smartphones first and then progressively enhanced for tablets, laptops, and large desktop displays. The mobile experience is the primary experience, not a simplified version of the desktop interface. Desktop layouts should expand naturally while maintaining the same visual language and interaction patterns.
+ 17704→
+ 17705→The entire UI must follow a premium Liquid Glass design language inspired by Apple's latest Human Interface Guidelines. Use translucent glass panels with backdrop blur, layered transparent surfaces, soft frosted glass effects, subtle reflections, dynamic light diffusion, elegant transparency, floating cards, ambient shadows, depth-based elevation, and smooth layered interfaces. Avoid heavy opaque backgrounds. Components should appear as floating glass objects above an animated background.
+ 17706→
+ 17707→Every component must have generously rounded corners. Cards should use border radii between 20px and 32px. Buttons should use 16px–24px radius depending on size. Input fields should use 18px radius. Modal windows should use 28px radius. Bottom sheets should use 32px radius. Drawers should have extra-soft rounded edges. Avoid sharp corners entirely.
+ 17708→
+ 17709→Create a premium glassmorphism system using semi-transparent surfaces with backdrop blur between 20px and 40px, subtle gradient overlays, soft white borders with low opacity, layered transparency, multiple shadow levels, and dynamic highlights. Every glass component should feel physically realistic without sacrificing readability.
+ 17710→
+ 17711→The application must support both Dark Mode and Light Mode from day one. Both themes should be individually designed instead of simply inverting colors. Dark mode should use deep charcoal, graphite, navy, and rich blacks with colorful glow accents. Light mode should use soft whites, neutral grays, subtle gradients, and elegant shadows. Theme switching should animate smoothly without flashing.
+ 17712→
+ 17713→The background should never be static. Create a living background using animated mesh gradients, slowly moving gradient blobs, soft radial glows, animated light rays, floating particles, subtle noise textures, and depth layers. Animations should be extremely subtle and never distract from content.
+ 17714→
+ 17715→The application should feel alive. Every interaction must be fully animated using Framer Motion. Use spring-based animations with realistic physics instead of linear timing. Animate page transitions, route changes, cards, buttons, forms, menus, navigation, dialogs, notifications, lists, tables, charts, and widgets. Components should fade, slide, scale, blur, and stagger naturally. Nothing should appear instantly.
+ 17716→
+ 17717→Every page transition should include smooth shared layout animations, fade-through transitions, staggered child animations, and preserved scroll position. Navigation should feel comparable to native iOS applications.
+ 17718→
+ 17719→Buttons should feel tactile. Hover states should slightly lift the button with soft shadow expansion. Press states should slightly scale down with realistic spring animation. Primary buttons should emit subtle glow effects. Ghost buttons should animate border opacity and glass intensity. Icon buttons should smoothly morph between states.
+ 17720→
+ 17721→Cards should have hover elevation, soft scale effects, animated borders, dynamic highlights, and subtle floating motion. KPI cards should animate numbers counting upward when entering the viewport. Widgets should animate independently as they load.
+ 17722→
+ 17723→Every icon should use a consistent modern icon system such as Lucide React or Phosphor Icons. Icons should animate on hover and interaction.
+ 17724→
+ 17725→Typography should use a premium modern font stack such as SF Pro Display, Inter, Geist, or IBM Plex Sans. Maintain a clear visual hierarchy with generous spacing, balanced line heights, consistent typography scales, and perfect alignment. Text should never feel cramped.
+ 17726→
+ 17727→Forms must feel premium. Use floating labels, animated placeholders, inline validation, success indicators, animated error messages, password visibility toggles, input icons, keyboard-friendly navigation, auto-focus transitions, and intelligent spacing. Validation should occur in real time without interrupting typing.
+ 17728→
+ 17729→Tables should be completely redesigned from traditional enterprise tables. Use glass containers, sticky headers, animated sorting, expandable rows, smooth pagination, responsive card mode on mobile, lazy loading, virtualization for large datasets, row hover effects, contextual actions, and elegant filtering.
+ 17730→
+ 17731→Navigation must be adaptive. On mobile use a premium bottom navigation bar combined with contextual floating action buttons and bottom sheets. On tablets use collapsible side navigation. On desktop use a beautiful glass sidebar with animated indicators, nested navigation, collapsible groups, smooth icon animations, and searchable navigation.
+ 17732→
+ 17733→Dashboard widgets should be modular, draggable (desktop), configurable, responsive, and animated. Charts should use smooth SVG animations with animated paths, gradients, tooltips, hover interactions, legends, and live updates.
+ 17734→
+ 17735→Loading experiences should never use traditional spinners. Use shimmer skeleton loaders, progressive loading, optimistic UI updates, animated placeholders, and staged content loading.
+ 17736→
+ 17737→Empty states should include premium illustrations, subtle animations, friendly messaging, contextual actions, and onboarding hints.
+ 17738→
+ 17739→Error states should include clear explanations, recovery actions, retry buttons, diagnostics when appropriate, and polished visual design.
+ 17740→
+ 17741→Notifications should use elegant glass toast components with icons, progress indicators, stacking behavior, smooth entrance and exit animations, swipe-to-dismiss on mobile, and intelligent grouping.
+ 17742→
+ 17743→Dialogs should use glassmorphic modals with blurred backgrounds, spring animations, keyboard accessibility, focus trapping, and smooth dismissal.
+ 17744→
+ 17745→Use bottom sheets extensively on mobile instead of modal dialogs whenever appropriate. Sheets should support drag gestures, snapping positions, smooth physics, and gesture-based dismissal.
+ 17746→
+ 17747→Scrolling should feel luxurious. Use momentum scrolling, smooth anchor navigation, sticky headers, floating controls, parallax effects where appropriate, and elegant section transitions.
+ 17748→
+ 17749→Micro-interactions should exist everywhere. Switches should animate fluidly. Toggles should morph naturally. Progress bars should animate smoothly. Checkboxes should draw their checkmark. Radio buttons should ripple. Dropdowns should expand with spring animations. Chips should animate selection. Tabs should smoothly slide an active indicator.
+ 17750→
+ 17751→Accessibility is mandatory. Follow WCAG 2.1 AA guidelines. Support keyboard navigation, focus management, ARIA attributes, reduced motion preferences, screen readers, sufficient contrast ratios, semantic HTML, and proper touch targets.
+ 17752→
+ 17753→Performance is equally important. Use React with TypeScript, Vite or Next.js, Tailwind CSS, Framer Motion, React Query, React Hook Form, Zod validation, lazy loading, route-based code splitting, virtualization, image optimization, memoization, optimized animations, and GPU-accelerated transforms. Maintain 60 FPS animations across modern devices.
+ 17754→
+ 17755→Design every component as reusable, composable, theme-aware, accessible, and production-ready. Build a complete design system including typography, spacing, colors, elevations, glass styles, shadows, radii, icons, buttons, inputs, cards, tables, charts, navigation, modals, bottom sheets, toasts, loaders, badges, avatars, dropdowns, tabs, calendars, timelines, accordions, tooltips, progress indicators, data visualization components, and responsive layouts.
+ 17756→
+ 17757→The final result should feel like a premium enterprise SaaS product that could compete with products from Apple, Stripe, Linear, Vercel, Notion, and modern fintech platforms. Every pixel should feel intentional, every animation should feel natural, and every interaction should feel polished. The application must be fully responsive, mobile-first, production-ready, visually stunning, highly performant, accessible, scalable, and suitable for millions of users.The entire UI/UX must follow a Mobile-First, Adaptive-Responsive architecture rather than traditional responsive web design.
+ 17758→
+ 17759→The application should never simply shrink desktop components to fit smaller screens. Every breakpoint must have its own optimized layout, spacing, navigation pattern, interaction model, and information hierarchy.
+ 17760→
+ 17761→The UI must automatically adapt to every screen size while maintaining the same premium experience across mobile phones, foldable phones, tablets, laptops, desktops, ultrawide monitors, and future devices.
+ 17762→
+ 17763→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17764→SUPPORTED BREAKPOINTS
+ 17765→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17766→
+ 17767→Extra Small Phones
+ 17768→320px – 374px
+ 17769→
+ 17770→Small Phones
+ 17771→375px – 429px
+ 17772→
+ 17773→Large Phones
+ 17774→430px – 599px
+ 17775→
+ 17776→Small Tablets
+ 17777→600px – 767px
+ 17778→
+ 17779→Large Tablets
+ 17780→768px – 1023px
+ 17781→
+ 17782→Small Laptops
+ 17783→1024px – 1279px
+ 17784→
+ 17785→Standard Laptops
+ 17786→1280px – 1535px
+ 17787→
+ 17788→Desktop
+ 17789→1536px – 1919px
+ 17790→
+ 17791→Large Desktop
+ 17792→1920px+
+ 17793→
+ 17794→Ultrawide
+ 17795→2560px+
+ 17796→
+ 17797→The interface must gracefully adapt to every breakpoint.
+ 17798→
+ 17799→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17800→MOBILE FIRST
+ 17801→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17802→
+ 17803→Mobile is the primary experience.
+ 17804→
+ 17805→Every screen should be designed for mobile first.
+ 17806→
+ 17807→Desktop layouts should be enhanced versions of the mobile interface.
+ 17808→
+ 17809→No desktop-first layouts.
+ 17810→
+ 17811→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17812→FLUID RESPONSIVE LAYOUT
+ 17813→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17814→
+ 17815→Never use fixed widths.
+ 17816→
+ 17817→Use
+ 17818→
+ 17819→Fluid Containers
+ 17820→
+ 17821→Fluid Typography
+ 17822→
+ 17823→Fluid Spacing
+ 17824→
+ 17825→Fluid Grid
+ 17826→
+ 17827→Fluid Cards
+ 17828→
+ 17829→Fluid Images
+ 17830→
+ 17831→Fluid Charts
+ 17832→
+ 17833→Fluid Tables
+ 17834→
+ 17835→Everything should resize naturally.
+ 17836→
+ 17837→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17838→RESPONSIVE GRID
+ 17839→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17840→
+ 17841→Cards
+ 17842→
+ 17843→1 Column
+ 17844→
+ 17845→↓
+ 17846→
+ 17847→2 Columns
+ 17848→
+ 17849→↓
+ 17850→
+ 17851→3 Columns
+ 17852→
+ 17853→↓
+ 17854→
+ 17855→4 Columns
+ 17856→
+ 17857→↓
+ 17858→
+ 17859→Auto Grid
+ 17860→
+ 17861→depending on screen width.
+ 17862→
+ 17863→Dashboard widgets automatically rearrange.
+ 17864→
+ 17865→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17866→RESPONSIVE NAVIGATION
+ 17867→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17868→
+ 17869→Mobile
+ 17870→
+ 17871→Bottom Navigation
+ 17872→
+ 17873→Floating Action Button
+ 17874→
+ 17875→Bottom Sheets
+ 17876→
+ 17877→Swipe Gestures
+ 17878→
+ 17879→Tablet
+ 17880→
+ 17881→Collapsible Navigation Rail
+ 17882→
+ 17883→Desktop
+ 17884→
+ 17885→Expandable Glass Sidebar
+ 17886→
+ 17887→Ultra Wide
+ 17888→
+ 17889→Pinned Sidebar + Utility Panel
+ 17890→
+ 17891→Navigation automatically switches layouts.
+ 17892→
+ 17893→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17894→RESPONSIVE TABLES
+ 17895→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17896→
+ 17897→Never allow horizontal scrolling.
+ 17898→
+ 17899→Desktop
+ 17900→
+ 17901→Full Data Table
+ 17902→
+ 17903→Tablet
+ 17904→
+ 17905→Compact Table
+ 17906→
+ 17907→Mobile
+ 17908→
+ 17909→Card Layout
+ 17910→
+ 17911→Expandable Rows
+ 17912→
+ 17913→Swipe Actions
+ 17914→
+ 17915→Collapsible Details
+ 17916→
+ 17917→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17918→RESPONSIVE FORMS
+ 17919→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17920→
+ 17921→Desktop
+ 17922→
+ 17923→Multi-column Forms
+ 17924→
+ 17925→Tablet
+ 17926→
+ 17927→Two-column Forms
+ 17928→
+ 17929→Mobile
+ 17930→
+ 17931→Single Column
+ 17932→
+ 17933→Full Width Inputs
+ 17934→
+ 17935→Sticky Submit Button
+ 17936→
+ 17937→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17938→RESPONSIVE DIALOGS
+ 17939→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17940→
+ 17941→Desktop
+ 17942→
+ 17943→Centered Modal
+ 17944→
+ 17945→Tablet
+ 17946→
+ 17947→Large Modal
+ 17948→
+ 17949→Mobile
+ 17950→
+ 17951→Bottom Sheet
+ 17952→
+ 17953→Full Screen Dialog
+ 17954→
+ 17955→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17956→RESPONSIVE DRAWERS
+ 17957→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17958→
+ 17959→Desktop
+ 17960→
+ 17961→Side Drawer
+ 17962→
+ 17963→Tablet
+ 17964→
+ 17965→Slide Panel
+ 17966→
+ 17967→Mobile
+ 17968→
+ 17969→Bottom Sheet
+ 17970→
+ 17971→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17972→RESPONSIVE DASHBOARD
+ 17973→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17974→
+ 17975→Widgets automatically resize.
+ 17976→
+ 17977→Widgets automatically reorder.
+ 17978→
+ 17979→Charts automatically resize.
+ 17980→
+ 17981→Cards automatically stack.
+ 17982→
+ 17983→Tables automatically convert.
+ 17984→
+ 17985→No horizontal scrolling.
+ 17986→
+ 17987→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17988→RESPONSIVE TYPOGRAPHY
+ 17989→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17990→
+ 17991→Use fluid typography.
+ 17992→
+ 17993→Never fixed font sizes.
+ 17994→
+ 17995→Scale headings, body text, captions, buttons, labels, tables, and cards according to screen size.
+ 17996→
+ 17997→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 17998→RESPONSIVE SPACING
+ 17999→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18000→
+ 18001→Padding
+ 18002→
+ 18003→Margins
+ 18004→
+ 18005→Grid Gap
+ 18006→
+ 18007→Card Radius
+ 18008→
+ 18009→Icon Size
+ 18010→
+ 18011→Button Size
+ 18012→
+ 18013→Everything scales proportionally.
+ 18014→
+ 18015→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18016→RESPONSIVE CHARTS
+ 18017→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18018→
+ 18019→Charts resize automatically.
+ 18020→
+ 18021→Labels collapse when necessary.
+ 18022→
+ 18023→Legends reposition.
+ 18024→
+ 18025→Tooltips optimized for touch.
+ 18026→
+ 18027→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18028→RESPONSIVE CALENDAR
+ 18029→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18030→
+ 18031→Desktop
+ 18032→
+ 18033→Month View
+ 18034→
+ 18035→Tablet
+ 18036→
+ 18037→Week View
+ 18038→
+ 18039→Mobile
+ 18040→
+ 18041→Agenda View
+ 18042→
+ 18043→Expandable Day View
+ 18044→
+ 18045→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18046→RESPONSIVE ANIMATIONS
+ 18047→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18048→
+ 18049→Animations adapt to screen size.
+ 18050→
+ 18051→Desktop
+ 18052→
+ 18053→Longer animations.
+ 18054→
+ 18055→Mobile
+ 18056→
+ 18057→Shorter animations.
+ 18058→
+ 18059→Reduced Motion supported.
+ 18060→
+ 18061→Maintain 60 FPS on all devices.
+ 18062→
+ 18063→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18064→TOUCH FIRST
+ 18065→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18066→
+ 18067→Every component optimized for touch.
+ 18068→
+ 18069→Minimum touch target
+ 18070→
+ 18071→48×48px
+ 18072→
+ 18073→Support
+ 18074→
+ 18075→Tap
+ 18076→
+ 18077→Long Press
+ 18078→
+ 18079→Swipe
+ 18080→
+ 18081→Drag
+ 18082→
+ 18083→Pull To Refresh
+ 18084→
+ 18085→Pinch (where appropriate)
+ 18086→
+ 18087→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18088→SAFE AREA SUPPORT
+ 18089→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18090→
+ 18091→Support
+ 18092→
+ 18093→iPhone Dynamic Island
+ 18094→
+ 18095→Notches
+ 18096→
+ 18097→Rounded Displays
+ 18098→
+ 18099→Foldables
+ 18100→
+ 18101→Safe Area Insets
+ 18102→
+ 18103→Home Indicator
+ 18104→
+ 18105→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18106→DEVICE FEATURES
+ 18107→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18108→
+ 18109→Support
+ 18110→
+ 18111→Dark Mode
+ 18112→
+ 18113→Light Mode
+ 18114→
+ 18115→Landscape
+ 18116→
+ 18117→Portrait
+ 18118→
+ 18119→Keyboard Detection
+ 18120→
+ 18121→Offline Mode
+ 18122→
+ 18123→Low Network
+ 18124→
+ 18125→High DPI
+ 18126→
+ 18127→Retina Displays
+ 18128→
+ 18129→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18130→PWA READY
+ 18131→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18132→
+ 18133→The application should behave like a native mobile app.
+ 18134→
+ 18135→Support
+ 18136→
+ 18137→Install to Home Screen
+ 18138→
+ 18139→Splash Screen
+ 18140→
+ 18141→Offline Cache
+ 18142→
+ 18143→Background Sync
+ 18144→
+ 18145→Push Notifications (Future)
+ 18146→
+ 18147→App-like Navigation
+ 18148→
+ 18149→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18150→PERFORMANCE
+ 18151→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18152→
+ 18153→Maintain
+ 18154→
+ 18155→60 FPS animations
+ 18156→
+ 18157→Fast first paint
+ 18158→
+ 18159→Lazy loading
+ 18160→
+ 18161→Image optimization
+ 18162→
+ 18163→Route splitting
+ 18164→
+ 18165→Component virtualization
+ 18166→
+ 18167→Instant page transitions
+ 18168→
+ 18169→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18170→SUCCESS CRITERIA
+ 18171→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18172→
+ 18173→✓ Mobile First
+ 18174→
+ 18175→✓ Adaptive Layout
+ 18176→
+ 18177→✓ Responsive Layout
+ 18178→
+ 18179→✓ Fluid Design
+ 18180→
+ 18181→✓ Tablet Optimized
+ 18182→
+ 18183→✓ Laptop Optimized
+ 18184→
+ 18185→✓ Desktop Optimized
+ 18186→
+ 18187→✓ Foldable Ready
+ 18188→
+ 18189→✓ PWA Ready
+ 18190→
+ 18191→✓ Native App Feel
+ 18192→
+ 18193→✓ Zero Horizontal Scroll
+ 18194→
+ 18195→✓ Premium UX
+ 18196→
+ 18197→✓ World-Class Production Ready
+ 18198→
+ 18199→
+ 18200→The entire application must include a fully dynamic Theme Engine that provides first-class support for both Light Mode and Dark Mode. This is not simply a color inversion. Both themes must be individually designed, carefully optimized, and visually balanced to provide a premium experience.
+ 18201→
+ 18202→The user should be able to switch between Light Mode, Dark Mode, and System Theme (Automatically follow the operating system preference). Theme switching must happen instantly without page reloads or flashes and should include smooth animated transitions across the entire application.
+ 18203→
+ 18204→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18205→THEME ARCHITECTURE
+ 18206→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18207→
+ 18208→Support
+ 18209→
+ 18210→• Light Theme
+ 18211→• Dark Theme
+ 18212→• System Theme (Auto)
+ 18213→
+ 18214→The selected theme must persist across sessions and devices.
+ 18215→
+ 18216→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18217→LIGHT MODE
+ 18218→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18219→
+ 18220→The light theme should use
+ 18221→
+ 18222→Soft White Backgrounds
+ 18223→
+ 18224→Warm Neutral Colors
+ 18225→
+ 18226→Subtle Frosted Glass
+ 18227→
+ 18228→Bright Transparent Surfaces
+ 18229→
+ 18230→Elegant Shadows
+ 18231→
+ 18232→Low Contrast Borders
+ 18233→
+ 18234→Premium White Glass
+ 18235→
+ 18236→Soft Blue and Purple Accent Lighting
+ 18237→
+ 18238→Never use pure white (#FFFFFF) for large surfaces.
+ 18239→
+ 18240→Use layered neutral whites to reduce eye fatigue.
+ 18241→
+ 18242→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18243→DARK MODE
+ 18244→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18245→
+ 18246→The dark theme should use
+ 18247→
+ 18248→Deep Graphite
+ 18249→
+ 18250→Rich Black
+ 18251→
+ 18252→Dark Navy
+ 18253→
+ 18254→Dark Glass Panels
+ 18255→
+ 18256→Neon Accent Lighting
+ 18257→
+ 18258→Ambient Glow
+ 18259→
+ 18260→Premium Frosted Glass
+ 18261→
+ 18262→Soft Highlights
+ 18263→
+ 18264→Dark mode should feel luxurious rather than simply dark.
+ 18265→
+ 18266→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18267→LIQUID GLASS SYSTEM
+ 18268→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18269→
+ 18270→Both themes must use
+ 18271→
+ 18272→Glassmorphism
+ 18273→
+ 18274→Backdrop Blur
+ 18275→
+ 18276→Transparency
+ 18277→
+ 18278→Layered Glass
+ 18279→
+ 18280→Dynamic Reflection
+ 18281→
+ 18282→Ambient Shadows
+ 18283→
+ 18284→Soft Inner Glow
+ 18285→
+ 18286→Animated Glass Reflections
+ 18287→
+ 18288→Floating Glass Cards
+ 18289→
+ 18290→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18291→DYNAMIC COLORS
+ 18292→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18293→
+ 18294→Never hardcode colors.
+ 18295→
+ 18296→Every component must use semantic design tokens.
+ 18297→
+ 18298→Examples
+ 18299→
+ 18300→Primary
+ 18301→
+ 18302→Secondary
+ 18303→
+ 18304→Accent
+ 18305→
+ 18306→Success
+ 18307→
+ 18308→Warning
+ 18309→
+ 18310→Danger
+ 18311→
+ 18312→Info
+ 18313→
+ 18314→Background
+ 18315→
+ 18316→Surface
+ 18317→
+ 18318→Card
+ 18319→
+ 18320→Border
+ 18321→
+ 18322→Shadow
+ 18323→
+ 18324→Text Primary
+ 18325→
+ 18326→Text Secondary
+ 18327→
+ 18328→Muted
+ 18329→
+ 18330→Glass
+ 18331→
+ 18332→Overlay
+ 18333→
+ 18334→Chart Colors
+ 18335→
+ 18336→Button Colors
+ 18337→
+ 18338→Hover Colors
+ 18339→
+ 18340→Focus Colors
+ 18341→
+ 18342→All colors automatically adapt to the selected theme.
+ 18343→
+ 18344→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18345→COMPONENT THEMING
+ 18346→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18347→
+ 18348→Every component must automatically adapt
+ 18349→
+ 18350→Buttons
+ 18351→
+ 18352→Cards
+ 18353→
+ 18354→Inputs
+ 18355→
+ 18356→Tables
+ 18357→
+ 18358→Charts
+ 18359→
+ 18360→Sidebar
+ 18361→
+ 18362→Navigation
+ 18363→
+ 18364→Dropdown
+ 18365→
+ 18366→Tooltip
+ 18367→
+ 18368→Toast
+ 18369→
+ 18370→Dialogs
+ 18371→
+ 18372→Bottom Sheets
+ 18373→
+ 18374→Forms
+ 18375→
+ 18376→Tabs
+ 18377→
+ 18378→Progress Bars
+ 18379→
+ 18380→Badges
+ 18381→
+ 18382→Icons
+ 18383→
+ 18384→Illustrations
+ 18385→
+ 18386→No component should require manual theme implementation.
+ 18387→
+ 18388→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18389→ANIMATED THEME SWITCH
+ 18390→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18391→
+ 18392→Switching themes should animate smoothly.
+ 18393→
+ 18394→Use
+ 18395→
+ 18396→Fade
+ 18397→
+ 18398→Blur
+ 18399→
+ 18400→Scale
+ 18401→
+ 18402→Glass Refraction
+ 18403→
+ 18404→Color Morphing
+ 18405→
+ 18406→Shadow Transition
+ 18407→
+ 18408→Gradient Transition
+ 18409→
+ 18410→Background Morph
+ 18411→
+ 18412→Duration between 250–500ms.
+ 18413→
+ 18414→No flashing.
+ 18415→
+ 18416→No white screen.
+ 18417→
+ 18418→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18419→THEME TOKENS
+ 18420→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18421→
+ 18422→Create a centralized design token system.
+ 18423→
+ 18424→Typography
+ 18425→
+ 18426→Spacing
+ 18427→
+ 18428→Radius
+ 18429→
+ 18430→Glass Effects
+ 18431→
+ 18432→Colors
+ 18433→
+ 18434→Borders
+ 18435→
+ 18436→Elevation
+ 18437→
+ 18438→Shadows
+ 18439→
+ 18440→Blur
+ 18441→
+ 18442→Animations
+ 18443→
+ 18444→Opacity
+ 18445→
+ 18446→Gradients
+ 18447→
+ 18448→Every UI component must consume these tokens instead of hardcoded values.
+ 18449→
+ 18450→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18451→BACKGROUND SYSTEM
+ 18452→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18453→
+ 18454→The background should change according to theme.
+ 18455→
+ 18456→Light Mode
+ 18457→
+ 18458→Soft Mesh Gradient
+ 18459→
+ 18460→Light Ambient Glow
+ 18461→
+ 18462→Subtle Animated Shapes
+ 18463→
+ 18464→Dark Mode
+ 18465→
+ 18466→Dark Mesh Gradient
+ 18467→
+ 18468→Neon Ambient Lighting
+ 18469→
+ 18470→Glass Reflection
+ 18471→
+ 18472→Animated Gradient Mesh
+ 18473→
+ 18474→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18475→CHART THEMING
+ 18476→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18477→
+ 18478→Charts automatically change
+ 18479→
+ 18480→Axis Colors
+ 18481→
+ 18482→Grid Colors
+ 18483→
+ 18484→Labels
+ 18485→
+ 18486→Tooltips
+ 18487→
+ 18488→Legends
+ 18489→
+ 18490→Gradients
+ 18491→
+ 18492→Animation Colors
+ 18493→
+ 18494→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18495→ICON THEMING
+ 18496→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18497→
+ 18498→Icons automatically adapt.
+ 18499→
+ 18500→Hover states
+ 18501→
+ 18502→Active states
+ 18503→
+ 18504→Disabled states
+ 18505→
+ 18506→Notification badges
+ 18507→
+ 18508→All theme-aware.
+ 18509→
+ 18510→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18511→IMAGE & ILLUSTRATION SUPPORT
+ 18512→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18513→
+ 18514→Support
+ 18515→
+ 18516→Light Assets
+ 18517→
+ 18518→Dark Assets
+ 18519→
+ 18520→Automatic switching
+ 18521→
+ 18522→Adaptive illustrations
+ 18523→
+ 18524→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18525→SYSTEM INTEGRATION
+ 18526→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18527→
+ 18528→Automatically detect
+ 18529→
+ 18530→Windows Theme
+ 18531→
+ 18532→macOS Theme
+ 18533→
+ 18534→Linux Theme
+ 18535→
+ 18536→Android Theme
+ 18537→
+ 18538→iOS Theme
+ 18539→
+ 18540→Browser Theme Preference
+ 18541→
+ 18542→Update instantly when the operating system theme changes.
+ 18543→
+ 18544→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18545→ACCESSIBILITY
+ 18546→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18547→
+ 18548→Maintain WCAG 2.1 AA compliance.
+ 18549→
+ 18550→Ensure
+ 18551→
+ 18552→Proper Contrast
+ 18553→
+ 18554→Readable Text
+ 18555→
+ 18556→Accessible Focus States
+ 18557→
+ 18558→High Visibility Controls
+ 18559→
+ 18560→Reduced Motion Support
+ 18561→
+ 18562→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18563→PERFORMANCE
+ 18564→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18565→
+ 18566→Theme switching should
+ 18567→
+ 18568→Not reload pages
+ 18569→
+ 18570→Not rerender unnecessary components
+ 18571→
+ 18572→Use CSS Variables or Design Tokens
+ 18573→
+ 18574→Maintain 60 FPS animations
+ 18575→
+ 18576→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18577→SUCCESS CRITERIA
+ 18578→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18579→
+ 18580→✓ Beautiful Light Theme
+ 18581→
+ 18582→✓ Beautiful Dark Theme
+ 18583→
+ 18584→✓ System Theme
+ 18585→
+ 18586→✓ Animated Theme Switching
+ 18587→
+ 18588→✓ Liquid Glass UI
+ 18589→
+ 18590→✓ Theme-aware Components
+ 18591→
+ 18592→✓ Dynamic Charts
+ 18593→
+ 18594→✓ Adaptive Icons
+ 18595→
+ 18596→✓ Responsive Across All Devices
+ 18597→
+ 18598→✓ Production Ready
+ 18599→
+ 18600→The entire application must feel like a premium Apple-quality SaaS product where Light Mode and Dark Mode are equally polished, visually consistent, fully animated, and deeply integrated into the design system rather than treated as secondary themes.
+ 18601→
+ 18602→# BOARDOPS
+ 18603→
+ 18604→# Enterprise Dynamic Variable Engine & Formula Engine (Zero Hardcoded | Database-Driven | Event-Driven)
+ 18605→
+ 18606→You are a Principal ERP Solution Architect, Enterprise Financial Systems Engineer, Database Architect, Backend Architect, Software Architect, Domain-Driven Design (DDD) Expert, and Product Engineer responsible for designing and implementing the Dynamic Variable Engine and Formula Engine for BoardOps.
+ 18607→
+ 18608→This engine is the computational brain and the single source of truth for every business calculation performed throughout the application.
+ 18609→
+ 18610→This is **NOT** a calculator.
+ 18611→
+ 18612→This is **NOT** a collection of utility functions.
+ 18613→
+ 18614→This is an enterprise-grade Calculation Platform comparable to those found in SAP, Oracle ERP Cloud, Microsoft Dynamics 365, Workday, Odoo, ERPNext, and other large-scale ERP systems.
+ 18615→
+ 18616→The entire platform must rely on this engine for every calculation.
+ 18617→
+ 18618→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18619→CORE PRINCIPLES
+ 18620→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18621→
+ 18622→The entire application must follow these non-negotiable architectural rules.
+ 18623→
+ 18624→**ZERO HARDCODED VALUES**
+ 18625→
+ 18626→There must NEVER be:
+ 18627→
+ 18628→• Hardcoded numbers
+ 18629→• Hardcoded prices
+ 18630→• Hardcoded meal charges
+ 18631→• Hardcoded bill values
+ 18632→• Hardcoded counters
+ 18633→• Hardcoded percentages
+ 18634→• Hardcoded limits
+ 18635→• Hardcoded formulas
+ 18636→• Hardcoded constants
+ 18637→• Hardcoded business rules
+ 18638→• Hardcoded financial calculations
+ 18639→• Hardcoded dashboard statistics
+ 18640→• Hardcoded widget values
+ 18641→
+ 18642→Every value must originate from either:
+ 18643→
+ 18644→• Database
+ 18645→• Variable Engine
+ 18646→• Formula Engine
+ 18647→• Configuration Engine
+ 18648→• Business Rule Engine
+ 18649→
+ 18650→Nothing should ever be typed directly into source code.
+ 18651→
+ 18652→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18653→ZERO HARDCODED BUSINESS LOGIC
+ 18654→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18655→
+ 18656→Business calculations must NEVER exist inside:
+ 18657→
+ 18658→React Components
+ 18659→
+ 18660→Pages
+ 18661→
+ 18662→Hooks
+ 18663→
+ 18664→Contexts
+ 18665→
+ 18666→FastAPI Controllers
+ 18667→
+ 18668→Routes
+ 18669→
+ 18670→Repositories
+ 18671→
+ 18672→Services
+ 18673→
+ 18674→API Endpoints
+ 18675→
+ 18676→Dashboard Widgets
+ 18677→
+ 18678→Reports
+ 18679→
+ 18680→Analytics
+ 18681→
+ 18682→Notifications
+ 18683→
+ 18684→Charts
+ 18685→
+ 18686→Schedulers
+ 18687→
+ 18688→Background Workers
+ 18689→
+ 18690→Cron Jobs
+ 18691→
+ 18692→The UI must NEVER calculate business values.
+ 18693→
+ 18694→The Backend must NEVER calculate business values directly.
+ 18695→
+ 18696→Every calculation must be requested from the Formula Engine.
+ 18697→
+ 18698→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18699→100% DATABASE DRIVEN
+ 18700→━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 18701→
+ 18702→Every configurable value must be stored inside MySQL.
+ 18703→
+ 18704→Nothing should require source code modification.
+ 18705→
+ 18706→If an administrator changes a value in the Admin Panel, the entire application should immediately use the new value.
+
+[showing lines 17696-18706 of 19707; use offset=18707 with limit to continue reading]

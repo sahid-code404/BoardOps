@@ -1,0 +1,858 @@
+     1→     1→/**
+     2→     2→ * Monthly Closing Engine (PRD Module 13)
+     3→     3→ *
+     4→     4→ * Orchestrates the monthly financial closing workflow:
+     5→     5→ *   1. Validate readiness (meals locked, expenses approved, variables valid, formula valid)
+     6→     6→ *   2. Create immutable MonthlySnapshot (freeze meals, expenses, variables, formula)
+     7→     7→ *   3. Execute Formula Engine → calculate meal charge
+     8→     8→ *   4. Generate bills from the snapshot (not live data)
+     9→     9→ *   5. Settle resident fund accounts (deduct bill, determine refund/due)
+    10→    10→ *   6. Close the billing cycle
+    11→    11→ *
+    12→    12→ * Rollback is only allowed before bills are published (status < BILLS_GENERATED).
+    13→    13→ * After publication, corrections require adjustment entries (PRD DEC-033).
+    14→    14→ */
+    15→    15→
+    16→    16→import { Prisma } from "@prisma/client";
+    17→    17→import { db } from "@/lib/db";
+    18→    18→import { evaluateFormula, validateFormula, extractVarSlugs, type FormulaVarResolver } from "@/lib/formula-engine";
+    19→    19→import { generateBillNumber, getPreviousDue, lockExpensesForPeriod } from "@/lib/reference-numbers";
+    20→    20→
+    21→    21→// Prisma's interactive transaction client (the `tx` argument passed to
+    22→    22→// `db.$transaction(async (tx) => ...)`). It is a strict subset of PrismaClient
+    23→    23→// (no $transaction/$connect/$disconnect). Use this for any helper that should
+    24→    24→// run inside a transaction.
+    25→    25→type Tx = Prisma.TransactionClient;
+    26→    26→
+    27→    27→const MONTHS = [
+    28→    28→  "January", "February", "March", "April", "May", "June",
+    29→    29→  "July", "August", "September", "October", "November", "December",
+    30→    30→];
+    31→    31→
+    32→    32→export function periodLabel(month: number, year: number): string {
+    33→    33→  return `${MONTHS[month] ?? `Month ${month + 1}`} ${year}`;
+    34→    34→}
+    35→    35→
+    36→    36→// ─────────────────────────────────────────────────────────────
+    37→    37→// 1. Readiness Checklist
+    38→    38→// ─────────────────────────────────────────────────────────────
+    39→    39→
+    40→    40→export type ReadinessItem = {
+    41→    41→  key: string;
+    42→    42→  label: string;
+    43→    43→  status: "ready" | "warning" | "error";
+    44→    44→  detail: string;
+    45→    45→  count?: number;
+    46→    46→};
+    47→    47→
+    48→    48→export type ReadinessResult = {
+    49→    49→  month: number;
+    50→    50→  year: number;
+    51→    51→  periodLabel: string;
+    52→    52→  items: ReadinessItem[];
+    53→    53→  canClose: boolean;
+    54→    54→  existingCycle?: {
+    55→    55→    id: string;
+    56→    56→    status: string;
+    57→    57→  } | null;
+    58→    58→};
+    59→    59→
+    60→    60→export async function getReadiness(month: number, year: number): Promise<ReadinessResult> {
+    61→    61→  const label = periodLabel(month, year);
+    62→    62→  const start = new Date(year, month, 1);
+    63→    63→  const end = new Date(year, month + 1, 0, 23, 59, 59, 999);
+    64→    64→
+    65→    65→  const items: ReadinessItem[] = [];
+    66→    66→
+    67→    67→  // Check 1: Existing billing cycle
+    68→    68→  const existingCycle = await db.billingCycle.findUnique({
+    69→    69→    where: { periodMonth_periodYear: { periodMonth: month, periodYear: year } },
+    70→    70→    select: { id: true, status: true },
+    71→    71→  });
+    72→    72→  if (existingCycle) {
+    73→    73→    if (existingCycle.status === "CLOSED") {
+    74→    74→      items.push({
+    75→    75→        key: "cycle",
+    76→    76→        label: "Billing Cycle",
+    77→    77→        status: "error",
+    78→    78→        detail: `This period is already CLOSED. Corrections require adjustment entries.`,
+    79→    79→      });
+    80→    80→    } else if (existingCycle.status === "BILLS_GENERATED" || existingCycle.status === "SETTLED") {
+    81→    81→      items.push({
+    82→    82→        key: "cycle",
+    83→    83→        label: "Billing Cycle",
+    84→    84→        status: "warning",
+    85→    85→        detail: `Cycle is in progress (status: ${existingCycle.status}). Bills already generated — rollback to restart.`,
+    86→    86→      });
+    87→    87→    } else {
+    88→    88→      items.push({
+    89→    89→        key: "cycle",
+    90→    90→        label: "Billing Cycle",
+    91→    91→        status: "ready",
+    92→    92→        detail: `Cycle started (status: ${existingCycle.status}).`,
+    93→    93→      });
+    94→    94→    }
+    95→    95→  } else {
+    96→    96→    items.push({
+    97→    97→      key: "cycle",
+    98→    98→      label: "Billing Cycle",
+    99→    99→      status: "ready",
+   100→   100→      detail: "No existing cycle — ready to start.",
+   101→   101→    });
+   102→   102→  }
+   103→   103→
+   104→   104→  // Check 2: Active residents
+   105→   105→  const activeUsers = await db.user.count({
+   106→   106→    where: { status: "ACTIVE", role: "USER", deletedAt: null },
+   107→   107→  });
+   108→   108→  items.push({
+   109→   109→    key: "residents",
+   110→   110→    label: "Active Residents",
+   111→   111→    status: activeUsers > 0 ? "ready" : "error",
+   112→   112→    detail: activeUsers > 0
+   113→   113→      ? `${activeUsers} resident(s) will be billed.`
+   114→   114→      : "No active residents — cannot generate bills.",
+   115→   115→    count: activeUsers,
+   116→   116→  });
+   117→   117→
+   118→   118→  // Check 3: Meal entries for this period (exclude admin users)
+   119→   119→  const mealEntries = await db.mealEntry.count({
+   120→   120→    where: {
+   121→   121→      serviceDate: { gte: start, lte: end },
+   122→   122→      status: { in: ["ON", "LOCKED"] },
+   123→   123→      user: { role: "USER" },
+   124→   124→    },
+   125→   125→  });
+   126→   126→  const mealConfigs = await db.mealConfiguration.count({ where: { status: "ACTIVE" } });
+   127→   127→  if (mealConfigs === 0) {
+   128→   128→    items.push({
+   129→   129→      key: "meals",
+   130→   130→      label: "Meal Configuration",
+   131→   131→      status: "error",
+   132→   132→      detail: "No active meals configured. Configure meals first.",
+   133→   133→    });
+   134→   134→  } else if (mealEntries === 0) {
+   135→   135→    items.push({
+   136→   136→      key: "meals",
+   137→   137→      label: "Meal Entries",
+   138→   138→      status: "warning",
+   139→   139→      detail: `No ON/LOCKED meal entries for ${label}. Bills will have ₹0 meal charges.`,
+   140→   140→    });
+   141→   141→  } else {
+   142→   142→    items.push({
+   143→   143→      key: "meals",
+   144→   144→      label: "Meal Entries",
+   145→   145→      status: "ready",
+   146→   146→      detail: `${mealEntries} meal entry(ies) for ${label}.`,
+   147→   147→      count: mealEntries,
+   148→   148→    });
+   149→   149→  }
+   150→   150→
+   151→   151→  // Check 4: Expenses for this period
+   152→   152→  const expenses = await db.expense.count({
+   153→   153→    where: {
+   154→   154→      expenseDate: { gte: start, lte: end },
+   155→   155→      deletedAt: null,
+   156→   156→      status: { not: "DELETED" },
+   157→   157→    },
+   158→   158→  });
+   159→   159→  const totalExpenseAmount = await db.expense.aggregate({
+   160→   160→    where: {
+   161→   161→      expenseDate: { gte: start, lte: end },
+   162→   162→      deletedAt: null,
+   163→   163→      status: { not: "DELETED" },
+   164→   164→    },
+   165→   165→    _sum: { amount: true },
+   166→   166→  });
+   167→   167→  const expenseTotal = totalExpenseAmount._sum.amount ?? 0;
+   168→   168→  if (expenses === 0) {
+   169→   169→    items.push({
+   170→   170→      key: "expenses",
+   171→   171→      label: "Expenses",
+   172→   172→      status: "warning",
+   173→   173→      detail: `No expenses recorded for ${label}. Meal charge may be ₹0.`,
+   174→   174→    });
+   175→   175→  } else {
+   176→   176→    items.push({
+   177→   177→      key: "expenses",
+   178→   178→      label: "Expenses",
+   179→   179→      status: "ready",
+   180→   180→      detail: `${expenses} expense(s) totaling ₹${Math.round(expenseTotal).toLocaleString("en-IN")}.`,
+   181→   181→      count: expenses,
+   182→   182→    });
+   183→   183→  }
+   184→   184→
+   185→   185→  // Check 5: Variables
+   186→   186→  const activeVars = await db.variable.count({
+   187→   187→    where: { status: "ACTIVE" },
+   188→   188→  });
+   189→   189→  const systemVars = await db.variable.count({
+   190→   190→    where: { status: "ACTIVE", isSystem: true },
+   191→   191→  });
+   192→   192→  if (activeVars === 0) {
+   193→   193→    items.push({
+   194→   194→      key: "variables",
+   195→   195→      label: "Variables",
+   196→   196→      status: "error",
+   197→   197→      detail: "No active variables. The formula engine needs variables to calculate charges.",
+   198→   198→    });
+   199→   199→  } else {
+   200→   200→    items.push({
+   201→   201→      key: "variables",
+   202→   202→      label: "Variables",
+   203→   203→      status: "ready",
+   204→   204→      detail: `${activeVars} active variable(s) (${systemVars} system, ${activeVars - systemVars} custom).`,
+   205→   205→      count: activeVars,
+   206→   206→    });
+   207→   207→  }
+   208→   208→
+   209→   209→  // Check 6: Active formula (meal charge)
+   210→   210→  const mealChargeFormula = await db.formula.findFirst({
+   211→   211→    where: { key: "formula.mealCharges", status: "ACTIVE" },
+   212→   212→  });
+   213→   213→  if (!mealChargeFormula) {
+   214→   214→    items.push({
+   215→   215→      key: "formula",
+   216→   216→      label: "Meal Charge Formula",
+   217→   217→      status: "warning",
+   218→   218→      detail: "No active formula.mealCharges formula. Bills will use the legacy rate×count calculation.",
+   219→   219→    });
+   220→   220→  } else {
+   221→   221→    // Validate the formula expression
+   222→   222→    const validation = validateFormula(mealChargeFormula.expression);
+   223→   223→    if (!validation.valid) {
+   224→   224→      items.push({
+   225→   225→        key: "formula",
+   226→   226→        label: "Meal Charge Formula",
+   227→   227→        status: "warning",
+   228→   228→        detail: `formula.mealCharges (v${mealChargeFormula.version}) is invalid: ${validation.error}. Bills will use the legacy rate×count calculation.`,
+   229→   229→      });
+   230→   230→    } else {
+   231→   231→      items.push({
+   232→   232→        key: "formula",
+   233→   233→        label: "Meal Charge Formula",
+   234→   234→        status: "ready",
+   235→   235→        detail: `formula.mealCharges v${mealChargeFormula.version} is valid.`,
+   236→   236→      });
+   237→   237→    }
+   238→   238→  }
+   239→   239→
+   240→   240→  // Check 7: Pending payments (informational — not a blocker)
+   241→   241→  const pendingPayments = await db.payment.count({
+   242→   242→    where: {
+   243→   243→      status: "PENDING",
+   244→   244→      createdAt: { gte: start, lte: end },
+   245→   245→    },
+   246→   246→  });
+   247→   247→  items.push({
+   248→   248→    key: "payments",
+   249→   249→    label: "Pending Payments",
+   250→   250→    status: pendingPayments > 0 ? "warning" : "ready",
+   251→   251→    detail: pendingPayments > 0
+   252→   252→      ? `${pendingPayments} payment(s) pending approval. They will apply to the NEXT billing cycle if approved after closing.`
+   253→   253→      : "No pending payments.",
+   254→   254→    count: pendingPayments,
+   255→   255→  });
+   256→   256→
+   257→   257→  // Bill generation requires ALL items to be "ready" — no errors AND no warnings.
+   258→   258→  // Admins must resolve all warnings (e.g. add missing expenses, fix invalid formula,
+   259→   259→  // approve pending payments) before they can close the billing cycle.
+   260→   260→  // PRD: Bills can only be generated for PAST months — the current month hasn't ended yet,
+   261→   261→  // so its meal data is still incomplete.
+   262→   262→  const now = new Date();
+   263→   263→  const currentPeriod = now.getFullYear() * 12 + now.getMonth();
+   264→   264→  const selectedPeriod = year * 12 + month;
+   265→   265→  const isCurrentOrFutureMonth = selectedPeriod >= currentPeriod;
+   266→   266→
+   267→   267→  if (isCurrentOrFutureMonth) {
+   268→   268→    items.unshift({
+   269→   269→      key: "period",
+   270→   270→      label: "Billing Period",
+   271→   271→      status: "error",
+   272→   272→      detail: `Cannot generate bills for ${label} — this month has not ended yet. Bills can only be generated for past months after the month is complete.`,
+   273→   273→    });
+   274→   274→  }
+   275→   275→
+   276→   276→  const canClose = items.every((i) => i.status === "ready") && (!existingCycle || existingCycle.status !== "CLOSED");
+   277→   277→
+   278→   278→  return {
+   279→   279→    month,
+   280→   280→    year,
+   281→   281→    periodLabel: label,
+   282→   282→    items,
+   283→   283→    canClose,
+   284→   284→    existingCycle,
+   285→   285→  };
+   286→   286→}
+   287→   287→
+   288→   288→// ─────────────────────────────────────────────────────────────
+   289→   289→// 2. Create Snapshot
+   290→   290→// ─────────────────────────────────────────────────────────────
+   291→   291→
+   292→   292→type SnapshotData = {
+   293→   293→  mealsData: string;
+   294→   294→  expensesData: string;
+   295→   295→  variablesData: string;
+   296→   296→  formulaData: string;
+   297→   297→  totalExpenses: number;
+   298→   298→  totalResidentMeals: number;
+   299→   299→  totalGuestMeals: number;
+   300→   300→  guestRevenue: number;
+   301→   301→  mealCharge: number;
+   302→   302→};
+   303→   303→
+   304→   304→async function createSnapshot(month: number, year: number, tx: Tx): Promise<SnapshotData> {
+   305→   305→  const start = new Date(year, month, 1);
+   306→   306→  const end = new Date(year, month + 1, 0, 23, 59, 59, 999);
+   307→   307→
+   308→   308→  // ── Meals data: per-resident meal counts ──
+   309→   309→  const activeUsers = await tx.user.findMany({
+   310→   310→    where: { status: "ACTIVE", role: "USER", deletedAt: null },
+   311→   311→    select: { id: true, name: true, room: true },
+   312→   312→  });
+   313→   313→  const meals = await tx.mealConfiguration.findMany({ where: { status: "ACTIVE" } });
+   314→   314→  const mealNameById: Record<string, string> = {};
+   315→   315→  meals.forEach((m) => (mealNameById[m.id] = m.name));
+   316→   316→
+   317→   317→  const mealEntries = await tx.mealEntry.findMany({
+   318→   318→    where: { serviceDate: { gte: start, lte: end }, user: { role: "USER" } },
+   319→   319→  });
+   320→   320→  const guestMeals = await tx.guestMeal.findMany({
+   321→   321→    where: { serviceDate: { gte: start, lte: end } },
+   322→   322→  });
+   323→   323→
+   324→   324→  // Per-resident meal counts
+   325→   325→  const residentMeals: Record<string, Record<string, number>> = {};
+   326→   326→  let totalResidentMeals = 0;
+   327→   327→  for (const u of activeUsers) {
+   328→   328→    residentMeals[u.id] = {};
+   329→   329→  }
+   330→   330→  for (const e of mealEntries) {
+   331→   331→    if (e.status === "ON" || e.status === "LOCKED") {
+   332→   332→      const name = mealNameById[e.mealId] || "unknown";
+   333→   333→      if (!residentMeals[e.userId]) residentMeals[e.userId] = {};
+   334→   334→      residentMeals[e.userId][name] = (residentMeals[e.userId][name] || 0) + 1;
+   335→   335→      totalResidentMeals++;
+   336→   336→    }
+   337→   337→  }
+   338→   338→
+   339→   339→  // Guest meals per meal type
+   340→   340→  const guestMealCounts: Record<string, number> = {};
+   341→   341→  let totalGuestMeals = 0;
+   342→   342→  for (const g of guestMeals) {
+   343→   343→    const name = mealNameById[g.mealId] || "unknown";
+   344→   344→    guestMealCounts[name] = (guestMealCounts[name] || 0) + (g.guestCount || 1);
+   345→   345→    totalGuestMeals += g.guestCount || 1;
+   346→   346→  }
+   347→   347→
+   348→   348→  const mealsData = JSON.stringify({
+   349→   349→    residentMeals,
+   350→   350→    guestMealCounts,
+   351→   351→    totalResidentMeals,
+   352→   352→    totalGuestMeals,
+   353→   353→    mealConfigs: meals.map((m) => ({ id: m.id, name: m.name, displayName: m.displayName })),
+   354→   354→  });
+   355→   355→
+   356→   356→  // ── Expenses data ──
+   357→   357→  const expenses = await tx.expense.findMany({
+   358→   358→    where: {
+   359→   359→      expenseDate: { gte: start, lte: end },
+   360→   360→      deletedAt: null,
+   361→   361→      status: { not: "DELETED" },
+   362→   362→    },
+   363→   363→    include: {
+   364→   364→      purchase: { include: { items: true } },
+   365→   365→    },
+   366→   366→  });
+   367→   367→  const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0);
+   368→   368→  const expensesData = JSON.stringify({
+   369→   369→    expenses: expenses.map((e) => ({
+   370→   370→      id: e.id,
+   371→   371→      title: e.title,
+   372→   372→      category: e.category,
+   373→   373→      amount: e.amount,
+   374→   374→      expenseDate: e.expenseDate,
+   375→   375→      purchase: e.purchase
+   376→   376→        ? {
+   377→   377→            vendor: e.purchase.vendor,
+   378→   378→            items: e.purchase.items.map((it) => ({
+   379→   379→              name: it.productName,
+   380→   380→              qty: it.quantity,
+   381→   381→              unit: it.unit,
+   382→   382→              rate: it.rate,
+   383→   383→              total: it.total,
+   384→   384→            })),
+   385→   385→          }
+   386→   386→        : null,
+   387→   387→    })),
+   388→   388→    totalExpenses,
+   389→   389→  });
+   390→   390→
+   391→   391→  // ── Variables data ──
+   392→   392→  const variables = await tx.variable.findMany({
+   393→   393→    where: { status: "ACTIVE" },
+   394→   394→  });
+   395→   395→  const variablesData = JSON.stringify(
+   396→   396→    Object.fromEntries(variables.map((v) => [v.key, { value: v.value, type: v.type, name: v.name }]))
+   397→   397→  );
+   398→   398→
+   399→   399→  // ── Formula data ──
+   400→   400→  const formulas = await tx.formula.findMany({
+   401→   401→    where: { status: "ACTIVE" },
+   402→   402→    select: { key: true, name: true, expression: true, version: true, returnType: true },
+   403→   403→  });
+   404→   404→  const formulaData = JSON.stringify(
+   405→   405→    Object.fromEntries(formulas.map((f) => [f.key, { name: f.name, expression: f.expression, version: f.version, returnType: f.returnType }]))
+   406→   406→  );
+   407→   407→
+   408→   408→  // ── Calculate meal charge using the Formula Engine ──
+   409→   409→  // Build the variable resolver from the snapshot (not live DB — for consistency)
+   410→   410→  const varMap = new Map(variables.map((v) => [v.key, parseFloat(v.value) || 0]));
+   411→   411→  const resolver: FormulaVarResolver = (slug: string) => varMap.get(slug) ?? 0;
+   412→   412→
+   413→   413→  // Also inject computed totals as variables the formula can reference
+   414→   414→  const computedVars: Record<string, number> = {
+   415→   415→    total_expense: totalExpenses,
+   416→   416→    total_resident_meals: totalResidentMeals,
+   417→   417→    total_guest_meals: totalGuestMeals,
+   418→   418→    guest_revenue: 0, // computed below
+   419→   419→  };
+   420→   420→
+   421→   421→  // Calculate guest revenue: sum of guest meals × their meal rate
+   422→   422→  let guestRevenue = 0;
+   423→   423→  for (const [mealName, count] of Object.entries(guestMealCounts)) {
+   424→   424→    const rateVar = varMap.get(`meal.rate.${mealName.toLowerCase()}`);
+   425→   425→    if (rateVar !== undefined) {
+   426→   426→      guestRevenue += rateVar * count;
+   427→   427→    }
+   428→   428→  }
+   429→   429→  computedVars.guest_revenue = guestRevenue;
+   430→   430→
+   431→   431→  // Merge computed vars into the resolver
+   432→   432→  const fullResolver: FormulaVarResolver = (slug: string) => {
+   433→   433→    if (slug in computedVars) return computedVars[slug];
+   434→   434→    return varMap.get(slug) ?? 0;
+   435→   435→  };
+   436→   436→
+   437→   437→  // Try to evaluate the meal charge formula
+   438→   438→  const mealChargeFormula = formulas.find((f) => f.key === "formula.mealCharges");
+   439→   439→  let mealCharge = 0;
+   440→   440→  if (mealChargeFormula && totalResidentMeals > 0) {
+   441→   441→    const result = evaluateFormula(mealChargeFormula.expression, fullResolver);
+   442→   442→    if (!result.error) {
+   443→   443→      mealCharge = result.value;
+   444→   444→    }
+   445→   445→  }
+   446→   446→
+   447→   447→  return {
+   448→   448→    mealsData,
+   449→   449→    expensesData,
+   450→   450→    variablesData,
+   451→   451→    formulaData,
+   452→   452→    totalExpenses,
+   453→   453→    totalResidentMeals,
+   454→   454→    totalGuestMeals,
+   455→   455→    guestRevenue,
+   456→   456→    mealCharge,
+   457→   457→  };
+   458→   458→}
+   459→   459→
+   460→   460→// ─────────────────────────────────────────────────────────────
+   461→   461→// 3. Execute Full Closing Workflow
+   462→   462→// ─────────────────────────────────────────────────────────────
+   463→   463→
+   464→   464→export type ClosingResult = {
+   465→   465→  success: boolean;
+   466→   466→  cycleId: string;
+   467→   467→  status: string;
+   468→   468→  summary: {
+   469→   469→    totalExpenses: number;
+   470→   470→    totalResidentMeals: number;
+   471→   471→    totalGuestMeals: number;
+   472→   472→    guestRevenue: number;
+   473→   473→    mealCharge: number;
+   474→   474→    billsGenerated: number;
+   475→   475→    refundQueueTotal: number;
+   476→   476→    outstandingDue: number;
+   477→   477→  };
+   478→   478→  error?: string;
+   479→   479→};
+   480→   480→
+   481→   481→export async function executeClosing(
+   482→   482→  month: number,
+   483→   483→  year: number,
+   484→   484→  adminId: string,
+   485→   485→  dueDate?: Date
+   486→   486→): Promise<ClosingResult> {
+   487→   487→  const label = periodLabel(month, year);
+   488→   488→  const start = new Date(year, month, 1);
+   489→   489→  const end = new Date(year, month + 1, 0, 23, 59, 59, 999);
+   490→   490→
+   491→   491→  // 1. Check readiness
+   492→   492→  const readiness = await getReadiness(month, year);
+   493→   493→  if (!readiness.canClose) {
+   494→   494→    const errors = readiness.items.filter((i) => i.status === "error").map((i) => `${i.label}: ${i.detail}`);
+   495→   495→    return {
+   496→   496→      success: false,
+   497→   497→      cycleId: "",
+   498→   498→      status: "OPEN",
+   499→   499→      summary: { totalExpenses: 0, totalResidentMeals: 0, totalGuestMeals: 0, guestRevenue: 0, mealCharge: 0, billsGenerated: 0, refundQueueTotal: 0, outstandingDue: 0 },
+   500→   500→      error: `Cannot close: ${errors.join("; ")}`,
+   501→   501→    };
+   502→   502→  }
+   503→   503→
+   504→   504→  // 2. Get or create the billing cycle
+   505→   505→  let cycle = readiness.existingCycle
+   506→   506→    ? await db.billingCycle.findUnique({ where: { id: readiness.existingCycle.id } })
+   507→   507→    : null;
+   508→   508→
+   509→   509→  if (cycle && cycle.status === "CLOSED") {
+   510→   510→    return {
+   511→   511→      success: false,
+   512→   512→      cycleId: cycle.id,
+   513→   513→      status: cycle.status,
+   514→   514→      summary: { totalExpenses: 0, totalResidentMeals: 0, totalGuestMeals: 0, guestRevenue: 0, mealCharge: 0, billsGenerated: 0, refundQueueTotal: 0, outstandingDue: 0 },
+   515→   515→      error: "This billing cycle is already CLOSED. Corrections require adjustment entries.",
+   516→   516→    };
+   517→   517→  }
+   518→   518→
+   519→   519→  // Create or update the cycle to PREPARING status
+   520→   520→  if (!cycle) {
+   521→   521→    cycle = await db.billingCycle.create({
+   522→   522→      data: {
+   523→   523→        periodMonth: month,
+   524→   524→        periodYear: year,
+   525→   525→        status: "PREPARING",
+   526→   526→        startedBy: adminId,
+   527→   527→        startedAt: new Date(),
+   528→   528→        readiness: JSON.stringify(readiness.items),
+   529→   529→      },
+   530→   530→    });
+   531→   531→  } else {
+   532→   532→    cycle = await db.billingCycle.update({
+   533→   533→      where: { id: cycle.id },
+   534→   534→      data: {
+   535→   535→        status: "PREPARING",
+   536→   536→        startedBy: adminId,
+   537→   537→        startedAt: new Date(),
+   538→   538→        readiness: JSON.stringify(readiness.items),
+   539→   539→        errorMessage: null,
+   540→   540→      },
+   541→   541→    });
+   542→   542→  }
+   543→   543→
+   544→   544→  try {
+   545→   545→    // DIR-1: run every write inside a single transaction so a failure at any
+   546→   546→    // step (snapshot, bills, refunds, expense lock, status transition) rolls
+   547→   547→    // the whole closing back. Reads-only helpers (getPreviousDue,
+   548→   548→    // generateBillNumber, generateRefundNumber) keep using `db` — they don't
+   549→   549→    // mutate state and don't need to participate in the rollback.
+   550→   550→    return await db.$transaction(async (tx) => {
+   551→   551→    // `cycle` was created/updated above — guaranteed non-null here. The
+   552→   552→    // explicit guard re-narrows it for TypeScript inside the closure (closures
+   553→   553→    // don't inherit narrowing on `let` bindings from the outer scope).
+   554→   554→    if (!cycle) throw new Error("Billing cycle is null inside closing transaction");
+   555→   555→    // 3. Create the snapshot
+   556→   556→    const snapshotData = await createSnapshot(month, year, tx);
+   557→   557→
+   558→   558→    // Delete any existing snapshot (from a previous failed attempt)
+   559→   559→    if (cycle.snapshotId) {
+   560→   560→      await tx.monthlySnapshot.deleteMany({ where: { billingCycleId: cycle.id } });
+   561→   561→    }
+   562→   562→
+   563→   563→    const snapshot = await tx.monthlySnapshot.create({
+   564→   564→      data: {
+   565→   565→        billingCycleId: cycle.id,
+   566→   566→        mealsData: snapshotData.mealsData,
+   567→   567→        expensesData: snapshotData.expensesData,
+   568→   568→        variablesData: snapshotData.variablesData,
+   569→   569→        formulaData: snapshotData.formulaData,
+   570→   570→        totalExpenses: snapshotData.totalExpenses,
+   571→   571→        totalResidentMeals: snapshotData.totalResidentMeals,
+   572→   572→        totalGuestMeals: snapshotData.totalGuestMeals,
+   573→   573→        guestRevenue: snapshotData.guestRevenue,
+   574→   574→        mealCharge: snapshotData.mealCharge,
+   575→   575→      },
+   576→   576→    });
+   577→   577→
+   578→   578→    cycle = await tx.billingCycle.update({
+   579→   579→      where: { id: cycle.id },
+   580→   580→      data: {
+   581→   581→        status: "SNAPSHOT_CREATED",
+   582→   582→        snapshotId: snapshot.id,
+   583→   583→        totalExpenses: snapshotData.totalExpenses,
+   584→   584→        totalMeals: snapshotData.totalResidentMeals,
+   585→   585→        totalGuestMeals: snapshotData.totalGuestMeals,
+   586→   586→        mealCharge: snapshotData.mealCharge,
+   587→   587→      },
+   588→   588→    });
+   589→   589→
+   590→   590→    // 4. Generate bills from the snapshot
+   591→   591→    const activeUsers = await tx.user.findMany({
+   592→   592→      where: { status: "ACTIVE", role: "USER", deletedAt: null },
+   593→   593→    });
+   594→   594→
+   595→   595→    // Load room rent + cleaning from the snapshot variables (not live DB)
+   596→   596→    const snapshotVars = JSON.parse(snapshotData.variablesData) as Record<string, { value: string; type: string }>;
+   597→   597→    const roomRent = parseFloat(snapshotVars["billing.roomRent"]?.value || "0") || 0;
+   598→   598→    const cleaning = parseFloat(snapshotVars["billing.cleaningCharges"]?.value || "0") || 0;
+   599→   599→
+   600→   600→    // PRD: Meal charge is a SINGLE dynamic value = (Total Expenses - Guest Revenue) / Total Resident Meals
+   601→   601→    // NOT fixed per-meal rates. The snapshot already calculated this.
+   602→   602→    const perMealCharge = snapshotData.mealCharge;
+   603→   603→
+   604→   604→    // PRD DEC-012: store the formula version + expression on each bill for reproducibility
+   605→   605→    const snapshotFormulas = JSON.parse(snapshotData.formulaData) as Record<string, { name: string; expression: string; version: number }>;
+   606→   606→    const mealChargeFormulaInfo = snapshotFormulas["formula.mealCharges"] || null;
+   607→   607→
+   608→   608→    const snapshotMeals = JSON.parse(snapshotData.mealsData) as {
+   609→   609→      residentMeals: Record<string, Record<string, number>>;
+   610→   610→    };
+   611→   611→
+   612→   612→    // Read due date day from policy variable (default 10th)
+   613→   613→    const dueDateDayVar = await tx.variable.findUnique({ where: { key: "policy.billing.dueDateDay" } });
+   614→   614→    const dueDateDay = dueDateDayVar ? parseInt(dueDateDayVar.value) || 10 : 10;
+   615→   615→    const effectiveDueDate = dueDate ?? new Date(year, month + 1, dueDateDay);
+   616→   616→    let billsGenerated = 0;
+   617→   617→    let refundQueueTotal = 0;
+   618→   618→    let outstandingDue = 0;
+   619→   619→
+   620→   620→    for (const u of activeUsers) {
+   621→   621→      const counts = snapshotMeals.residentMeals[u.id] || {};
+   622→   622→      // PRD: meal charges = resident's total meal count × per-meal charge (dynamic, not fixed rates)
+   623→   623→      const residentMealCount = Object.values(counts).reduce((s, c) => s + c, 0);
+   624→   624→      const mealCharges = Math.round(residentMealCount * perMealCharge);
+   625→   625→      const otherCharges = roomRent + cleaning;
+   626→   626→      const totalAmount = mealCharges + otherCharges;
+   627→   627→
+   628→   628→      // PRD DEC-027: previous due tracked separately (not added to totalAmount)
+   629→   629→      const previousDue = await getPreviousDue(u.id, month, year);
+   630→   630→
+   631→   631→      // Check existing bill (for re-runs)
+   632→   632→      const existing = await tx.bill.findUnique({
+   633→   633→        where: { userId_periodMonth_periodYear: { userId: u.id, periodMonth: month, periodYear: year } },
+   634→   634→      });
+   635→   635→
+   636→   636→      if (existing && (existing.status === "VOID" || existing.deletedAt)) {
+   637→   637→        continue; // skip VOID/deleted
+   638→   638→      }
+   639→   639→
+   640→   640→      const billSnapshot = JSON.stringify({
+   641→   641→        counts,
+   642→   642→        residentMealCount,
+   643→   643→        perMealCharge,
+   644→   644→        mealCharges,
+   645→   645→        roomRent,
+   646→   646→        cleaning,
+   647→   647→        totalExpenses: snapshotData.totalExpenses,
+   648→   648→        guestRevenue: snapshotData.guestRevenue,
+   649→   649→        totalResidentMeals: snapshotData.totalResidentMeals,
+   650→   650→        snapshotId: snapshot.id,
+   651→   651→        formulaVersion: mealChargeFormulaInfo?.version ?? null,
+   652→   652→        formulaExpression: mealChargeFormulaInfo?.expression ?? null,
+   653→   653→        closedAt: new Date().toISOString(),
+   654→   654→      });
+   655→   655→
+   656→   656→      if (existing) {
+   657→   657→        // Preserve paidAmount, recompute due + status
+   658→   658→        const paidAmount = existing.paidAmount;
+   659→   659→        const dueAmount = Math.max(0, totalAmount - paidAmount);
+   660→   660→        let newStatus: string;
+   661→   661→        if (totalAmount > 0 && paidAmount >= totalAmount) {
+   662→   662→          newStatus = "PAID";
+   663→   663→        } else if (paidAmount > 0) {
+   664→   664→          newStatus = "PARTIALLY_PAID";
+   665→   665→        } else {
+   666→   666→          newStatus = "GENERATED";
+   667→   667→        }
+   668→   668→        await tx.bill.update({
+   669→   669→          where: { id: existing.id },
+   670→   670→          data: {
+   671→   671→            mealCharges,
+   672→   672→            otherCharges,
+   673→   673→            totalAmount,
+   674→   674→            dueAmount,
+   675→   675→            previousDue,
+   676→   676→            status: newStatus,
+   677→   677→            generatedAt: new Date(),
+   678→   678→            dueDate: effectiveDueDate,
+   679→   679→            snapshot: billSnapshot,
+   680→   680→            billingCycleId: cycle.id,
+   681→   681→            // Formula snapshot (only set if not already set — preserves the original generation's formula)
+   682→   682→            ...(existing.formulaKey ? {} : {
+   683→   683→              formulaKey: mealChargeFormulaInfo ? "formula.mealCharges" : null,
+   684→   684→              formulaVersion: mealChargeFormulaInfo?.version ?? null,
+   685→   685→              formulaExpression: mealChargeFormulaInfo?.expression ?? null,
+   686→   686→            }),
+   687→   687→            // Bill number (only set if not already assigned)
+   688→   688→            ...(existing.billNumber ? {} : { billNumber: await generateBillNumber() }),
+   689→   689→          },
+   690→   690→        });
+   691→   691→      } else {
+   692→   692→        await tx.bill.create({
+   693→   693→          data: {
+   694→   694→            billNumber: await generateBillNumber(),
+   695→   695→            userId: u.id,
+   696→   696→            periodMonth: month,
+   697→   697→            periodYear: year,
+   698→   698→            mealCharges,
+   699→   699→            otherCharges,
+   700→   700→            totalAmount,
+   701→   701→            paidAmount: 0,
+   702→   702→            dueAmount: totalAmount,
+   703→   703→            previousDue,
+   704→   704→            status: "GENERATED",
+   705→   705→            generatedAt: new Date(),
+   706→   706→            dueDate: effectiveDueDate,
+   707→   707→            snapshot: billSnapshot,
+   708→   708→            billingCycleId: cycle.id,
+   709→   709→            formulaKey: mealChargeFormulaInfo ? "formula.mealCharges" : null,
+   710→   710→            formulaVersion: mealChargeFormulaInfo?.version ?? null,
+   711→   711→            formulaExpression: mealChargeFormulaInfo?.expression ?? null,
+   712→   712→          },
+   713→   713→        });
+   714→   714→      }
+   715→   715→      billsGenerated++;
+   716→   716→
+   717→   717→      // Settlement: if paid > total, create a Refund record for the overpaid user
+   718→   718→      const paidAmount = existing?.paidAmount ?? 0;
+   719→   719→      if (paidAmount > totalAmount) {
+   720→   720→        const refundAmount = paidAmount - totalAmount;
+   721→   721→        refundQueueTotal += refundAmount;
+   722→   722→        // Create a refund record for this overpaid user
+   723→   723→        const existingRefund = await tx.refund.findFirst({
+   724→   724→          where: { userId: u.id, billingCycleId: cycle.id, status: { in: ["PENDING", "PARTIALLY_PAID"] } },
+   725→   725→        });
+   726→   726→        if (!existingRefund) {
+   727→   727→          const { generateRefundNumber } = await import("@/lib/reference-numbers");
+   728→   728→          await tx.refund.create({
+   729→   729→            data: {
+   730→   730→              refundNumber: await generateRefundNumber(),
+   731→   731→              userId: u.id,
+   732→   732→              billId: existing?.id ?? null,
+   733→   733→              billingCycleId: cycle.id,
+   734→   734→              amount: refundAmount,
+   735→   735→              paidAmount: 0,
+   736→   736→              remainingAmount: refundAmount,
+   737→   737→              status: "PENDING",
+   738→   738→              notes: `Auto-created refund: overpayment after bill generation for ${periodLabel(month, year)}`,
+   739→   739→              processedBy: adminId,
+   740→   740→              processedAt: new Date(),
+   741→   741→            },
+   742→   742→          });
+   743→   743→        }
+   744→   744→      } else if (totalAmount > paidAmount) {
+   745→   745→        outstandingDue += (totalAmount - paidAmount);
+   746→   746→      }
+   747→   747→    }
+   748→   748→
+   749→   749→    // 5. Lock expenses for this period (PRD DEC-030 — expenses become immutable after snapshot)
+   750→   750→    const lockedCount = await lockExpensesForPeriod(month, year, cycle.id, tx);
+   751→   751→
+   752→   752→    // 6. Update cycle to BILLS_GENERATED
+   753→   753→    cycle = await tx.billingCycle.update({
+   754→   754→      where: { id: cycle.id },
+   755→   755→      data: {
+   756→   756→        status: "BILLS_GENERATED",
+   757→   757→        billsGenerated,
+   758→   758→        refundQueueTotal,
+   759→   759→        outstandingDue,
+   760→   760→      },
+   761→   761→    });
+   762→   762→
+   763→   763→    // 6. Settle: mark as SETTLED then CLOSED
+   764→   764→    cycle = await tx.billingCycle.update({
+   765→   765→      where: { id: cycle.id },
+   766→   766→      data: {
+   767→   767→        status: "SETTLED",
+   768→   768→      },
+   769→   769→    });
+   770→   770→
+   771→   771→    cycle = await tx.billingCycle.update({
+   772→   772→      where: { id: cycle.id },
+   773→   773→      data: {
+   774→   774→        status: "CLOSED",
+   775→   775→        closedBy: adminId,
+   776→   776→        closedAt: new Date(),
+   777→   777→      },
+   778→   778→    });
+   779→   779→
+   780→   780→    return {
+   781→   781→      success: true,
+   782→   782→      cycleId: cycle.id,
+   783→   783→      status: "CLOSED",
+   784→   784→      summary: {
+   785→   785→        totalExpenses: snapshotData.totalExpenses,
+   786→   786→        totalResidentMeals: snapshotData.totalResidentMeals,
+   787→   787→        totalGuestMeals: snapshotData.totalGuestMeals,
+   788→   788→        guestRevenue: snapshotData.guestRevenue,
+   789→   789→        mealCharge: snapshotData.mealCharge,
+   790→   790→        billsGenerated,
+   791→   791→        refundQueueTotal,
+   792→   792→        outstandingDue,
+   793→   793→      },
+   794→   794→    };
+   795→   795→    }); // end db.$transaction
+   796→   796→  } catch (e) {
+   797→   797→    // Mark cycle as FAILED
+   798→   798→    await db.billingCycle.update({
+   799→   799→      where: { id: cycle.id },
+   800→   800→      data: {
+   801→   801→        status: "FAILED",
+   802→   802→        errorMessage: e instanceof Error ? e.message : String(e),
+   803→   803→      },
+   804→   804→    });
+   805→   805→    return {
+   806→   806→      success: false,
+   807→   807→      cycleId: cycle.id,
+   808→   808→      status: "FAILED",
+   809→   809→      summary: { totalExpenses: 0, totalResidentMeals: 0, totalGuestMeals: 0, guestRevenue: 0, mealCharge: 0, billsGenerated: 0, refundQueueTotal: 0, outstandingDue: 0 },
+   810→   810→      error: e instanceof Error ? e.message : String(e),
+   811→   811→    };
+   812→   812→  }
+   813→   813→}
+   814→   814→
+   815→   815→// ─────────────────────────────────────────────────────────────
+   816→   816→// 4. Rollback (only before bills are published)
+   817→   817→// ─────────────────────────────────────────────────────────────
+   818→   818→
+   819→   819→export async function rollbackCycle(cycleId: string): Promise<{ success: boolean; error?: string }> {
+   820→   820→  const cycle = await db.billingCycle.findUnique({ where: { id: cycleId } });
+   821→   821→  if (!cycle) return { success: false, error: "Billing cycle not found" };
+   822→   822→
+   823→   823→  // Can only rollback before bills are generated
+   824→   824→  if (cycle.status === "BILLS_GENERATED" || cycle.status === "SETTLED" || cycle.status === "CLOSED") {
+   825→   825→    return {
+   826→   826→      success: false,
+   827→   827→      error: "Cannot rollback after bills have been generated. Corrections require adjustment entries (PRD DEC-033).",
+   828→   828→    };
+   829→   829→  }
+   830→   830→
+   831→   831→  // Delete the snapshot
+   832→   832→  if (cycle.snapshotId) {
+   833→   833→    await db.monthlySnapshot.deleteMany({ where: { billingCycleId: cycleId } });
+   834→   834→  }
+   835→   835→
+   836→   836→  // Reset the cycle to OPEN
+   837→   837→  await db.billingCycle.update({
+   838→   838→    where: { id: cycleId },
+   839→   839→    data: {
+   840→   840→      status: "OPEN",
+   841→   841→      snapshotId: null,
+   842→   842→      readiness: null,
+   843→   843→      startedBy: null,
+   844→   844→      startedAt: null,
+   845→   845→      errorMessage: null,
+   846→   846→      totalExpenses: 0,
+   847→   847→      totalMeals: 0,
+   848→   848→      totalGuestMeals: 0,
+   849→   849→      mealCharge: 0,
+   850→   850→      billsGenerated: 0,
+   851→   851→      refundQueueTotal: 0,
+   852→   852→      outstandingDue: 0,
+   853→   853→    },
+   854→   854→  });
+   855→   855→
+   856→   856→  return { success: true };
+   857→   857→}
+   858→   858→

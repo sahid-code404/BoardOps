@@ -1,0 +1,19 @@
+{
+  "name": "BoardOps — Configurable Operations Platform",
+  "short_name": "BoardOps",
+  "description": "Enterprise-grade operational management platform for hostels, PGs, colleges, and residential institutions.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#8b5cf6",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity", "utilities"]
+}

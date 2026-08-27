@@ -1,0 +1,1337 @@
+     1→"use client";
+     2→
+     3→import { memo, useEffect, useMemo, useState } from "react";
+     4→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     5→import { motion, AnimatePresence } from "framer-motion";
+     6→import { toast } from "sonner";
+     7→import {
+     8→  Wallet,
+     9→  AlertCircle,
+    10→  Receipt,
+    11→  Plus,
+    12→  Search,
+    13→  Ban,
+    14→  Eye,
+    15→  FileText,
+    16→  Calendar,
+    17→  CheckCircle2,
+    18→  Clock,
+    19→  MoreVertical,
+    20→  IndianRupee,
+    21→  ChevronLeft,
+    22→  ChevronRight,
+    23→  Trash2,
+    24→  AlertTriangle,
+    25→  RotateCcw,
+    26→} from "lucide-react";
+    27→
+    28→import { api } from "@/lib/api-client";
+    29→import { cn, toLocalDateKey } from "@/lib/utils";
+    30→import { useAuthStore } from "@/stores/use-auth-store";
+    31→import { useAppStore } from "@/stores/use-app-store";
+    32→import { formatDeletionCountdown } from "@/lib/user-cleanup";
+    33→
+    34→import { GlassCard } from "@/components/glass/glass-card";
+    35→import { GlassButton } from "@/components/glass/glass-button";
+    36→import { GlassInput, GlassTextarea } from "@/components/glass/glass-input";
+    37→import { AnimatedCounter } from "@/components/glass/animated-counter";
+    38→import {
+    39→  StaggerGroup,
+    40→  StaggerItem,
+    41→} from "@/components/glass/page-transition";
+    42→import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
+    43→
+    44→import { Badge } from "@/components/ui/badge";
+    45→import { UserAvatar } from "@/components/glass/user-avatar";
+    46→import {
+    47→  Dialog,
+    48→  DialogContent,
+    49→  DialogDescription,
+    50→  DialogFooter,
+    51→  DialogHeader,
+    52→  DialogTitle,
+    53→} from "@/components/ui/dialog";
+    54→import {
+    55→  Select,
+    56→  SelectContent,
+    57→  SelectItem,
+    58→  SelectTrigger,
+    59→  SelectValue,
+    60→} from "@/components/ui/select";
+    61→import {
+    62→  DropdownMenu,
+    63→  DropdownMenuTrigger,
+    64→  DropdownMenuContent,
+    65→  DropdownMenuItem,
+    66→  DropdownMenuSeparator,
+    67→  DropdownMenuLabel,
+    68→} from "@/components/ui/dropdown-menu";
+    69→import {
+    70→  AlertDialog,
+    71→  AlertDialogAction,
+    72→  AlertDialogCancel,
+    73→  AlertDialogContent,
+    74→  AlertDialogDescription,
+    75→  AlertDialogFooter,
+    76→  AlertDialogHeader,
+    77→  AlertDialogTitle,
+    78→} from "@/components/ui/alert-dialog";
+    79→
+    80→// ─────────────────────────────────────────────────────────────
+    81→// Types
+    82→// ─────────────────────────────────────────────────────────────
+    83→
+    84→type BillStatus =
+    85→  | "DRAFT"
+    86→  | "GENERATED"
+    87→  | "PARTIALLY_PAID"
+    88→  | "PAID"
+    89→  | "OVERDUE"
+    90→  | "VOID"
+    91→  | "DELETED";
+    92→
+    93→type Bill = {
+    94→  id: string;
+    95→  periodMonth: number;
+    96→  periodYear: number;
+    97→  mealCharges: number;
+    98→  otherCharges: number;
+    99→  adjustments: number;
+   100→  totalAmount: number;
+   101→  paidAmount: number;
+   102→  dueAmount: number;
+   103→  status: BillStatus;
+   104→  dueDate: string | null;
+   105→  generatedAt: string | null;
+   106→  createdAt: string;
+   107→  deletedAt: string | null;
+   108→  deletionReason: string | null;
+   109→  user: { name: string; email: string; room: string | null; avatarUrl: string | null };
+   110→};
+   111→
+   112→type ApiResponse<T> = { success: boolean; data: T; error?: string };
+   113→
+   114→const MONTHS = [
+   115→  "January", "February", "March", "April", "May", "June",
+   116→  "July", "August", "September", "October", "November", "December",
+   117→];
+   118→
+   119→// ─────────────────────────────────────────────────────────────
+   120→// Status badge helpers
+   121→// ─────────────────────────────────────────────────────────────
+   122→
+   123→const BILL_STATUS_STYLES: Record<
+   124→  BillStatus,
+   125→  { className: string; label: string }
+   126→> = {
+   127→  PAID: {
+   128→    className:
+   129→      "bg-success/15 text-success border-success/30",
+   130→    label: "Paid",
+   131→  },
+   132→  PARTIALLY_PAID: {
+   133→    className:
+   134→      "bg-warning/15 text-warning border-warning/30",
+   135→    label: "Partially Paid",
+   136→  },
+   137→  OVERDUE: {
+   138→    className:
+   139→      "bg-destructive/15 text-destructive border-destructive/30",
+   140→    label: "Overdue",
+   141→  },
+   142→  GENERATED: {
+   143→    className:
+   144→      "bg-info/15 text-info border-info/30",
+   145→    label: "Generated",
+   146→  },
+   147→  DRAFT: {
+   148→    className:
+   149→      "bg-muted text-muted-foreground border-border",
+   150→    label: "Draft",
+   151→  },
+   152→  VOID: {
+   153→    className:
+   154→      "bg-muted text-muted-foreground border-border",
+   155→    label: "Void",
+   156→  },
+   157→  DELETED: {
+   158→    className:
+   159→      "bg-destructive/15 text-destructive border-destructive/30",
+   160→    label: "Deleted",
+   161→  },
+   162→};
+   163→
+   164→function BillStatusBadge({ status }: { status: BillStatus }) {
+   165→  const s = BILL_STATUS_STYLES[status];
+   166→  return (
+   167→    <Badge variant="outline" className={cn("rounded-full", s.className)}>
+   168→      {s.label}
+   169→    </Badge>
+   170→  );
+   171→}
+   172→
+   173→function formatINR(n: number) {
+   174→  return `₹${Math.round(n).toLocaleString("en-IN")}`;
+   175→}
+   176→
+   177→function formatMonthYear(month: number, year: number) {
+   178→  return `${MONTHS[month] ?? "—"} ${year}`;
+   179→}
+   180→
+   181→function formatDate(iso: string | null) {
+   182→  if (!iso) return "—";
+   183→  const d = new Date(iso);
+   184→  const datePart = d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+   185→  const timePart = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+   186→  return `${datePart}, ${timePart}`;
+   187→}
+   188→
+   189→/** Full date-time format: "29 June 2026, 05:28 am" */
+   190→function formatDateTime(iso: string | null) {
+   191→  if (!iso) return "—";
+   192→  const d = new Date(iso);
+   193→  const datePart = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+   194→  const timePart = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+   195→  return `${datePart}, ${timePart}`;
+   196→}
+   197→
+   198→/** A bill is overdue if it has a due date in the past AND there's still an outstanding due amount. */
+   199→function isOverdue(bill: Bill): boolean {
+   200→  if (!bill.dueDate || bill.deletedAt) return false;
+   201→  if (bill.status === "PAID" || bill.status === "VOID") return false;
+   202→  return new Date(bill.dueDate) < new Date() && bill.dueAmount > 0;
+   203→}
+   204→
+   205→// ─────────────────────────────────────────────────────────────
+   206→// Main view
+   207→// ─────────────────────────────────────────────────────────────
+   208→
+   209→export function BillingView() {
+   210→  const user = useAuthStore((s) => s.user);
+   211→  const setView = useAppStore((s) => s.setView);
+   212→  const isAdmin =
+   213→    user?.role === "ADMIN";
+   214→
+   215→  const qc = useQueryClient();
+   216→  // Debounced search — `searchInput` drives the input field; `search` is the
+   217→  // debounced value (200ms after the user stops typing) used for actual
+   218→  // filtering. Prevents re-filtering large lists on every keystroke.
+   219→  const [searchInput, setSearchInput] = useState("");
+   220→  const [search, setSearch] = useState("");
+   221→  useEffect(() => {
+   222→    const t = setTimeout(() => setSearch(searchInput), 200);
+   223→    return () => clearTimeout(t);
+   224→  }, [searchInput]);
+   225→  const [statusFilter, setStatusFilter] = useState<BillStatus | "ALL" | "DELETED">("ALL");
+   226→  const [generateOpen, setGenerateOpen] = useState(false);
+   227→  // Default to last month — bills can only be generated for past months
+   228→  const nowDate = new Date();
+   229→  const [genMonth, setGenMonth] = useState<number>(
+   230→    nowDate.getMonth() === 0 ? 11 : nowDate.getMonth() - 1
+   231→  );
+   232→  const [genYear, setGenYear] = useState<number>(
+   233→    nowDate.getMonth() === 0 ? nowDate.getFullYear() - 1 : nowDate.getFullYear()
+   234→  );
+   235→  // Default due date = 10th of next month (matches the backend default)
+   236→  const defaultDueDate = (() => {
+   237→    const d = new Date(genYear, genMonth + 1, 10);
+   238→    return toLocalDateKey(d);
+   239→  })();
+   240→  const [genDueDate, setGenDueDate] = useState<string>(defaultDueDate);
+   241→
+   242→  // Readiness checklist — fetched when the Generate dialog opens
+   243→  const { data: readiness, isLoading: readinessLoading } = useQuery({
+   244→    queryKey: ["billing-readiness", { month: genMonth, year: genYear }],
+   245→    queryFn: async () => {
+   246→      const r = await api.get<ApiResponse<{
+   247→        canClose: boolean;
+   248→        items: { key: string; label: string; status: "ready" | "warning" | "error"; detail: string; count?: number }[];
+   249→      }>>(`/billing-cycles/readiness?month=${genMonth}&year=${genYear}`);
+   250→      return r.data;
+   251→    },
+   252→    enabled: generateOpen,
+   253→    placeholderData: (prev) => prev,
+   254→  });
+   255→  const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
+   256→  const [voidTarget, setVoidTarget] = useState<Bill | null>(null);
+   257→  const now = new Date();
+   258→  const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
+   259→  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+   260→
+   261→  const { data: bills = [], isLoading, isFetching } = useQuery({
+   262→    queryKey: ["bills", { month: selectedMonth, year: selectedYear }],
+   263→    queryFn: async () => {
+   264→      const r = await api.get<ApiResponse<Bill[]>>("/bills", {
+   265→        params: { month: selectedMonth, year: selectedYear },
+   266→      });
+   267→      return r.data;
+   268→    },
+   269→    // Keep previous data visible while a new month/year loads (stale-while-revalidate).
+   270→    // Eliminates the flash of empty content when switching months.
+   271→    placeholderData: (prev) => prev,
+   272→  });
+   273→
+   274→  // Fetch soft-deleted bills (deletion queue) — admin only
+   275→  const { data: deletedBills = [] } = useQuery({
+   276→    queryKey: ["bills", "deleted", { month: selectedMonth, year: selectedYear }],
+   277→    queryFn: async () => {
+   278→      const r = await api.get<ApiResponse<Bill[]>>("/bills", {
+   279→        params: { month: selectedMonth, year: selectedYear, includeDeleted: "true" },
+   280→      });
+   281→      return r.data;
+   282→    },
+   283→    enabled: isAdmin,
+   284→    placeholderData: (prev) => prev,
+   285→  });
+   286→
+   287→  const generateMutation = useMutation({
+   288→    mutationFn: () =>
+   289→      api.post<ApiResponse<{ generated: number; created: number; updated: number; skipped: number; month: number; year: number }>>(
+   290→        "/bills",
+   291→        { month: genMonth, year: genYear, dueDate: genDueDate || undefined }
+   292→      ),
+   293→    onSuccess: (r) => {
+   294→      const { created, updated, skipped } = r.data;
+   295→      const parts: string[] = [];
+   296→      if (created > 0) parts.push(`${created} new`);
+   297→      if (updated > 0) parts.push(`${updated} updated`);
+   298→      const summary = parts.length > 0 ? parts.join(", ") : "No changes";
+   299→      const msg = skipped > 0
+   300→        ? `${summary} · ${skipped} skipped (void/deleted)`
+   301→        : `${summary} for ${MONTHS[genMonth]} ${genYear}`;
+   302→      toast.success(`Bills generated — ${msg}`);
+   303→      setGenerateOpen(false);
+   304→      qc.invalidateQueries({ queryKey: ["bills"] });
+   305→    },
+   306→    onError: (e: Error) => toast.error(e.message || "Failed to generate bills"),
+   307→  });
+   308→
+   309→  const voidMutation = useMutation({
+   310→    mutationFn: (id: string) =>
+   311→      api.delete<ApiResponse<{ success: boolean }>>(`/bills/${id}`),
+   312→    onSuccess: () => {
+   313→      toast.success("Bill voided successfully");
+   314→      setVoidTarget(null);
+   315→      qc.invalidateQueries({ queryKey: ["bills"] });
+   316→    },
+   317→    onError: (e: Error) => toast.error(e.message || "Failed to void bill"),
+   318→  });
+   319→
+   320→  const [deleteTarget, setDeleteTarget] = useState<Bill | null>(null);
+   321→  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+   322→  const [deleteReason, setDeleteReason] = useState("");
+   323→  const [deleteAllReason, setDeleteAllReason] = useState("");
+   324→
+   325→  const deleteMutation = useMutation({
+   326→    mutationFn: async (id: string) => {
+   327→      await api.delete(`/bills/${id}`, { body: JSON.stringify({ reason: deleteReason || undefined }) });
+   328→    },
+   329→    onSuccess: () => {
+   330→      toast.success("Bill scheduled for deletion — permanently removed in 7 days");
+   331→      setDeleteTarget(null);
+   332→      setDeleteReason("");
+   333→      qc.invalidateQueries({ queryKey: ["bills"] });
+   334→    },
+   335→    onError: (e: Error) => toast.error(e.message || "Failed to delete bill"),
+   336→  });
+   337→
+   338→  const deleteAllMutation = useMutation({
+   339→    mutationFn: async () => {
+   340→      const r = await api.delete<ApiResponse<{ deleted: number }>>("/bills", {
+   341→        params: { month: selectedMonth, year: selectedYear },
+   342→        body: JSON.stringify({ reason: deleteAllReason || undefined }),
+   343→      });
+   344→      return r.data;
+   345→    },
+   346→    onSuccess: (data) => {
+   347→      toast.success(`${data.deleted} bills scheduled for deletion — permanently removed in 7 days`);
+   348→      setDeleteAllOpen(false);
+   349→      setDeleteAllReason("");
+   350→      qc.invalidateQueries({ queryKey: ["bills"] });
+   351→    },
+   352→    onError: (e: Error) => toast.error(e.message || "Failed to delete bills"),
+   353→  });
+   354→
+   355→  const restoreMutation = useMutation({
+   356→    mutationFn: async (id: string) => {
+   357→      const r = await api.post<ApiResponse<Bill>>(`/bills/${id}/restore`);
+   358→      return r.data;
+   359→    },
+   360→    onSuccess: () => {
+   361→      toast.success("Bill restored successfully");
+   362→      qc.invalidateQueries({ queryKey: ["bills"] });
+   363→    },
+   364→    onError: (e: Error) => toast.error(e.message || "Failed to restore bill"),
+   365→  });
+   366→
+   367→  const restoreAllMutation = useMutation({
+   368→    mutationFn: async () => {
+   369→      const results = await Promise.all(
+   370→        deletedBills.map((b) => api.post(`/bills/${b.id}/restore`).catch(() => null))
+   371→      );
+   372→      return results.filter((r) => r !== null).length;
+   373→    },
+   374→    onSuccess: (count) => {
+   375→      toast.success(`${count} bills restored successfully`);
+   376→      qc.invalidateQueries({ queryKey: ["bills"] });
+   377→    },
+   378→    onError: (e: Error) => toast.error(e.message || "Failed to restore bills"),
+   379→  });
+   380→
+   381→  // ── Derived KPIs ──
+   382→  // KPIs include ALL bills (active + soft-deleted) for the month, excluding only VOID.
+   383→  // Soft-deleting a bill removes it from the user's view but the financial data
+   384→  // (total billed, collected, outstanding) still counts in the KPIs.
+   385→  const allBills = useMemo(() => [...bills, ...deletedBills], [bills, deletedBills]);
+   386→  const kpis = useMemo(() => {
+   387→    const active = allBills.filter((b) => b.status !== "VOID");
+   388→    const totalBilled = active.reduce((s, b) => s + b.totalAmount, 0);
+   389→    const totalCollected = active.reduce((s, b) => s + b.paidAmount, 0);
+   390→    const overdueBills = active.filter((b) => isOverdue(b));
+   391→    const overdueCount = overdueBills.length;
+   392→    const overdueAmount = overdueBills.reduce((s, b) => s + b.dueAmount, 0);
+   393→    return { totalBilled, totalCollected, overdueCount, overdueAmount };
+   394→  }, [allBills]);
+   395→
+   396→  // ── Filtered list ──
+   397→  // Use deleted bills when filter is DELETED, otherwise use active bills
+   398→  const sourceBills = statusFilter === "DELETED" ? deletedBills : bills;
+   399→
+   400→  const filtered = useMemo(() => {
+   401→    const q = search.trim().toLowerCase();
+   402→    return sourceBills.filter((b) => {
+   403→      if (statusFilter !== "ALL" && statusFilter !== "DELETED" && b.status !== statusFilter) return false;
+   404→      if (!q) return true;
+   405→      return (
+   406→        b.user.name?.toLowerCase().includes(q) ||
+   407→        b.user.email?.toLowerCase().includes(q) ||
+   408→        (b.user.room || "").toLowerCase().includes(q)
+   409→      );
+   410→    });
+   411→  }, [sourceBills, search, statusFilter]);
+   412→
+   413→  if (isLoading) {
+   414→    return (
+   415→      <div className="space-y-4">
+   416→        <div className={cn("gap-3", isAdmin ? "grid grid-cols-3" : "grid grid-cols-2")}>
+   417→          {Array.from({ length: isAdmin ? 3 : 2 }).map((_, i) => (
+   418→            <ShimmerSkeleton key={i} className="h-32" />
+   419→          ))}
+   420→        </div>
+   421→        <ShimmerSkeleton className="h-14 w-full" />
+   422→        <div className="grid gap-3">
+   423→          {Array.from({ length: 5 }).map((_, i) => (
+   424→            <ShimmerSkeleton key={i} className="h-20" />
+   425→          ))}
+   426→        </div>
+   427→      </div>
+   428→    );
+   429→  }
+   430→
+   431→  return (
+   432→    <StaggerGroup className="space-y-4">
+   433→      {/* Subtle refetch indicator — thin animated bar at the top of the list.
+   434→          Shows on every refetch (month change, mutation invalidation) but
+   435→          NOT on the initial load (the full skeleton handles that). */}
+   436→      <AnimatePresence>
+   437→        {isFetching && (
+   438→          <motion.div
+   439→            initial={{ scaleX: 0, opacity: 0 }}
+   440→            animate={{ scaleX: 1, opacity: 1 }}
+   441→            exit={{ opacity: 0 }}
+   442→            transition={{ duration: 0.4, ease: "easeOut" }}
+   443→            style={{ transformOrigin: "left" }}
+   444→            className="h-0.5 rounded-full bg-primary/60 shadow-sm shadow-primary/30"
+   445→            aria-hidden="true"
+   446→          />
+   447→        )}
+   448→      </AnimatePresence>
+   449→      {/* Month picker — centered capsule with circular arrows + click-to-reset */}
+   450→      <StaggerItem>
+   451→        <div className="flex items-center justify-center gap-4">
+   452→          <motion.button
+   453→            whileTap={{ scale: 0.9 }}
+   454→            onClick={() => {
+   455→              const d = new Date(selectedYear, selectedMonth - 1, 1);
+   456→              setSelectedMonth(d.getMonth());
+   457→              setSelectedYear(d.getFullYear());
+   458→            }}
+   459→            aria-label="Previous month"
+   460→            className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   461→          >
+   462→            <ChevronLeft className="h-5 w-5" />
+   463→          </motion.button>
+   464→
+   465→          <button
+   466→            onClick={() => {
+   467→              const today = new Date();
+   468→              if (selectedMonth !== today.getMonth() || selectedYear !== today.getFullYear()) {
+   469→                setSelectedMonth(today.getMonth());
+   470→                setSelectedYear(today.getFullYear());
+   471→              }
+   472→            }}
+   473→            className="flex-1 max-w-[280px] flex items-center justify-center gap-2.5 glass-soft rounded-full px-6 py-2.5 transition-all hover:ring-1 hover:ring-primary/30"
+   474→          >
+   475→            <Calendar className="h-4 w-4 text-primary shrink-0" />
+   476→            <div className="leading-tight text-center">
+   477→              <p className="text-sm font-bold text-primary">
+   478→                {new Date(selectedYear, selectedMonth).toLocaleDateString("en-US", { month: "long" })}
+   479→              </p>
+   480→              <p className="text-[11px] text-muted-foreground">
+   481→                {selectedYear}
+   482→              </p>
+   483→            </div>
+   484→            {(selectedMonth !== new Date().getMonth() || selectedYear !== new Date().getFullYear()) && (
+   485→              <RotateCcw className="h-3 w-3 text-muted-foreground shrink-0" />
+   486→            )}
+   487→          </button>
+   488→
+   489→          <motion.button
+   490→            whileTap={{ scale: 0.9 }}
+   491→            onClick={() => {
+   492→              // Don't allow navigating past the current month
+   493→              const today = new Date();
+   494→              const currentPeriod = today.getFullYear() * 12 + today.getMonth();
+   495→              const nextPeriod = selectedYear * 12 + selectedMonth + 1;
+   496→              if (nextPeriod > currentPeriod) return;
+   497→              const d = new Date(selectedYear, selectedMonth + 1, 1);
+   498→              setSelectedMonth(d.getMonth());
+   499→              setSelectedYear(d.getFullYear());
+   500→            }}
+   501→            aria-label="Next month"
+   502→            className={`grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 transition-all ${
+   503→              selectedYear * 12 + selectedMonth >= new Date().getFullYear() * 12 + new Date().getMonth()
+   504→                ? "opacity-30 cursor-not-allowed"
+   505→                : "hover:ring-primary/40"
+   506→            }`}
+   507→          >
+   508→            <ChevronRight className="h-5 w-5" />
+   509→          </motion.button>
+   510→        </div>
+   511→      </StaggerItem>
+   512→
+   513→      {/* Compact action bar — centered transparent glass card button */}
+   514→      {isAdmin ? (
+   515→        <StaggerItem>
+   516→          <div className="flex items-center justify-center">
+   517→            <GlassButton
+   518→              variant="ghost"
+   519→              onClick={() => setGenerateOpen(true)}
+   520→              size="lg"
+   521→              className="shrink-0 glass text-primary hover:text-primary font-semibold"
+   522→            >
+   523→              <Plus className="h-5 w-5" />
+   524→              Generate Bills
+   525→            </GlassButton>
+   526→          </div>
+   527→        </StaggerItem>
+   528→      ) : (
+   529→        <StaggerItem>
+   530→          <div className="flex items-center justify-center">
+   531→            <GlassButton
+   532→              variant="ghost"
+   533→              onClick={() => setView("payments")}
+   534→              size="lg"
+   535→              className="shrink-0 glass text-primary hover:text-primary font-semibold"
+   536→            >
+   537→              <Wallet className="h-5 w-5" />
+   538→              Pay Bill
+   539→            </GlassButton>
+   540→          </div>
+   541→        </StaggerItem>
+   542→      )}
+   543→
+   544→      {/* KPIs — admins see 3 (Total Billed, Total Collected, Overdue), users see 2 (Total Billed, Overdue) */}
+   545→      <StaggerItem>
+   546→        <div className={cn("gap-3", isAdmin ? "grid grid-cols-3" : "grid grid-cols-2")}>
+   547→          <KpiCard
+   548→            label="Total Billed"
+   549→            value={kpis.totalBilled}
+   550→            icon={<Wallet className="h-4 w-4" />}
+   551→            color="primary"
+   552→            prefix="₹"
+   553→            sub={isAdmin ? "All bills" : "Your bills"}
+   554→          />
+   555→          {isAdmin && (
+   556→            <KpiCard
+   557→              label="Total Collected"
+   558→              value={kpis.totalCollected}
+   559→              icon={<CheckCircle2 className="h-4 w-4" />}
+   560→              color="success"
+   561→              prefix="₹"
+   562→              sub="Paid amount"
+   563→            />
+   564→          )}
+   565→          <KpiCard
+   566→            label="Overdue Amount"
+   567→            value={kpis.overdueAmount}
+   568→            icon={<AlertCircle className="h-4 w-4" />}
+   569→            color="danger"
+   570→            prefix="₹"
+   571→            sub={kpis.overdueCount > 0 ? `${kpis.overdueCount} overdue` : "None overdue"}
+   572→          />
+   573→        </div>
+   574→      </StaggerItem>
+   575→
+   576→      {/* Search + Filter pills — all in a single horizontal scrollable line */}
+   577→      <StaggerItem>
+   578→        <div className="space-y-3">
+   579→          <GlassInput
+   580→            placeholder="Search by name, email, room…"
+   581→            value={searchInput}
+   582→            onChange={(e) => setSearchInput(e.target.value)}
+   583→            icon={<Search />}
+   584→          />
+   585→          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1">
+   586→            {(
+   587→              [
+   588→                "ALL",
+   589→                "GENERATED",
+   590→                "PARTIALLY_PAID",
+   591→                "PAID",
+   592→                "OVERDUE",
+   593→                "VOID",
+   594→                ...(isAdmin ? ["DELETED" as const] : []),
+   595→              ] as const
+   596→            ).map((s) => {
+   597→              const active = statusFilter === s;
+   598→              const label = s === "DELETED" ? "Deletion Queue" : s === "ALL" ? "All" : BILL_STATUS_STYLES[s as BillStatus]?.label || s;
+   599→              const badge = s === "DELETED" && deletedBills.length > 0 ? deletedBills.length : null;
+   600→              return (
+   601→                <button
+   602→                  key={s}
+   603→                  onClick={() => setStatusFilter(s)}
+   604→                  className={cn(
+   605→                    "inline-flex items-center gap-1 h-8 px-2.5 rounded-xl text-[11px] font-medium whitespace-nowrap shrink-0 transition-all",
+   606→                    active
+   607→                      ? "bg-primary text-primary-foreground shadow-md shadow-primary/30"
+   608→                      : "glass-soft text-muted-foreground hover:text-foreground"
+   609→                  )}
+   610→                >
+   611→                  {label}
+   612→                  {badge !== null && (
+   613→                    <span className={cn(
+   614→                      "text-[9px] rounded-full px-1.5 py-0.5 leading-none font-bold min-w-[16px] text-center",
+   615→                      active && s !== "DELETED"
+   616→                        ? "bg-primary-foreground/20 text-primary-foreground"
+   617→                        : active && s === "DELETED"
+   618→                          ? "bg-primary-foreground/20 text-primary-foreground"
+   619→                          : "bg-destructive text-white"
+   620→                    )}>
+   621→                      {badge}
+   622→                    </span>
+   623→                  )}
+   624→                </button>
+   625→              );
+   626→            })}
+   627→            {/* Delete All — inline at the end of the same scrollable row */}
+   628→            {isAdmin && statusFilter !== "DELETED" && bills.length > 0 && (
+   629→              <button
+   630→                onClick={() => setDeleteAllOpen(true)}
+   631→                className="inline-flex items-center gap-1 h-8 px-2.5 rounded-xl text-[11px] font-medium whitespace-nowrap shrink-0 text-destructive/70 hover:text-destructive transition-colors"
+   632→              >
+   633→                <Trash2 className="h-3 w-3" />
+   634→                Delete All ({bills.length})
+   635→              </button>
+   636→            )}
+   637→            {/* Restore All — inline at the end of the same scrollable row (deletion queue only) */}
+   638→            {isAdmin && statusFilter === "DELETED" && deletedBills.length > 0 && (
+   639→              <button
+   640→                onClick={() => restoreAllMutation.mutate()}
+   641→                disabled={restoreAllMutation.isPending}
+   642→                className="inline-flex items-center gap-1 h-8 px-2.5 rounded-xl text-[11px] font-medium whitespace-nowrap shrink-0 text-success/70 hover:text-success transition-colors"
+   643→              >
+   644→                <RotateCcw className="h-3 w-3" />
+   645→                {restoreAllMutation.isPending ? "Restoring…" : `Restore All (${deletedBills.length})`}
+   646→              </button>
+   647→            )}
+   648→          </div>
+   649→        </div>
+   650→      </StaggerItem>
+   651→
+   652→      {/* List */}
+   653→      <StaggerItem>
+   654→        {filtered.length === 0 ? (
+   655→          <GlassCard className="p-10" hover={false}>
+   656→            <div className="flex flex-col items-center justify-center text-center gap-3">
+   657→              <div className="grid place-items-center h-14 w-14 rounded-3xl bg-muted/40">
+   658→                <Receipt className="h-6 w-6 text-muted-foreground" />
+   659→              </div>
+   660→              <div>
+   661→                <p className="font-medium">No bills found</p>
+   662→                <p className="text-sm text-muted-foreground">
+   663→                  {isAdmin
+   664→                    ? "Generate bills for the current period to get started."
+   665→                    : "You have no bills matching the current filters."}
+   666→                </p>
+   667→              </div>
+   668→              {isAdmin && (
+   669→                <GlassButton className="mt-2" onClick={() => setGenerateOpen(true)}>
+   670→                  <Wallet className="h-4 w-4" />
+   671→                  Generate Bills
+   672→                </GlassButton>
+   673→              )}
+   674→              {!isAdmin && (
+   675→                <GlassButton variant="ghost" className="mt-2" onClick={() => setView("dashboard")}>
+   676→                  Back to Dashboard
+   677→                </GlassButton>
+   678→              )}
+   679→            </div>
+   680→          </GlassCard>
+   681→        ) : (
+   682→          <div className="space-y-3">
+   683→            <AnimatePresence mode="popLayout">
+   684→              {filtered.map((bill) => (
+   685→                <motion.div
+   686→                  key={bill.id}
+   687→                  initial={{ opacity: 0, y: 12, scale: 0.98 }}
+   688→                  animate={{ opacity: 1, y: 0, scale: 1 }}
+   689→                  exit={{ opacity: 0, scale: 0.95 }}
+   690→                  transition={{ type: "spring", stiffness: 280, damping: 26 }}
+   691→                >
+   692→                  <BillRow
+   693→                    bill={bill}
+   694→                    isAdmin={isAdmin}
+   695→                    onView={() => setSelectedBill(bill)}
+   696→                    onVoid={() => setVoidTarget(bill)}
+   697→                    onDelete={() => setDeleteTarget(bill)}
+   698→                    onRestore={() => restoreMutation.mutate(bill.id)}
+   699→                  />
+   700→                </motion.div>
+   701→              ))}
+   702→            </AnimatePresence>
+   703→          </div>
+   704→        )}
+   705→      </StaggerItem>
+   706→
+   707→      {/* Generate Bills Dialog — with integrated readiness checklist */}
+   708→      <Dialog open={generateOpen} onOpenChange={setGenerateOpen}>
+   709→        <DialogContent className="rounded-3xl max-w-md">
+   710→          <DialogHeader>
+   711→            <DialogTitle className="flex items-center gap-2">
+   712→              <FileText className="h-5 w-5 text-primary" />
+   713→              Generate Bills
+   714→            </DialogTitle>
+   715→            <DialogDescription>
+   716→              Generate bills for a past month. All checks must pass before generation.
+   717→            </DialogDescription>
+   718→          </DialogHeader>
+   719→
+   720→          {/* Month/Year picker — past months only */}
+   721→          <div className="grid grid-cols-2 gap-3">
+   722→            <div className="space-y-1.5">
+   723→              <label className="text-xs font-medium text-muted-foreground ml-1">Month</label>
+   724→              <Select
+   725→                value={String(genMonth)}
+   726→                onValueChange={(v) => setGenMonth(Number(v))}
+   727→              >
+   728→                <SelectTrigger className="w-full h-10 rounded-2xl"><SelectValue /></SelectTrigger>
+   729→                <SelectContent>
+   730→                  {MONTHS.map((m, i) => {
+   731→                    const currentPeriod = now.getFullYear() * 12 + now.getMonth();
+   732→                    const itemPeriod = genYear * 12 + i;
+   733→                    if (itemPeriod >= currentPeriod) return null; // skip current/future months
+   734→                    return <SelectItem key={m} value={String(i)}>{m}</SelectItem>;
+   735→                  })}
+   736→                </SelectContent>
+   737→              </Select>
+   738→            </div>
+   739→            <div className="space-y-1.5">
+   740→              <label className="text-xs font-medium text-muted-foreground ml-1">Year</label>
+   741→              <Select
+   742→                value={String(genYear)}
+   743→                onValueChange={(v) => setGenYear(Number(v))}
+   744→              >
+   745→                <SelectTrigger className="w-full h-10 rounded-2xl"><SelectValue /></SelectTrigger>
+   746→                <SelectContent>
+   747→                  {Array.from({ length: 5 }).map((_, i) => {
+   748→                    const y = now.getFullYear() - 4 + i; // 4 years ago to current year — no future years
+   749→                    return <SelectItem key={y} value={String(y)}>{y}</SelectItem>;
+   750→                  })}
+   751→                </SelectContent>
+   752→              </Select>
+   753→            </div>
+   754→          </div>
+   755→
+   756→          {/* Readiness checklist */}
+   757→          <div className="space-y-2">
+   758→            <div className="flex items-center justify-between">
+   759→              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Readiness Check</p>
+   760→              {readiness && (
+   761→                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+   762→                  readiness.canClose ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive"
+   763→                }`}>
+   764→                  {readiness.canClose ? "ALL PASSED ✓" : `${readiness.items.filter(i => i.status !== "ready").length} ISSUES`}
+   765→                </span>
+   766→              )}
+   767→            </div>
+   768→            {readinessLoading ? (
+   769→              <div className="space-y-1.5">
+   770→                {Array.from({ length: 5 }).map((_, i) => (
+   771→                  <div key={i} className="h-8 rounded-xl bg-muted animate-pulse" />
+   772→                ))}
+   773→              </div>
+   774→            ) : readiness ? (
+   775→              <div className="space-y-1 max-h-48 overflow-y-auto">
+   776→                {readiness.items.map((item) => (
+   777→                  <div
+   778→                    key={item.key}
+   779→                    className={`flex items-start gap-2 p-2 rounded-xl text-xs ${
+   780→                      item.status === "ready" ? "bg-success/5" :
+   781→                      item.status === "warning" ? "bg-warning/5" : "bg-destructive/5"
+   782→                    }`}
+   783→                  >
+   784→                    <span className="shrink-0 mt-0.5">
+   785→                      {item.status === "ready" && <span className="text-success">✓</span>}
+   786→                      {item.status === "warning" && <span className="text-warning">⚠</span>}
+   787→                      {item.status === "error" && <span className="text-destructive">✗</span>}
+   788→                    </span>
+   789→                    <div className="min-w-0 flex-1">
+   790→                      <span className={`font-medium ${item.status === "ready" ? "text-success" : item.status === "warning" ? "text-warning" : "text-destructive"}`}>
+   791→                        {item.label}
+   792→                      </span>
+   793→                      {item.status !== "ready" && (
+   794→                        <p className="text-[10px] text-muted-foreground mt-0.5">{item.detail}</p>
+   795→                      )}
+   796→                    </div>
+   797→                  </div>
+   798→                ))}
+   799→              </div>
+   800→            ) : (
+   801→              <p className="text-xs text-muted-foreground">Loading checklist…</p>
+   802→            )}
+   803→          </div>
+   804→
+   805→          {/* Due date picker */}
+   806→          <div className="space-y-1.5">
+   807→            <label className="text-xs font-medium text-muted-foreground ml-1">Due Date</label>
+   808→            <GlassInput
+   809→              type="date"
+   810→              value={genDueDate}
+   811→              onChange={(e) => setGenDueDate(e.target.value)}
+   812→              icon={<Calendar className="h-4 w-4" />}
+   813→            />
+   814→            <p className="text-[11px] text-muted-foreground ml-1">
+   815→              Defaults to the 10th of next month.
+   816→            </p>
+   817→          </div>
+   818→
+   819→          <DialogFooter>
+   820→            <GlassButton variant="ghost" onClick={() => setGenerateOpen(false)}>Cancel</GlassButton>
+   821→            <GlassButton
+   822→              onClick={() => generateMutation.mutate()}
+   823→              loading={generateMutation.isPending}
+   824→              disabled={!readiness?.canClose}
+   825→            >
+   826→              <Sparkles className="h-4 w-4" />
+   827→              Generate
+   828→            </GlassButton>
+   829→          </DialogFooter>
+   830→        </DialogContent>
+   831→      </Dialog>
+   832→
+   833→      {/* Bill detail dialog */}
+   834→      <Dialog
+   835→        open={!!selectedBill}
+   836→        onOpenChange={(o) => !o && setSelectedBill(null)}
+   837→      >
+   838→        <DialogContent className="rounded-3xl max-w-lg">
+   839→          {selectedBill && (
+   840→            <BillDetail bill={selectedBill} isAdmin={isAdmin} />
+   841→          )}
+   842→        </DialogContent>
+   843→      </Dialog>
+   844→
+   845→      {/* Void confirm */}
+   846→      <AlertDialog
+   847→        open={!!voidTarget}
+   848→        onOpenChange={(o) => !o && setVoidTarget(null)}
+   849→      >
+   850→        <AlertDialogContent className="rounded-3xl">
+   851→          <AlertDialogHeader>
+   852→            <AlertDialogTitle>Void this bill?</AlertDialogTitle>
+   853→            <AlertDialogDescription>
+   854→              {voidTarget && (
+   855→                <>
+   856→                  This will mark the bill for{" "}
+   857→                  <span className="font-medium text-foreground">
+   858→                    {voidTarget.user.name}
+   859→                  </span>{" "}
+   860→                  ({formatMonthYear(voidTarget.periodMonth, voidTarget.periodYear)}
+   861→                  ) as void. This action cannot be undone.
+   862→                </>
+   863→              )}
+   864→            </AlertDialogDescription>
+   865→          </AlertDialogHeader>
+   866→          <AlertDialogFooter>
+   867→            <AlertDialogCancel className="rounded-2xl">
+   868→              Cancel
+   869→            </AlertDialogCancel>
+   870→            <AlertDialogAction
+   871→              className="rounded-2xl bg-destructive text-white hover:bg-destructive/90"
+   872→              onClick={() =>
+   873→                voidTarget && voidMutation.mutate(voidTarget.id)
+   874→              }
+   875→              disabled={voidMutation.isPending}
+   876→            >
+   877→              {voidMutation.isPending ? "Voiding…" : "Void Bill"}
+   878→            </AlertDialogAction>
+   879→          </AlertDialogFooter>
+   880→        </AlertDialogContent>
+   881→      </AlertDialog>
+   882→
+   883→      {/* Delete single bill confirm */}
+   884→      <AlertDialog
+   885→        open={!!deleteTarget}
+   886→        onOpenChange={(o) => !o && setDeleteTarget(null)}
+   887→      >
+   888→        <AlertDialogContent className="rounded-3xl">
+   889→          <AlertDialogHeader>
+   890→            <AlertDialogTitle className="flex items-center gap-2">
+   891→              <AlertTriangle className="h-5 w-5 text-destructive" />
+   892→              Delete this bill?
+   893→            </AlertDialogTitle>
+   894→            <AlertDialogDescription>
+   895→              {deleteTarget && (
+   896→                <>
+   897→                  This will schedule the bill for{" "}
+   898→                  <span className="font-medium text-foreground">
+   899→                    {deleteTarget.user.name}
+   900→                  </span>{" "}
+   901→                  ({formatMonthYear(deleteTarget.periodMonth, deleteTarget.periodYear)}) for deletion.
+   902→                  It will be permanently removed after{" "}
+   903→                  <span className="font-medium text-foreground">7 days</span>.
+   904→                </>
+   905→              )}
+   906→            </AlertDialogDescription>
+   907→          </AlertDialogHeader>
+   908→          <GlassTextarea
+   909→            label="Reason (required)"
+   910→            rows={2}
+   911→            placeholder="Why is this bill being deleted?"
+   912→            value={deleteReason}
+   913→            onChange={(e) => setDeleteReason(e.target.value)}
+   914→          />
+   915→          <AlertDialogFooter>
+   916→            <AlertDialogCancel className="rounded-2xl">Cancel</AlertDialogCancel>
+   917→            <AlertDialogAction
+   918→              className="rounded-2xl bg-destructive text-white hover:bg-destructive/90"
+   919→              disabled={!deleteReason.trim() || deleteMutation.isPending}
+   920→              onClick={() => {
+   921→                if (!deleteReason.trim()) {
+   922→                  toast.error("A reason is required");
+   923→                  return;
+   924→                }
+   925→                if (deleteTarget) deleteMutation.mutate(deleteTarget.id);
+   926→              }}
+   927→            >
+   928→              {deleteMutation.isPending ? "Deleting…" : "Delete Bill"}
+   929→            </AlertDialogAction>
+   930→          </AlertDialogFooter>
+   931→        </AlertDialogContent>
+   932→      </AlertDialog>
+   933→
+   934→      {/* Delete all bills confirm */}
+   935→      <AlertDialog
+   936→        open={deleteAllOpen}
+   937→        onOpenChange={setDeleteAllOpen}
+   938→      >
+   939→        <AlertDialogContent className="rounded-3xl">
+   940→          <AlertDialogHeader>
+   941→            <AlertDialogTitle className="flex items-center gap-2">
+   942→              <AlertTriangle className="h-5 w-5 text-destructive" />
+   943→              Delete all bills for {MONTHS[selectedMonth]} {selectedYear}?
+   944→            </AlertDialogTitle>
+   945→            <AlertDialogDescription>
+   946→              This will schedule ALL {bills.length} bills for{" "}
+   947→              {MONTHS[selectedMonth]} {selectedYear} for deletion. The bills will
+   948→              be permanently removed after <span className="font-medium text-foreground">7 days</span>.
+   949→              You can restore them before the 7-day period expires. Do you want to continue?
+   950→            </AlertDialogDescription>
+   951→          </AlertDialogHeader>
+   952→          <GlassTextarea
+   953→            label="Reason (required)"
+   954→            rows={2}
+   955→            placeholder="Why are these bills being deleted?"
+   956→            value={deleteAllReason}
+   957→            onChange={(e) => setDeleteAllReason(e.target.value)}
+   958→          />
+   959→          <AlertDialogFooter>
+   960→            <AlertDialogCancel className="rounded-2xl">Cancel</AlertDialogCancel>
+   961→            <AlertDialogAction
+   962→              className="rounded-2xl bg-destructive text-white hover:bg-destructive/90"
+   963→              disabled={!deleteAllReason.trim() || deleteAllMutation.isPending}
+   964→              onClick={() => {
+   965→                if (!deleteAllReason.trim()) {
+   966→                  toast.error("A reason is required");
+   967→                  return;
+   968→                }
+   969→                deleteAllMutation.mutate();
+   970→              }}
+   971→            >
+   972→              {deleteAllMutation.isPending ? "Deleting…" : `Delete All (${bills.length})`}
+   973→            </AlertDialogAction>
+   974→          </AlertDialogFooter>
+   975→        </AlertDialogContent>
+   976→      </AlertDialog>
+   977→    </StaggerGroup>
+   978→  );
+   979→}
+   980→
+   981→// ─────────────────────────────────────────────────────────────
+   982→// Sub-components
+   983→// ─────────────────────────────────────────────────────────────
+   984→
+   985→function KpiCard({
+   986→  label,
+   987→  value,
+   988→  icon,
+   989→  color,
+   990→  prefix,
+   991→  sub,
+   992→}: {
+   993→  label: string;
+   994→  value: number;
+   995→  icon: React.ReactNode;
+   996→  color: "primary" | "success" | "warning" | "danger" | "info";
+   997→  prefix?: string;
+   998→  sub?: string;
+   999→}) {
+  1000→  const colorVar =
+  1001→    color === "primary"
+  1002→      ? "var(--primary)"
+  1003→      : color === "success"
+  1004→        ? "var(--success)"
+  1005→        : color === "warning"
+  1006→          ? "var(--warning)"
+  1007→          : color === "danger"
+  1008→            ? "var(--destructive)"
+  1009→            : "var(--info)";
+  1010→  return (
+  1011→    <GlassCard
+  1012→      className="p-4 relative overflow-hidden"
+  1013→      glow={color === "danger" ? "danger" : color === "warning" ? "warning" : color === "success" ? "success" : "primary"}
+  1014→      whileHover={{ y: -2 }}
+  1015→    >
+  1016→      <div
+  1017→        className="absolute -top-8 -right-8 h-24 w-24 rounded-full blur-3xl opacity-30"
+  1018→        style={{ background: colorVar }}
+  1019→      />
+  1020→      <div className="relative">
+  1021→        <div className="flex items-start justify-between mb-3">
+  1022→          <div
+  1023→            className="grid place-items-center h-9 w-9 rounded-2xl"
+  1024→            style={{
+  1025→              background: `color-mix(in oklch, ${colorVar} 18%, transparent)`,
+  1026→              color: colorVar,
+  1027→            }}
+  1028→          >
+  1029→            {icon}
+  1030→          </div>
+  1031→        </div>
+  1032→        <p className="text-[11px] text-muted-foreground">{label}</p>
+  1033→        <div className="text-2xl font-bold tracking-tight tabular-nums">
+  1034→          <AnimatedCounter value={value} prefix={prefix || ""} />
+  1035→        </div>
+  1036→        {sub && (
+  1037→          <p className="text-[10px] text-muted-foreground mt-1">{sub}</p>
+  1038→        )}
+  1039→      </div>
+  1040→    </GlassCard>
+  1041→  );
+  1042→}
+  1043→
+  1044→const BillRow = memo(function BillRow({
+  1045→  bill,
+  1046→  isAdmin,
+  1047→  onView,
+  1048→  onVoid,
+  1049→  onDelete,
+  1050→  onRestore,
+  1051→}: {
+  1052→  bill: Bill;
+  1053→  isAdmin: boolean;
+  1054→  onView: () => void;
+  1055→  onVoid: () => void;
+  1056→  onDelete: () => void;
+  1057→  onRestore: () => void;
+  1058→}) {
+  1059→  const isDeleted = !!bill.deletedAt;
+  1060→
+  1061→  // Build the actions list — same shape as UserRow's `actions` array.
+  1062→  const actions: { label: string; icon: typeof Eye; onClick: () => void; variant?: "destructive" }[] = [];
+  1063→  if (isDeleted) {
+  1064→    if (isAdmin) {
+  1065→      actions.push({ label: "Restore Bill", icon: RotateCcw, onClick: onRestore });
+  1066→    }
+  1067→  } else {
+  1068→    actions.push({ label: "View Details", icon: Eye, onClick: onView });
+  1069→    if (isAdmin && bill.status !== "VOID") {
+  1070→      actions.push({ label: "Void Bill", icon: Ban, onClick: onVoid, variant: "destructive" });
+  1071→    }
+  1072→    if (isAdmin) {
+  1073→      actions.push({ label: "Delete Bill", icon: Trash2, onClick: onDelete, variant: "destructive" });
+  1074→    }
+  1075→  }
+  1076→
+  1077→  return (
+  1078→    <GlassCard className="p-4" hover={false}>
+  1079→      <div className="flex items-start gap-3">
+  1080→        <UserAvatar
+  1081→          name={bill.user.name}
+  1082→          avatarUrl={bill.user.avatarUrl}
+  1083→          className="h-10 w-10 rounded-xl"
+  1084→          fallbackClassName="text-xs"
+  1085→        />
+  1086→
+  1087→        <div className="flex-1 min-w-0">
+  1088→          <div className="flex items-start justify-between gap-2">
+  1089→            <div className="min-w-0">
+  1090→              <div className="flex items-center gap-2 flex-wrap">
+  1091→                <h3 className={cn("font-medium text-sm truncate", isDeleted && "text-muted-foreground line-through")}>
+  1092→                  {bill.user.name}
+  1093→                </h3>
+  1094→                {isDeleted ? (
+  1095→                  <Badge variant="outline" className="text-[10px] bg-destructive/15 text-destructive border-destructive/30">
+  1096→                    <Clock className="h-2.5 w-2.5" /> {formatDeletionCountdown(new Date(bill.deletedAt!))}
+  1097→                  </Badge>
+  1098→                ) : (
+  1099→                  <>
+  1100→                    <Badge variant="outline" className={cn("text-[10px]", BILL_STATUS_STYLES[bill.status].className)}>
+  1101→                      {BILL_STATUS_STYLES[bill.status].label}
+  1102→                    </Badge>
+  1103→                    <Badge variant="outline" className="text-[10px] bg-muted text-muted-foreground border-border">
+  1104→                      <Calendar className="h-2.5 w-2.5" /> {formatDateTime(bill.generatedAt)}
+  1105→                    </Badge>
+  1106→                  </>
+  1107→                )}
+  1108→              </div>
+  1109→              {/* Transaction strip — Total / Paid / Due all the same size + dates */}
+  1110→              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 mt-2">
+  1111→                <div className="flex items-baseline gap-1">
+  1112→                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Total</span>
+  1113→                  <span className="text-base font-bold tabular-nums">{formatINR(bill.totalAmount)}</span>
+  1114→                </div>
+  1115→                {!isDeleted && (
+  1116→                  <>
+  1117→                    <div className="flex items-baseline gap-1">
+  1118→                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Paid</span>
+  1119→                      <span className="text-base font-bold text-success tabular-nums">{formatINR(bill.paidAmount)}</span>
+  1120→                    </div>
+  1121→                    <div className="flex items-baseline gap-1">
+  1122→                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Due</span>
+  1123→                      <span className="text-base font-bold text-warning tabular-nums">{formatINR(bill.dueAmount)}</span>
+  1124→                    </div>
+  1125→                  </>
+  1126→                )}
+  1127→                {bill.deletedAt && bill.deletionReason && (
+  1128→                  <span className="inline-flex items-start gap-1 text-[11px] text-destructive/80">
+  1129→                    <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+  1130→                    Reason: {bill.deletionReason}
+  1131→                  </span>
+  1132→                )}
+  1133→              </div>
+  1134→              {/* Due date — red if overdue, with OVERDUE badge */}
+  1135→              {!isDeleted && bill.dueDate && (
+  1136→                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1.5 text-[11px]">
+  1137→                  {isOverdue(bill) && (
+  1138→                    <Badge variant="outline" className="text-[10px] bg-destructive/15 text-destructive border-destructive/30">
+  1139→                      <AlertCircle className="h-2.5 w-2.5" /> Overdue
+  1140→                    </Badge>
+  1141→                  )}
+  1142→                  <span className={cn(
+  1143→                    "inline-flex items-center gap-1",
+  1144→                    isOverdue(bill) ? "text-destructive font-semibold" : "text-muted-foreground"
+  1145→                  )}>
+  1146→                    <Clock className="h-3 w-3" /> Due {formatDate(bill.dueDate)}
+  1147→                  </span>
+  1148→                </div>
+  1149→              )}
+  1150→            </div>
+  1151→
+  1152→            {/* Dropdown — only render if there are actions */}
+  1153→            {actions.length > 0 && (
+  1154→              <DropdownMenu>
+  1155→                <DropdownMenuTrigger asChild>
+  1156→                  <GlassButton variant="ghost" size="icon" className="shrink-0" aria-label="Bill actions">
+  1157→                    <MoreVertical className="h-4 w-4" />
+  1158→                  </GlassButton>
+  1159→                </DropdownMenuTrigger>
+  1160→                <DropdownMenuContent align="end" className="w-44 rounded-2xl">
+  1161→                  <DropdownMenuLabel>Actions</DropdownMenuLabel>
+  1162→                  <DropdownMenuSeparator />
+  1163→                  {actions.map((a) => {
+  1164→                    const Icon = a.icon;
+  1165→                    return (
+  1166→                      <DropdownMenuItem
+  1167→                        key={a.label}
+  1168→                        onClick={a.onClick}
+  1169→                        variant={a.variant}
+  1170→                        className="rounded-xl cursor-pointer"
+  1171→                      >
+  1172→                        <Icon className="h-4 w-4" />
+  1173→                        {a.label}
+  1174→                      </DropdownMenuItem>
+  1175→                    );
+  1176→                  })}
+  1177→                </DropdownMenuContent>
+  1178→              </DropdownMenu>
+  1179→            )}
+  1180→          </div>
+  1181→        </div>
+  1182→      </div>
+  1183→    </GlassCard>
+  1184→  );
+  1185→});
+  1186→
+  1187→const BillDetail = memo(function BillDetail({ bill, isAdmin }: { bill: Bill; isAdmin: boolean }) {
+  1188→  const { data: payments = [] } = useQuery({
+  1189→    queryKey: ["bill", bill.id, "payments"],
+  1190→    queryFn: async () => {
+  1191→      const r = await api.get<
+  1192→        ApiResponse<{
+  1193→          id: string;
+  1194→          payments: Array<{
+  1195→            id: string;
+  1196→            amount: number;
+  1197→            method: string;
+  1198→            status: string;
+  1199→            reference: string | null;
+  1200→            createdAt: string;
+  1201→          }>;
+  1202→        }>
+  1203→      >(`/bills/${bill.id}`);
+  1204→      return r.data.payments || [];
+  1205→    },
+  1206→    enabled: isAdmin,
+  1207→  });
+  1208→
+  1209→  const rows = [
+  1210→    { label: "Meal Charges", value: bill.mealCharges, icon: <IndianRupee className="h-3.5 w-3.5" /> },
+  1211→    { label: "Other Charges", value: bill.otherCharges, icon: <IndianRupee className="h-3.5 w-3.5" /> },
+  1212→    {
+  1213→      label: "Adjustments",
+  1214→      value: bill.adjustments,
+  1215→      icon: <IndianRupee className="h-3.5 w-3.5" />,
+  1216→    },
+  1217→  ];
+  1218→
+  1219→  return (
+  1220→    <div>
+  1221→      <div className="flex items-center justify-between mb-4">
+  1222→        <div>
+  1223→          <p className="text-xs text-muted-foreground uppercase tracking-wide">
+  1224→            Bill Breakdown
+  1225→          </p>
+  1226→          <h3 className="text-lg font-semibold">{bill.user.name}</h3>
+  1227→          <p className="text-xs text-muted-foreground">
+  1228→            {formatMonthYear(bill.periodMonth, bill.periodYear)} · Room{" "}
+  1229→            {bill.user.room || "—"}
+  1230→          </p>
+  1231→        </div>
+  1232→        <BillStatusBadge status={bill.status} />
+  1233→      </div>
+  1234→
+  1235→      <div className="space-y-2 mb-4">
+  1236→        {rows.map((r) => (
+  1237→          <div
+  1238→            key={r.label}
+  1239→            className="flex items-center justify-between glass-soft rounded-2xl px-4 py-2.5"
+  1240→          >
+  1241→            <span className="text-sm text-muted-foreground flex items-center gap-2">
+  1242→              {r.icon}
+  1243→              {r.label}
+  1244→            </span>
+  1245→            <span className="text-sm font-medium tabular-nums">
+  1246→              {formatINR(r.value)}
+  1247→            </span>
+  1248→          </div>
+  1249→        ))}
+  1250→      </div>
+  1251→
+  1252→      <div className="glass-strong rounded-2xl p-4 mb-4">
+  1253→        <div className="flex items-center justify-between mb-2">
+  1254→          <span className="text-sm text-muted-foreground">Total Amount</span>
+  1255→          <span className="text-base font-semibold tabular-nums">
+  1256→            {formatINR(bill.totalAmount)}
+  1257→          </span>
+  1258→        </div>
+  1259→        <div className="flex items-center justify-between mb-2">
+  1260→          <span className="text-sm text-success flex items-center gap-1">
+  1261→            <CheckCircle2 className="h-3.5 w-3.5" /> Paid
+  1262→          </span>
+  1263→          <span className="text-sm font-medium text-success tabular-nums">
+  1264→            {formatINR(bill.paidAmount)}
+  1265→          </span>
+  1266→        </div>
+  1267→        <div className="flex items-center justify-between pt-2 border-t border-border/40">
+  1268→          <span className="text-sm text-warning flex items-center gap-1">
+  1269→            <AlertCircle className="h-3.5 w-3.5" /> Due
+  1270→          </span>
+  1271→          <span className="text-base font-bold text-warning tabular-nums">
+  1272→            {formatINR(bill.dueAmount)}
+  1273→          </span>
+  1274→        </div>
+  1275→      </div>
+  1276→
+  1277→      <div className="text-xs text-muted-foreground flex items-center gap-2 mb-4">
+  1278→        <Clock className="h-3.5 w-3.5" />
+  1279→        Due {formatDate(bill.dueDate)} · Generated {formatDate(bill.generatedAt)}
+  1280→      </div>
+  1281→
+  1282→      {isAdmin && (
+  1283→        <div>
+  1284→          <p className="text-xs font-medium text-muted-foreground mb-2 ml-1 uppercase tracking-wide">
+  1285→            Payment History ({payments.length})
+  1286→          </p>
+  1287→          {payments.length === 0 ? (
+  1288→            <div className="glass-soft rounded-2xl p-4 text-center text-sm text-muted-foreground">
+  1289→              No payments recorded yet.
+  1290→            </div>
+  1291→          ) : (
+  1292→            <div className="max-h-48 overflow-y-auto no-scrollbar space-y-2">
+  1293→              {payments.map((p) => (
+  1294→                <div
+  1295→                  key={p.id}
+  1296→                  className="flex items-center justify-between glass-soft rounded-2xl px-4 py-2.5"
+  1297→                >
+  1298→                  <div>
+  1299→                    <p className="text-sm font-medium tabular-nums">
+  1300→                      {formatINR(p.amount)}
+  1301→                    </p>
+  1302→                    <p className="text-xs text-muted-foreground">
+  1303→                      {p.method} · {formatDate(p.createdAt)}
+  1304→                      {p.reference ? ` · Ref ${p.reference}` : ""}
+  1305→                    </p>
+  1306→                  </div>
+  1307→                  <Badge variant="outline" className="rounded-full">
+  1308→                    {p.status}
+  1309→                  </Badge>
+  1310→                </div>
+  1311→              ))}
+  1312→            </div>
+  1313→          )}
+  1314→        </div>
+  1315→      )}
+  1316→    </div>
+  1317→  );
+  1318→});
+  1319→
+  1320→// Small inline icon (sparkle) to avoid extra import cost
+  1321→function Sparkles({ className }: { className?: string }) {
+  1322→  return (
+  1323→    <svg
+  1324→      className={className}
+  1325→      viewBox="0 0 24 24"
+  1326→      fill="none"
+  1327→      stroke="currentColor"
+  1328→      strokeWidth="2"
+  1329→      strokeLinecap="round"
+  1330→      strokeLinejoin="round"
+  1331→      aria-hidden="true"
+  1332→    >
+  1333→      <path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3L12 3z" />
+  1334→    </svg>
+  1335→  );
+  1336→}
+  1337→

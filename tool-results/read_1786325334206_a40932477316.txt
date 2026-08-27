@@ -1,0 +1,1256 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useRef, useState } from "react";
+     4→import { useQuery, useQueryClient } from "@tanstack/react-query";
+     5→import { motion, AnimatePresence } from "framer-motion";
+     6→import {
+     7→  Mail,
+     8→  Lock,
+     9→  User,
+    10→  Phone,
+    11→  Eye,
+    12→  EyeOff,
+    13→  Sparkles,
+    14→  ArrowRight,
+    15→  ArrowLeft,
+    16→  ShieldCheck,
+    17→  Zap,
+    18→  Layers,
+    19→  Building2,
+    20→  BadgeCheck,
+    21→  Clock3,
+    22→  RefreshCw,
+    23→  AlertTriangle,
+    24→  CheckCircle2,
+    25→  KeyRound,
+    26→  DoorOpen,
+    27→} from "lucide-react";
+    28→import { GlassCard } from "@/components/glass/glass-card";
+    29→import { GlassButton } from "@/components/glass/glass-button";
+    30→import { GlassInput } from "@/components/glass/glass-input";
+    31→import { AnimatedBackground } from "@/components/glass/animated-background";
+    32→import { useAuthStore } from "@/stores/use-auth-store";
+    33→import { api } from "@/lib/api-client";
+    34→import { toast } from "sonner";
+    35→import { z } from "zod";
+    36→import { GlassNav } from "@/components/glass/glass-nav";
+    37→import { Checkbox } from "@/components/ui/checkbox";
+    38→import {
+    39→  InputOTP,
+    40→  InputOTPGroup,
+    41→  InputOTPSlot,
+    42→} from "@/components/ui/input-otp";
+    43→import {
+    44→  Select,
+    45→  SelectTrigger,
+    46→  SelectValue,
+    47→  SelectContent,
+    48→  SelectItem,
+    49→} from "@/components/ui/select";
+    50→import { Badge } from "@/components/ui/badge";
+    51→import { cn } from "@/lib/utils";
+    52→
+    53→// DEC-016: pre-filled institution name for single-institution deployments.
+    54→const DEFAULT_INSTITUTION = "BoardOps Institute";
+    55→
+    56→const loginSchema = z.object({
+    57→  email: z.string().email("Enter a valid email"),
+    58→  password: z.string().min(1, "Password is required"),
+    59→});
+    60→
+    61→const registerSchema = z
+    62→  .object({
+    63→    name: z.string().min(2, "Name too short"),
+    64→    institutionName: z.string().min(2, "Institution name is required"),
+    65→    institutionUserId: z.string().min(1, "Institution User ID is required"),
+    66→    email: z.string().email("Enter a valid email"),
+    67→    phone: z.string().min(8, "Enter a valid phone"),
+    68→    room: z.string().min(1, "Room number is required"),
+    69→    password: z.string().min(8, "At least 8 characters"),
+    70→    confirmPassword: z.string(),
+    71→    // Allow empty string (user didn't select) OR a valid enum value. Normalize "" to undefined.
+    72→    gender: z.union([z.literal(""), z.enum(["MALE", "FEMALE", "OTHER"])]).optional(),
+    73→    consents: z.object({
+    74→      rules: z.boolean().refine((v) => v, "You must accept the Institution Rules"),
+    75→      privacy: z.boolean().refine((v) => v, "You must accept the Privacy Policy"),
+    76→      terms: z.boolean().refine((v) => v, "You must accept the Terms & Conditions"),
+    77→    }),
+    78→  })
+    79→  .refine((d) => d.password === d.confirmPassword, {
+    80→    message: "Passwords do not match",
+    81→    path: ["confirmPassword"],
+    82→  });
+    83→
+    84→type Mode = "login" | "register" | "verify" | "pending" | "forgot" | "forgot-otp" | "reset";
+    85→
+    86→type RegistrationStatus = {
+    87→  exists: boolean;
+    88→  status?: string;
+    89→  emailVerified?: boolean;
+    90→  name?: string;
+    91→  email?: string;
+    92→  institutionName?: string | null;
+    93→  institutionUserId?: string | null;
+    94→  phone?: string | null;
+    95→  room?: string | null;
+    96→  gender?: string | null;
+    97→  changesRequested?: string[] | null;
+    98→  changesRequestReason?: string | null;
+    99→  changesRequestedAt?: string | null;
+   100→  rejectionReason?: string | null;
+   101→  cycle?: number | null;
+   102→  reviewStatus?: string | null;
+   103→  reviewedAt?: string | null;
+   104→  submittedAt?: string | null;
+   105→};
+   106→
+   107→const FIELD_LABELS: Record<string, string> = {
+   108→  name: "Full Name",
+   109→  institutionUserId: "Institution User ID",
+   110→  phone: "Mobile Number",
+   111→  email: "Email",
+   112→  room: "Room Number",
+   113→  gender: "Gender",
+   114→};
+   115→
+   116→export function AuthScreen() {
+   117→  const [mode, setMode] = useState<Mode>("login");
+   118→  const [showPwd, setShowPwd] = useState(false);
+   119→  const [loading, setLoading] = useState(false);
+   120→  const [errors, setErrors] = useState<Record<string, string>>({});
+   121→  const [form, setForm] = useState({
+   122→    email: "",
+   123→    password: "",
+   124→    name: "",
+   125→    institutionName: DEFAULT_INSTITUTION,
+   126→    institutionUserId: "",
+   127→    phone: "",
+   128→    room: "",
+   129→    confirmPassword: "",
+   130→    gender: "" as "" | "MALE" | "FEMALE" | "OTHER",
+   131→    consents: { rules: false, privacy: false, terms: false },
+   132→  });
+   133→
+   134→  // Verify mode state
+   135→  const [verifyEmail, setVerifyEmail] = useState("");
+   136→  const [otp, setOtp] = useState("");
+   137→  const [devOtp, setDevOtp] = useState<string | null>(null);
+   138→
+   139→  // Forgot password state
+   140→  const [forgotEmail, setForgotEmail] = useState("");
+   141→  const [forgotOtp, setForgotOtp] = useState("");
+   142→  const [forgotDevOtp, setForgotDevOtp] = useState<string | null>(null);
+   143→  const [resetToken, setResetToken] = useState("");
+   144→  const [newPassword, setNewPassword] = useState("");
+   145→  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+   146→
+   147→  // Pending mode state
+   148→  const [pendingEmail, setPendingEmail] = useState("");
+   149→
+   150→  const setUser = useAuthStore((s) => s.setUser);
+   151→  const setToken = useAuthStore((s) => s.setToken);
+   152→  const qc = useQueryClient();
+   153→
+   154→  const submit = async (e: React.FormEvent) => {
+   155→    e.preventDefault();
+   156→    setErrors({});
+   157→    try {
+   158→      setLoading(true);
+   159→      if (mode === "login") {
+   160→        const data = loginSchema.parse({ email: form.email, password: form.password });
+   161→        const res = await api.post<{ success: boolean; data: { token: string; user: any } }>("/auth/login", data);
+   162→        qc.clear();
+   163→        setToken(res.data.token);
+   164→        setUser(res.data.user);
+   165→        toast.success(`Welcome back, ${res.data.user.name.split(" ")[0]}!`);
+   166→      } else {
+   167→        const data = registerSchema.parse(form);
+   168→        // ?dev=1 lets the sandbox frontend display the OTP. In production
+   169→        // this is sent via email and the param is omitted.
+   170→        const res = await api.post<{ success: boolean; data: { userId: string; email: string } }>(
+   171→          "/auth/register",
+   172→          {
+   173→            name: data.name,
+   174→            institutionName: data.institutionName,
+   175→            institutionUserId: data.institutionUserId,
+   176→            email: data.email,
+   177→            phone: data.phone,
+   178→            password: data.password,
+   179→            confirmPassword: data.confirmPassword,
+   180→            room: data.room,
+   181→            gender: data.gender,
+   182→            consents: data.consents,
+   183→          }
+   184→        );
+   185→        setVerifyEmail(res.data.email);
+   186→        setPendingEmail(res.data.email);
+   187→        setDevOtp(null);
+   188→        setOtp("");
+   189→        setMode("verify");
+   190→        toast.success("Account created — verify your email next.");
+   191→      }
+   192→    } catch (err: any) {
+   193→      if (err instanceof z.ZodError) {
+   194→        const fieldErrors: Record<string, string> = {};
+   195→        err.issues.forEach((i) => {
+   196→          const key = i.path[0];
+   197→          if (typeof key === "string") fieldErrors[key] = i.message;
+   198→        });
+   199→        setErrors(fieldErrors);
+   200→      } else {
+   201→        toast.error(err.message || "Something went wrong");
+   202→      }
+   203→    } finally {
+   204→      setLoading(false);
+   205→    }
+   206→  };
+   207→
+   208→  const submitOtp = async () => {
+   209→    if (otp.length !== 6) {
+   210→      toast.error("Enter the 6-digit code");
+   211→      return;
+   212→    }
+   213→    try {
+   214→      setLoading(true);
+   215→      await api.post("/auth/verify-email", { email: verifyEmail, otp });
+   216→      toast.success("Email verified! Your registration is now pending review.");
+   217→      setMode("pending");
+   218→    } catch (err: any) {
+   219→      toast.error(err.message || "Invalid or expired code");
+   220→    } finally {
+   221→      setLoading(false);
+   222→    }
+   223→  };
+   224→
+   225→  const resendOtp = async () => {
+   226→    try {
+   227→      setLoading(true);
+   228→      const res = await api.post<{ success: boolean; data: { devOtp?: string } }>(
+   229→        "/auth/send-verification?dev=1",
+   230→        { email: verifyEmail }
+   231→      );
+   232→      setDevOtp(res.data.devOtp ?? null);
+   233→      toast.success("A new code has been sent.");
+   234→    } catch (err: any) {
+   235→      toast.error(err.message || "Could not resend code");
+   236→    } finally {
+   237→      setLoading(false);
+   238→    }
+   239→  };
+   240→
+   241→  const resetToLogin = () => {
+   242→    setMode("login");
+   243→    setOtp("");
+   244→    setDevOtp(null);
+   245→    setVerifyEmail("");
+   246→    setPendingEmail("");
+   247→    setForgotEmail("");
+   248→    setForgotOtp("");
+   249→    setForgotDevOtp(null);
+   250→    setResetToken("");
+   251→    setNewPassword("");
+   252→    setConfirmNewPassword("");
+   253→    setErrors({});
+   254→    setForm({
+   255→      email: "",
+   256→      password: "",
+   257→      name: "",
+   258→      institutionName: DEFAULT_INSTITUTION,
+   259→      institutionUserId: "",
+   260→      phone: "",
+   261→      room: "",
+   262→      confirmPassword: "",
+   263→      gender: "",
+   264→      consents: { rules: false, privacy: false, terms: false },
+   265→    });
+   266→  };
+   267→
+   268→  // ────────────────────────────────────────────────────────────
+   269→  // Forgot password handlers (PRD 03.12)
+   270→  // ────────────────────────────────────────────────────────────
+   271→
+   272→  const submitForgotPassword = async (e: React.FormEvent) => {
+   273→    e.preventDefault();
+   274→    setErrors({});
+   275→    try {
+   276→      setLoading(true);
+   277→      const res = await api.post<{ success: boolean; data: { sent: boolean; devOtp?: string } }>(
+   278→        "/auth/forgot-password?dev=1",
+   279→        { email: forgotEmail }
+   280→      );
+   281→      setForgotDevOtp(res.data.devOtp ?? null);
+   282→      setMode("forgot-otp");
+   283→      toast.success("Reset code sent to your email");
+   284→    } catch (err: any) {
+   285→      toast.error(err.message || "Failed to send reset code");
+   286→    } finally {
+   287→      setLoading(false);
+   288→    }
+   289→  };
+   290→
+   291→  const submitForgotOtp = async () => {
+   292→    if (forgotOtp.length !== 6) {
+   293→      toast.error("Enter the 6-digit code");
+   294→      return;
+   295→    }
+   296→    try {
+   297→      setLoading(true);
+   298→      const res = await api.post<{ success: boolean; data: { verified: boolean; resetToken: string } }>(
+   299→        "/auth/verify-reset-otp",
+   300→        { email: forgotEmail, otp: forgotOtp }
+   301→      );
+   302→      setResetToken(res.data.resetToken);
+   303→      setMode("reset");
+   304→      toast.success("Code verified. Set your new password.");
+   305→    } catch (err: any) {
+   306→      toast.error(err.message || "Invalid or expired code");
+   307→    } finally {
+   308→      setLoading(false);
+   309→    }
+   310→  };
+   311→
+   312→  const submitResetPassword = async () => {
+   313→    if (newPassword !== confirmNewPassword) {
+   314→      toast.error("Passwords do not match");
+   315→      return;
+   316→    }
+   317→    if (newPassword.length < 8) {
+   318→      toast.error("Password must be at least 8 characters");
+   319→      return;
+   320→    }
+   321→    try {
+   322→      setLoading(true);
+   323→      await api.post("/auth/reset-password", {
+   324→        email: forgotEmail,
+   325→        resetToken,
+   326→        newPassword,
+   327→      });
+   328→      toast.success("Password reset successfully. Please sign in.");
+   329→      resetToLogin();
+   330→    } catch (err: any) {
+   331→      toast.error(err.message || "Failed to reset password");
+   332→    } finally {
+   333→      setLoading(false);
+   334→    }
+   335→  };
+   336→
+   337→  // ────────────────────────────────────────────────────────────
+   338→  // Pending mode — poll registration status every 10s.
+   339→  // ────────────────────────────────────────────────────────────
+   340→  const statusQuery = useQuery({
+   341→    queryKey: ["registration-status", pendingEmail],
+   342→    queryFn: async () => {
+   343→      const res = await api.get<{ success: boolean; data: RegistrationStatus }>(
+   344→        "/auth/registration-status",
+   345→        { params: { email: pendingEmail } }
+   346→      );
+   347→      return res.data;
+   348→    },
+   349→    enabled: mode === "pending" && !!pendingEmail,
+   350→    refetchInterval: 10_000,
+   351→    refetchOnWindowFocus: true,
+   352→  });
+   353→
+   354→  const status: RegistrationStatus | undefined = statusQuery.data;
+   355→  const isApproved = status?.status === "ACTIVE";
+   356→  const isRejected = status?.status === "ARCHIVED" && !!status?.rejectionReason;
+   357→  const hasChangesRequested = !!status?.changesRequested && status.changesRequested.length > 0;
+   358→
+   359→  // ────────────────────────────────────────────────────────────
+   360→  // Render modes
+   361→  // ────────────────────────────────────────────────────────────
+   362→
+   363→  // ────────────────────────────────────────────────────────────
+   364→  // FORGOT PASSWORD mode — email entry to send reset OTP
+   365→  // ────────────────────────────────────────────────────────────
+   366→  if (mode === "forgot") {
+   367→    return (
+   368→      <AuthLayout>
+   369→        <GlassCard strong className="p-6" hover={false}>
+   370→          <div className="flex items-center gap-3 mb-6">
+   371→            <div className="grid place-items-center h-11 w-11 rounded-2xl bg-gradient-to-br from-primary to-chart-4 shadow-lg shadow-primary/40">
+   372→              <KeyRound className="h-5 w-5 text-primary-foreground" />
+   373→            </div>
+   374→            <div>
+   375→              <p className="font-bold">Reset Password</p>
+   376→              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Enter your email</p>
+   377→            </div>
+   378→          </div>
+   379→          <form onSubmit={submitForgotPassword} className="space-y-4">
+   380→            <GlassInput
+   381→              label="Email"
+   382→              placeholder="you@example.com"
+   383→              type="email"
+   384→              icon={<Mail />}
+   385→              value={forgotEmail}
+   386→              onChange={(e) => setForgotEmail(e.target.value)}
+   387→              error={errors.email}
+   388→            />
+   389→            <GlassButton type="submit" size="lg" className="w-full" loading={loading}>
+   390→              Send Reset Code
+   391→              <ArrowRight className="h-4 w-4" />
+   392→            </GlassButton>
+   393→            <button
+   394→              type="button"
+   395→              onClick={() => setMode("login")}
+   396→              className="text-xs text-muted-foreground hover:text-primary text-center w-full"
+   397→            >
+   398→              <ArrowLeft className="h-3 w-3 inline" /> Back to sign in
+   399→            </button>
+   400→          </form>
+   401→        </GlassCard>
+   402→      </AuthLayout>
+   403→    );
+   404→  }
+   405→
+   406→  // ────────────────────────────────────────────────────────────
+   407→  // FORGOT-OTP mode — enter the 6-digit reset code
+   408→  // ────────────────────────────────────────────────────────────
+   409→  if (mode === "forgot-otp") {
+   410→    return (
+   411→      <AuthLayout>
+   412→        <GlassCard strong className="p-6" hover={false}>
+   413→          <div className="flex items-center gap-3 mb-6">
+   414→            <div className="grid place-items-center h-11 w-11 rounded-2xl bg-gradient-to-br from-primary to-chart-4 shadow-lg shadow-primary/40">
+   415→              <KeyRound className="h-5 w-5 text-primary-foreground" />
+   416→            </div>
+   417→            <div>
+   418→              <p className="font-bold">Verify Code</p>
+   419→              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Enter 6-digit code</p>
+   420→            </div>
+   421→          </div>
+   422→          <p className="text-sm text-muted-foreground mb-4">
+   423→            We sent a 6-digit code to <span className="font-medium text-foreground">{forgotEmail}</span>.
+   424→            Enter it below to continue.
+   425→          </p>
+   426→          {forgotDevOtp && (
+   427→            <div className="glass-soft rounded-2xl p-3 text-xs text-muted-foreground mb-4">
+   428→              <p className="font-semibold text-foreground">Dev mode — your code</p>
+   429→              <p className="text-lg font-mono font-bold text-primary">{forgotDevOtp}</p>
+   430→              <p className="text-[10px] mt-1">In production this is emailed.</p>
+   431→            </div>
+   432→          )}
+   433→          <div className="space-y-4">
+   434→            <InputOTP maxLength={6} value={forgotOtp} onChange={(v) => setForgotOtp(v)}>
+   435→              <InputOTPGroup>
+   436→                <InputOTPSlot index={0} className="h-12 w-12 text-lg first:rounded-l-2xl last:rounded-r-2xl" />
+   437→                <InputOTPSlot index={1} className="h-12 w-12 text-lg" />
+   438→                <InputOTPSlot index={2} className="h-12 w-12 text-lg" />
+   439→                <InputOTPSlot index={3} className="h-12 w-12 text-lg" />
+   440→                <InputOTPSlot index={4} className="h-12 w-12 text-lg" />
+   441→                <InputOTPSlot index={5} className="h-12 w-12 text-lg" />
+   442→              </InputOTPGroup>
+   443→            </InputOTP>
+   444→            <GlassButton size="lg" className="w-full" loading={loading} onClick={submitForgotOtp}>
+   445→              Verify Code
+   446→              <ArrowRight className="h-4 w-4" />
+   447→            </GlassButton>
+   448→            <button
+   449→              type="button"
+   450→              onClick={() => setMode("forgot")}
+   451→              className="text-xs text-muted-foreground hover:text-primary text-center w-full"
+   452→            >
+   453→              <ArrowLeft className="h-3 w-3 inline" /> Use a different email
+   454→            </button>
+   455→          </div>
+   456→        </GlassCard>
+   457→      </AuthLayout>
+   458→    );
+   459→  }
+   460→
+   461→  // ────────────────────────────────────────────────────────────
+   462→  // RESET mode — enter new password
+   463→  // ────────────────────────────────────────────────────────────
+   464→  if (mode === "reset") {
+   465→    return (
+   466→      <AuthLayout>
+   467→        <GlassCard strong className="p-6" hover={false}>
+   468→          <div className="flex items-center gap-3 mb-6">
+   469→            <div className="grid place-items-center h-11 w-11 rounded-2xl bg-gradient-to-br from-primary to-chart-4 shadow-lg shadow-primary/40">
+   470→              <ShieldCheck className="h-5 w-5 text-primary-foreground" />
+   471→            </div>
+   472→            <div>
+   473→              <p className="font-bold">New Password</p>
+   474→              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Set a strong password</p>
+   475→            </div>
+   476→          </div>
+   477→          <div className="space-y-4">
+   478→            <GlassInput
+   479→              label="New Password"
+   480→              placeholder="••••••••"
+   481→              type="password"
+   482→              icon={<Lock />}
+   483→              value={newPassword}
+   484→              onChange={(e) => setNewPassword(e.target.value)}
+   485→            />
+   486→            <GlassInput
+   487→              label="Confirm Password"
+   488→              placeholder="••••••••"
+   489→              type="password"
+   490→              icon={<Lock />}
+   491→              value={confirmNewPassword}
+   492→              onChange={(e) => setConfirmNewPassword(e.target.value)}
+   493→            />
+   494→            <p className="text-[10px] text-muted-foreground">
+   495→              Must be at least 8 characters with uppercase, lowercase, number, and special character.
+   496→            </p>
+   497→            <GlassButton size="lg" className="w-full" loading={loading} onClick={submitResetPassword}>
+   498→              Reset Password
+   499→              <ArrowRight className="h-4 w-4" />
+   500→            </GlassButton>
+   501→          </div>
+   502→        </GlassCard>
+   503→      </AuthLayout>
+   504→    );
+   505→  }
+   506→
+   507→  // VERIFY mode — render OTP entry without the GlassNav.
+   508→  if (mode === "verify") {
+   509→    return (
+   510→      <AuthLayout>
+   511→        <GlassCard strong className="p-6" hover={false}>
+   512→          <div className="flex items-center gap-3 mb-5">
+   513→            <div className="grid place-items-center h-11 w-11 rounded-2xl bg-gradient-to-br from-primary to-chart-4 shadow-lg shadow-primary/40">
+   514→              <Mail className="h-5 w-5 text-primary-foreground" />
+   515→            </div>
+   516→            <div>
+   517→              <p className="font-bold">Verify your email</p>
+   518→              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   519→                Step 2 of 3
+   520→              </p>
+   521→            </div>
+   522→          </div>
+   523→
+   524→          <p className="text-sm text-muted-foreground mb-5">
+   525→            We sent a 6-digit code to{" "}
+   526→            <span className="font-medium text-foreground">{verifyEmail}</span>.
+   527→            Enter it below to confirm your email address.
+   528→          </p>
+   529→
+   530→          {devOtp && (
+   531→            <div className="glass-soft rounded-2xl p-3 mb-5 border-2 border-primary/30 bg-primary/5 flex items-start gap-2">
+   532→              <KeyRound className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+   533→              <div className="text-xs">
+   534→                <p className="font-semibold text-primary">Dev mode — your code</p>
+   535→                <p className="text-foreground/80 mt-0.5">
+   536→                  In production this is emailed. For this sandbox, use:{" "}
+   537→                  <span className="font-mono font-bold tracking-widest text-base">{devOtp}</span>
+   538→                </p>
+   539→              </div>
+   540→            </div>
+   541→          )}
+   542→
+   543→          <div className="flex flex-col items-center gap-5 py-2">
+   544→            <InputOTP
+   545→              maxLength={6}
+   546→              value={otp}
+   547→              onChange={(v) => setOtp(v)}
+   548→              onComplete={() => undefined}
+   549→              autoFocus
+   550→            >
+   551→              <InputOTPGroup>
+   552→                <InputOTPSlot index={0} className="h-12 w-12 text-lg first:rounded-l-2xl last:rounded-r-2xl" />
+   553→                <InputOTPSlot index={1} className="h-12 w-12 text-lg" />
+   554→                <InputOTPSlot index={2} className="h-12 w-12 text-lg" />
+   555→                <InputOTPSlot index={3} className="h-12 w-12 text-lg" />
+   556→                <InputOTPSlot index={4} className="h-12 w-12 text-lg" />
+   557→                <InputOTPSlot index={5} className="h-12 w-12 text-lg" />
+   558→              </InputOTPGroup>
+   559→            </InputOTP>
+   560→
+   561→            <div className="flex flex-col gap-2 w-full">
+   562→              <GlassButton
+   563→                type="button"
+   564→                size="lg"
+   565→                className="w-full"
+   566→                loading={loading}
+   567→                onClick={submitOtp}
+   568→              >
+   569→                Verify Email
+   570→                <ArrowRight className="h-4 w-4" />
+   571→              </GlassButton>
+   572→              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+   573→                <button
+   574→                  type="button"
+   575→                  onClick={resetToLogin}
+   576→                  className="inline-flex items-center gap-1 hover:text-foreground"
+   577→                >
+   578→                  <ArrowLeft className="h-3 w-3" /> Back to login
+   579→                </button>
+   580→                <button
+   581→                  type="button"
+   582→                  onClick={resendOtp}
+   583→                  className="inline-flex items-center gap-1 hover:text-foreground"
+   584→                  disabled={loading}
+   585→                >
+   586→                  <RefreshCw className="h-3 w-3" /> Resend code
+   587→                </button>
+   588→              </div>
+   589→            </div>
+   590→          </div>
+   591→        </GlassCard>
+   592→      </AuthLayout>
+   593→    );
+   594→  }
+   595→
+   596→  // PENDING mode — render registration received screen with polling.
+   597→  if (mode === "pending") {
+   598→    return (
+   599→      <PendingScreen
+   600→        email={pendingEmail}
+   601→        status={status}
+   602→        isLoading={statusQuery.isLoading}
+   603→        isApproved={isApproved}
+   604→        isRejected={isRejected}
+   605→        hasChangesRequested={hasChangesRequested}
+   606→        onBackToLogin={resetToLogin}
+   607→      />
+   608→    );
+   609→  }
+   610→
+   611→  // LOGIN / REGISTER modes
+   612→  return (
+   613→    <AuthLayout>
+   614→      <GlassCard strong className="p-6" hover={false}>
+   615→        {/* Mobile brand */}
+   616→        <div className="flex items-center gap-3 mb-6">
+   617→          <div className="grid place-items-center h-11 w-11 rounded-2xl bg-gradient-to-br from-primary to-chart-4 shadow-lg shadow-primary/40">
+   618→            <Sparkles className="h-5 w-5 text-primary-foreground" />
+   619→          </div>
+   620→          <div>
+   621→            <p className="font-bold">BoardOps</p>
+   622→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   623→              Operations Suite
+   624→            </p>
+   625→          </div>
+   626→        </div>
+   627→
+   628→        {(["forgot", "forgot-otp", "reset"] as const).includes(mode as "forgot") ? (
+   629→          <div className="flex items-center justify-between mb-6">
+   630→            <button
+   631→              type="button"
+   632→              onClick={() => setMode("login")}
+   633→              className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
+   634→            >
+   635→              <ArrowLeft className="h-3 w-3" /> Back to sign in
+   636→            </button>
+   637→          </div>
+   638→        ) : (
+   639→          <GlassNav
+   640→            items={[
+   641→              { value: "login", label: "Sign in" },
+   642→              { value: "register", label: "Register" },
+   643→            ]}
+   644→            value={mode}
+   645→            onChange={(v) => setMode(v as Mode)}
+   646→            className="w-full mb-6"
+   647→          />
+   648→        )}
+   649→
+   650→        <form onSubmit={submit} className="space-y-4">
+   651→          {/* In login mode the Email field is rendered here (outside the
+   652→              AnimatePresence block, which only shows in register mode). In
+   653→              register mode, "Personal Email" is part of the expanded form
+   654→              below. */}
+   655→          {mode === "login" && (
+   656→            <GlassInput
+   657→              label="Email"
+   658→              placeholder="you@boardops.io"
+   659→              type="email"
+   660→              icon={<Mail />}
+   661→              value={form.email}
+   662→              onChange={(e) => setForm({ ...form, email: e.target.value })}
+   663→              error={errors.email}
+   664→            />
+   665→          )}
+   666→
+   667→          <AnimatePresence mode="wait">
+   668→            {mode === "register" && (
+   669→              <motion.div
+   670→                initial={{ opacity: 0, height: 0 }}
+   671→                animate={{ opacity: 1, height: "auto" }}
+   672→                exit={{ opacity: 0, height: 0 }}
+   673→                className="space-y-4 overflow-hidden"
+   674→              >
+   675→                <GlassInput
+   676→                  label="Full Name"
+   677→                  placeholder="Aarav Mehta"
+   678→                  icon={<User />}
+   679→                  value={form.name}
+   680→                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+   681→                  error={errors.name}
+   682→                />
+   683→                <GlassInput
+   684→                  label="Institution Name"
+   685→                  icon={<Building2 />}
+   686→                  value={form.institutionName}
+   687→                  disabled
+   688→                  hint="Pre-filled for this deployment"
+   689→                />
+   690→                <GlassInput
+   691→                  label="Institution User ID"
+   692→                  placeholder="Roll No., Employee ID, Registration No., Hostel ID…"
+   693→                  icon={<BadgeCheck />}
+   694→                  value={form.institutionUserId}
+   695→                  onChange={(e) => setForm({ ...form, institutionUserId: e.target.value })}
+   696→                  error={errors.institutionUserId}
+   697→                  hint="(Roll No., Employee ID, Registration No., Hostel ID, etc.)"
+   698→                />
+   699→                <GlassInput
+   700→                  label="Mobile Number"
+   701→                  placeholder="+91 98765 43210"
+   702→                  icon={<Phone />}
+   703→                  value={form.phone}
+   704→                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+   705→                  error={errors.phone}
+   706→                />
+   707→                <GlassInput
+   708→                  label="Personal Email"
+   709→                  placeholder="you@example.com"
+   710→                  type="email"
+   711→                  icon={<Mail />}
+   712→                  value={form.email}
+   713→                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+   714→                  error={errors.email}
+   715→                />
+   716→                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   717→                  <GlassInput
+   718→                    label="Room Number"
+   719→                    placeholder="A-101"
+   720→                    icon={<DoorOpen />}
+   721→                    value={form.room}
+   722→                    onChange={(e) => setForm({ ...form, room: e.target.value })}
+   723→                    error={errors.room}
+   724→                  />
+   725→                  <div>
+   726→                    <label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
+   727→                      Gender (optional)
+   728→                    </label>
+   729→                    <Select
+   730→                      value={form.gender || undefined}
+   731→                      onValueChange={(v) => setForm({ ...form, gender: v as "MALE" | "FEMALE" | "OTHER" })}
+   732→                    >
+   733→                      <SelectTrigger className="w-full glass-soft border-0 h-[50px] rounded-2xl">
+   734→                        <SelectValue placeholder="Select" />
+   735→                      </SelectTrigger>
+   736→                      <SelectContent>
+   737→                        <SelectItem value="MALE">Male</SelectItem>
+   738→                        <SelectItem value="FEMALE">Female</SelectItem>
+   739→                        <SelectItem value="OTHER">Other</SelectItem>
+   740→                      </SelectContent>
+   741→                    </Select>
+   742→                  </div>
+   743→                </div>
+   744→              </motion.div>
+   745→            )}
+   746→          </AnimatePresence>
+   747→
+   748→          <GlassInput
+   749→            label="Password"
+   750→            placeholder="••••••••"
+   751→            type={showPwd ? "text" : "password"}
+   752→            icon={<Lock />}
+   753→            value={form.password}
+   754→            onChange={(e) => setForm({ ...form, password: e.target.value })}
+   755→            error={mode === "register" ? errors.password : undefined}
+   756→            trailing={
+   757→              <button
+   758→                type="button"
+   759→                onClick={() => setShowPwd(!showPwd)}
+   760→                className="text-muted-foreground hover:text-foreground"
+   761→                aria-label="Toggle password visibility"
+   762→              >
+   763→                {showPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+   764→              </button>
+   765→            }
+   766→          />
+   767→
+   768→          {mode === "register" && (
+   769→            <GlassInput
+   770→              label="Confirm Password"
+   771→              placeholder="••••••••"
+   772→              type={showPwd ? "text" : "password"}
+   773→              icon={<Lock />}
+   774→              value={form.confirmPassword}
+   775→              onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
+   776→              error={errors.confirmPassword}
+   777→            />
+   778→          )}
+   779→
+   780→          {mode === "register" && (
+   781→            <div className="space-y-2 pt-1">
+   782→              <ConsentRow
+   783→                checked={form.consents.rules}
+   784→                onChange={(v) => setForm({ ...form, consents: { ...form.consents, rules: v } })}
+   785→                label="I accept the Institution Rules"
+   786→                error={errors.rules}
+   787→              />
+   788→              <ConsentRow
+   789→                checked={form.consents.privacy}
+   790→                onChange={(v) => setForm({ ...form, consents: { ...form.consents, privacy: v } })}
+   791→                label="I accept the Privacy Policy"
+   792→                error={errors.privacy}
+   793→              />
+   794→              <ConsentRow
+   795→                checked={form.consents.terms}
+   796→                onChange={(v) => setForm({ ...form, consents: { ...form.consents, terms: v } })}
+   797→                label="I accept the Terms & Conditions"
+   798→                error={errors.terms}
+   799→              />
+   800→            </div>
+   801→          )}
+   802→
+   803→          <GlassButton type="submit" size="lg" className="w-full" loading={loading}>
+   804→            {mode === "login" ? "Sign in" : "Create account"}
+   805→            <ArrowRight className="h-4 w-4" />
+   806→          </GlassButton>
+   807→
+   808→          {mode === "login" && (
+   809→            <button
+   810→              type="button"
+   811→              onClick={() => setMode("forgot")}
+   812→              className="text-xs text-muted-foreground hover:text-primary transition-colors text-center w-full"
+   813→            >
+   814→              Forgot password?
+   815→            </button>
+   816→          )}
+   817→        </form>
+   818→      </GlassCard>
+   819→    </AuthLayout>
+   820→  );
+   821→}
+   822→
+   823→// ────────────────────────────────────────────────────────────
+   824→// Pending screen — registration received, awaiting admin review.
+   825→// Polls /api/auth/registration-status and shows updates in real time.
+   826→// Renders the "Update & Resubmit" form when changesRequested is set.
+   827→// ────────────────────────────────────────────────────────────
+   828→
+   829→function PendingScreen({
+   830→  email,
+   831→  status,
+   832→  isLoading,
+   833→  isApproved,
+   834→  isRejected,
+   835→  hasChangesRequested,
+   836→  onBackToLogin,
+   837→}: {
+   838→  email: string;
+   839→  status?: RegistrationStatus;
+   840→  isLoading: boolean;
+   841→  isApproved: boolean;
+   842→  isRejected: boolean;
+   843→  hasChangesRequested: boolean;
+   844→  onBackToLogin: () => void;
+   845→}) {
+   846→  const [showResubmit, setShowResubmit] = useState(false);
+   847→  const qc = useQueryClient();
+   848→  const approvedRef = useRef(false);
+   849→
+   850→  // Once approved, give a celebratory toast and offer to login.
+   851→  useEffect(() => {
+   852→    if (isApproved && !approvedRef.current) {
+   853→      approvedRef.current = true;
+   854→      toast.success("Your account has been approved! You can now sign in.");
+   855→    }
+   856→  }, [isApproved]);
+   857→
+   858→  return (
+   859→    <AuthLayout>
+   860→      <GlassCard strong className="p-6" hover={false}>
+   861→        <div className="flex items-center gap-3 mb-5">
+   862→          <div
+   863→            className={cn(
+   864→              "grid place-items-center h-11 w-11 rounded-2xl shadow-lg",
+   865→              isApproved
+   866→                ? "bg-gradient-to-br from-success to-emerald-500 shadow-success/40"
+   867→                : isRejected
+   868→                ? "bg-gradient-to-br from-destructive to-rose-500 shadow-destructive/40"
+   869→                : "bg-gradient-to-br from-primary to-chart-4 shadow-primary/40"
+   870→            )}
+   871→          >
+   872→            {isApproved ? (
+   873→              <CheckCircle2 className="h-5 w-5 text-success-foreground" />
+   874→            ) : isRejected ? (
+   875→              <AlertTriangle className="h-5 w-5 text-destructive-foreground" />
+   876→            ) : (
+   877→              <Clock3 className="h-5 w-5 text-primary-foreground" />
+   878→            )}
+   879→          </div>
+   880→          <div>
+   881→            <p className="font-bold">
+   882→              {isApproved
+   883→                ? "You're approved!"
+   884→                : isRejected
+   885→                ? "Registration rejected"
+   886→                : "Registration received"}
+   887→            </p>
+   888→            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+   889→              {isApproved ? "Step 3 of 3 complete" : "Step 3 of 3 — awaiting review"}
+   890→            </p>
+   891→          </div>
+   892→        </div>
+   893→
+   894→        {/* Email verified badge */}
+   895→        <div className="glass-soft rounded-2xl p-3 mb-4 flex items-start gap-2 border border-success/30 bg-success/5">
+   896→          <BadgeCheck className="h-4 w-4 text-success shrink-0 mt-0.5" />
+   897→          <div className="text-xs flex-1">
+   898→            <p className="font-semibold text-success">Email verified</p>
+   899→            <p className="text-muted-foreground mt-0.5 break-all">{email}</p>
+   900→          </div>
+   901→        </div>
+   902→
+   903→        {isLoading ? (
+   904→          <div className="space-y-2 py-4">
+   905→            <div className="h-4 rounded-full bg-secondary/40 animate-pulse" />
+   906→            <div className="h-4 rounded-full bg-secondary/40 animate-pulse w-3/4" />
+   907→          </div>
+   908→        ) : (
+   909→          <>
+   910→            {/* Approve state */}
+   911→            {isApproved ? (
+   912→              <div className="space-y-4">
+   913→                <div className="rounded-2xl bg-success/10 border border-success/30 p-4 text-sm">
+   914→                  <p className="font-semibold text-success">Welcome aboard!</p>
+   915→                  <p className="text-muted-foreground mt-1">
+   916→                    An administrator has approved your registration. You can
+   917→                    now sign in with your credentials.
+   918→                  </p>
+   919→                </div>
+   920→                <GlassButton variant="success" size="lg" className="w-full" onClick={onBackToLogin}>
+   921→                  Continue to sign in
+   922→                  <ArrowRight className="h-4 w-4" />
+   923→                </GlassButton>
+   924→              </div>
+   925→            ) : isRejected ? (
+   926→              <div className="space-y-4">
+   927→                <div className="rounded-2xl bg-destructive/10 border border-destructive/30 p-4 text-sm">
+   928→                  <p className="font-semibold text-destructive">Application rejected</p>
+   929→                  <p className="text-muted-foreground mt-1">
+   930→                    {status?.rejectionReason ||
+   931→                      "Your registration was rejected. Please contact administration for more information."}
+   932→                  </p>
+   933→                </div>
+   934→                <GlassButton variant="ghost" size="lg" className="w-full" onClick={onBackToLogin}>
+   935→                  Back to login
+   936→                </GlassButton>
+   937→              </div>
+   938→            ) : hasChangesRequested ? (
+   939→              <ChangesRequestedBlock
+   940→                status={status!}
+   941→                onResubmit={() => setShowResubmit(true)}
+   942→              />
+   943→            ) : (
+   944→              <div className="space-y-4">
+   945→                <div className="rounded-2xl bg-primary/10 border border-primary/30 p-4 text-sm">
+   946→                  <p className="font-semibold text-primary flex items-center gap-1.5">
+   947→                    <Clock3 className="h-4 w-4" /> In review
+   948→                  </p>
+   949→                  <p className="text-muted-foreground mt-1">
+   950→                    Your registration is awaiting admin approval. We'll check
+   951→                    for updates every 10 seconds — keep this page open.
+   952→                  </p>
+   953→                  {status?.cycle && status.cycle > 1 && (
+   954→                    <p className="text-[11px] text-muted-foreground mt-2">
+   955→                      Review cycle #{status.cycle}
+   956→                    </p>
+   957→                  )}
+   958→                </div>
+   959→                <div className="flex items-center justify-between text-xs text-muted-foreground">
+   960→                  <button
+   961→                    type="button"
+   962→                    onClick={onBackToLogin}
+   963→                    className="inline-flex items-center gap-1 hover:text-foreground"
+   964→                  >
+   965→                    <ArrowLeft className="h-3 w-3" /> Back to login
+   966→                  </button>
+   967→                  <span className="inline-flex items-center gap-1">
+   968→                    <RefreshCw className="h-3 w-3 animate-pulse" /> Auto-refreshing
+   969→                  </span>
+   970→                </div>
+   971→              </div>
+   972→            )}
+   973→          </>
+   974→        )}
+   975→
+   976→        {showResubmit && status && (
+   977→          <ResubmitDialog
+   978→            status={status}
+   979→            onClose={() => setShowResubmit(false)}
+   980→            onDone={() => {
+   981→              setShowResubmit(false);
+   982→              qc.invalidateQueries({ queryKey: ["registration-status", email] });
+   983→            }}
+   984→          />
+   985→        )}
+   986→      </GlassCard>
+   987→    </AuthLayout>
+   988→  );
+   989→}
+   990→
+   991→function ChangesRequestedBlock({
+   992→  status,
+   993→  onResubmit,
+   994→}: {
+   995→  status: RegistrationStatus;
+   996→  onResubmit: () => void;
+   997→}) {
+   998→  const fields = status.changesRequested ?? [];
+   999→  return (
+  1000→    <div className="space-y-4">
+  1001→      <div className="rounded-2xl bg-warning/10 border border-warning/40 p-4 text-sm">
+  1002→        <p className="font-semibold text-warning flex items-center gap-1.5">
+  1003→          <AlertTriangle className="h-4 w-4" /> Changes requested
+  1004→        </p>
+  1005→        <p className="text-muted-foreground mt-1">
+  1006→          An administrator reviewed your registration and asked for the
+  1007→          following updates:
+  1008→        </p>
+  1009→        {status.changesRequestReason && (
+  1010→          <p className="text-foreground/90 mt-2 italic border-l-2 border-warning/50 pl-3">
+  1011→            “{status.changesRequestReason}”
+  1012→          </p>
+  1013→        )}
+  1014→        <div className="flex flex-wrap gap-1.5 mt-3">
+  1015→          {fields.map((f) => (
+  1016→            <Badge
+  1017→              key={f}
+  1018→              variant="outline"
+  1019→              className="text-[11px] bg-warning/15 text-warning border-warning/30"
+  1020→            >
+  1021→              {FIELD_LABELS[f] ?? f}
+  1022→            </Badge>
+  1023→          ))}
+  1024→        </div>
+  1025→      </div>
+  1026→      <GlassButton variant="primary" size="lg" className="w-full" onClick={onResubmit}>
+  1027→        <RefreshCw className="h-4 w-4" />
+  1028→        Update & Resubmit
+  1029→      </GlassButton>
+  1030→    </div>
+  1031→  );
+  1032→}
+  1033→
+  1034→function ResubmitDialog({
+  1035→  status,
+  1036→  onClose,
+  1037→  onDone,
+  1038→}: {
+  1039→  status: RegistrationStatus;
+  1040→  onClose: () => void;
+  1041→  onDone: () => void;
+  1042→}) {
+  1043→  const fields = status.changesRequested ?? [];
+  1044→  const [form, setForm] = useState({
+  1045→    name: status.name ?? "",
+  1046→    institutionUserId: status.institutionUserId ?? "",
+  1047→    phone: status.phone ?? "",
+  1048→    room: status.room ?? "",
+  1049→    gender: (status.gender as "" | "MALE" | "FEMALE" | "OTHER") || "",
+  1050→  });
+  1051→  const [errors, setErrors] = useState<Record<string, string>>({});
+  1052→  const [loading, setLoading] = useState(false);
+  1053→
+  1054→  const submit = async () => {
+  1055→    setErrors({});
+  1056→    if (!form.name || form.name.length < 2) {
+  1057→      setErrors({ name: "Name too short" });
+  1058→      return;
+  1059→    }
+  1060→    if (!form.institutionUserId) {
+  1061→      setErrors({ institutionUserId: "Institution User ID is required" });
+  1062→      return;
+  1063→    }
+  1064→    if (!form.phone || form.phone.length < 8) {
+  1065→      setErrors({ phone: "Enter a valid phone" });
+  1066→      return;
+  1067→    }
+  1068→    if (!form.room) {
+  1069→      setErrors({ room: "Room number is required" });
+  1070→      return;
+  1071→    }
+  1072→    try {
+  1073→      setLoading(true);
+  1074→      await api.post("/auth/resubmit", {
+  1075→        email: status.email,
+  1076→        name: form.name,
+  1077→        institutionUserId: form.institutionUserId,
+  1078→        phone: form.phone,
+  1079→        room: form.room,
+  1080→        gender: form.gender || undefined,
+  1081→      });
+  1082→      toast.success("Resubmitted for review!");
+  1083→      onDone();
+  1084→    } catch (err: any) {
+  1085→      toast.error(err.message || "Could not resubmit");
+  1086→    } finally {
+  1087→      setLoading(false);
+  1088→    }
+  1089→  };
+  1090→
+  1091→  return (
+  1092→    <div className="mt-4 rounded-2xl border-2 border-primary/30 bg-primary/5 p-4 space-y-3">
+  1093→      <div className="flex items-center justify-between gap-2">
+  1094→        <p className="font-semibold text-sm">Update fields & resubmit</p>
+  1095→        <button
+  1096→          type="button"
+  1097→          onClick={onClose}
+  1098→          className="text-muted-foreground hover:text-foreground"
+  1099→          aria-label="Close"
+  1100→        >
+  1101→          ✕
+  1102→        </button>
+  1103→      </div>
+  1104→      <GlassInput
+  1105→        label="Full Name"
+  1106→        value={form.name}
+  1107→        onChange={(e) => setForm({ ...form, name: e.target.value })}
+  1108→        error={errors.name}
+  1109→        icon={<User className="h-4 w-4" />}
+  1110→      />
+  1111→      <GlassInput
+  1112→        label="Institution User ID"
+  1113→        value={form.institutionUserId}
+  1114→        onChange={(e) => setForm({ ...form, institutionUserId: e.target.value })}
+  1115→        error={errors.institutionUserId}
+  1116→        icon={<BadgeCheck className="h-4 w-4" />}
+  1117→      />
+  1118→      <GlassInput
+  1119→        label="Mobile Number"
+  1120→        value={form.phone}
+  1121→        onChange={(e) => setForm({ ...form, phone: e.target.value })}
+  1122→        error={errors.phone}
+  1123→        icon={<Phone className="h-4 w-4" />}
+  1124→      />
+  1125→      <GlassInput
+  1126→        label="Room Number"
+  1127→        value={form.room}
+  1128→        onChange={(e) => setForm({ ...form, room: e.target.value })}
+  1129→        error={errors.room}
+  1130→        icon={<DoorOpen className="h-4 w-4" />}
+  1131→      />
+  1132→      <div>
+  1133→        <label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
+  1134→          Gender
+  1135→        </label>
+  1136→        <Select
+  1137→          value={form.gender || undefined}
+  1138→          onValueChange={(v) => setForm({ ...form, gender: v as "MALE" | "FEMALE" | "OTHER" })}
+  1139→        >
+  1140→          <SelectTrigger className="w-full glass-soft border-0 h-[50px] rounded-2xl">
+  1141→            <SelectValue placeholder="Select" />
+  1142→          </SelectTrigger>
+  1143→          <SelectContent>
+  1144→            <SelectItem value="MALE">Male</SelectItem>
+  1145→            <SelectItem value="FEMALE">Female</SelectItem>
+  1146→            <SelectItem value="OTHER">Other</SelectItem>
+  1147→          </SelectContent>
+  1148→        </Select>
+  1149→      </div>
+  1150→      <GlassButton variant="primary" size="md" className="w-full" loading={loading} onClick={submit}>
+  1151→        <RefreshCw className="h-4 w-4" />
+  1152→        Submit updated registration
+  1153→      </GlassButton>
+  1154→    </div>
+  1155→  );
+  1156→}
+  1157→
+  1158→function ConsentRow({
+  1159→  checked,
+  1160→  onChange,
+  1161→  label,
+  1162→  error,
+  1163→}: {
+  1164→  checked: boolean;
+  1165→  onChange: (v: boolean) => void;
+  1166→  label: string;
+  1167→  error?: string;
+  1168→}) {
+  1169→  return (
+  1170→    <div>
+  1171→      <label
+  1172→        className={cn(
+  1173→          "flex items-center gap-2.5 glass-soft rounded-2xl px-3 py-2.5 cursor-pointer hover:bg-secondary/40 transition-colors",
+  1174→          error && "border-2 border-destructive/60"
+  1175→        )}
+  1176→      >
+  1177→        <Checkbox checked={checked} onCheckedChange={(v) => onChange(v === true)} />
+  1178→        <span className="text-xs text-foreground/90 select-none">{label}</span>
+  1179→      </label>
+  1180→      {error && <p className="mt-1 ml-1 text-xs text-destructive">{error}</p>}
+  1181→    </div>
+  1182→  );
+  1183→}
+  1184→
+  1185→// Shared layout — AnimatedBackground + hero column on lg screens.
+  1186→function AuthLayout({ children }: { children: React.ReactNode }) {
+  1187→  return (
+  1188→    <div className="min-h-screen relative flex items-center justify-center p-4 safe-top safe-bottom">
+  1189→      <AnimatedBackground />
+  1190→      <div className="w-full max-w-md mx-auto flex flex-col gap-6 items-center">
+  1191→        {/* Hero side — hidden on small screens. Kept for visual continuity. */}
+  1192→        <motion.div
+  1193→          initial={{ opacity: 0, x: -20 }}
+  1194→          animate={{ opacity: 1, x: 0 }}
+  1195→          transition={{ duration: 0.6 }}
+  1196→          className="hidden flex-col gap-6 p-8"
+  1197→        >
+  1198→          <div className="flex items-center gap-3">
+  1199→            <div className="grid place-items-center h-12 w-12 rounded-3xl bg-gradient-to-br from-primary to-chart-4 shadow-xl shadow-primary/40">
+  1200→              <Sparkles className="h-6 w-6 text-primary-foreground" />
+  1201→            </div>
+  1202→            <div>
+  1203→              <p className="text-xl font-bold">BoardOps</p>
+  1204→              <p className="text-xs text-muted-foreground uppercase tracking-wider">
+  1205→                Configurable Operations Suite
+  1206→              </p>
+  1207→            </div>
+  1208→          </div>
+  1209→          <h1 className="text-5xl font-bold leading-[1.1] tracking-tight">
+  1210→            Run your institution
+  1211→            <br />
+  1212→            like a{" "}
+  1213→            <span className="gradient-text">premium product.</span>
+  1214→          </h1>
+  1215→          <p className="text-muted-foreground text-lg max-w-md">
+  1216→            Configure meals, billing, variables, and reports — nothing hardcoded.
+  1217→            Built for hostels, PGs, colleges, and residential institutions.
+  1218→          </p>
+  1219→          <div className="grid gap-3 mt-2">
+  1220→            {[
+  1221→              { icon: Layers, title: "Dynamic Meal Engine", desc: "Unlimited meals, cutoffs, and service dates — all DB-driven." },
+  1222→              { icon: Zap, title: "Formula & Variable Engine", desc: "Recalculate bills automatically on any change." },
+  1223→              { icon: ShieldCheck, title: "Permission-controlled", desc: "RBAC, audit logs, soft-delete — enterprise-grade." },
+  1224→            ].map((f, i) => (
+  1225→              <motion.div
+  1226→                key={f.title}
+  1227→                initial={{ opacity: 0, y: 12 }}
+  1228→                animate={{ opacity: 1, y: 0 }}
+  1229→                transition={{ delay: 0.2 + i * 0.1 }}
+  1230→              >
+  1231→                <GlassCard className="p-4 flex items-start gap-3" hover={false}>
+  1232→                  <div className="grid place-items-center h-10 w-10 rounded-2xl bg-primary/15 shrink-0">
+  1233→                    <f.icon className="h-5 w-5 text-primary" />
+  1234→                  </div>
+  1235→                  <div>
+  1236→                    <p className="font-semibold text-sm">{f.title}</p>
+  1237→                    <p className="text-xs text-muted-foreground">{f.desc}</p>
+  1238→                  </div>
+  1239→                </GlassCard>
+  1240→              </motion.div>
+  1241→            ))}
+  1242→          </div>
+  1243→        </motion.div>
+  1244→
+  1245→        <motion.div
+  1246→          initial={{ opacity: 0, y: 20, scale: 0.98 }}
+  1247→          animate={{ opacity: 1, y: 0, scale: 1 }}
+  1248→          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+  1249→        >
+  1250→          {children}
+  1251→        </motion.div>
+  1252→      </div>
+  1253→    </div>
+  1254→  );
+  1255→}
+  1256→

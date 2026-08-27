@@ -1,0 +1,1128 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useMemo, useState } from "react";
+     4→     4→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     5→     5→import { motion } from "framer-motion";
+     6→     6→import { toast } from "sonner";
+     7→     7→import {
+     8→     8→  Wallet,
+     9→     9→  IndianRupee,
+    10→    10→  Plus,
+    11→    11→  Trash2,
+    12→    12→  ShoppingBag,
+    13→    13→  Zap,
+    14→    14→  Users,
+    15→    15→  Wrench,
+    16→    16→  Boxes,
+    17→    17→  Calendar,
+    18→    18→  Receipt,
+    19→    19→  PencilLine,
+    20→    20→  Search,
+    21→    21→  ChevronLeft,
+    22→    22→  ChevronRight,
+    23→    23→} from "lucide-react";
+    24→    24→
+    25→    25→import { api } from "@/lib/api-client";
+    26→    26→import { cn } from "@/lib/utils";
+    27→    27→import { useAuthStore } from "@/stores/use-auth-store";
+    28→    28→
+    29→    29→import { GlassCard } from "@/components/glass/glass-card";
+    30→    30→import { GlassButton } from "@/components/glass/glass-button";
+    31→    31→import { GlassInput, GlassTextarea } from "@/components/glass/glass-input";
+    32→    32→import { AnimatedCounter } from "@/components/glass/animated-counter";
+    33→    33→import {
+    34→    34→  StaggerGroup,
+    35→    35→  StaggerItem,
+    36→    36→} from "@/components/glass/page-transition";
+    37→    37→import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
+    38→    38→
+    39→    39→import { Badge } from "@/components/ui/badge";
+    40→    40→import {
+    41→    41→  Select,
+    42→    42→  SelectContent,
+    43→    43→  SelectItem,
+    44→    44→  SelectTrigger,
+    45→    45→  SelectValue,
+    46→    46→} from "@/components/ui/select";
+    47→    47→import {
+    48→    48→  Sheet,
+    49→    49→  SheetContent,
+    50→    50→  SheetDescription,
+    51→    51→  SheetFooter,
+    52→    52→  SheetHeader,
+    53→    53→  SheetTitle,
+    54→    54→} from "@/components/ui/sheet";
+    55→    55→import {
+    56→    56→  Table,
+    57→    57→  TableBody,
+    58→    58→  TableCell,
+    59→    59→  TableHead,
+    60→    60→  TableHeader,
+    61→    61→  TableRow,
+    62→    62→} from "@/components/ui/table";
+    63→    63→import {
+    64→    64→  AlertDialog,
+    65→    65→  AlertDialogAction,
+    66→    66→  AlertDialogCancel,
+    67→    67→  AlertDialogContent,
+    68→    68→  AlertDialogDescription,
+    69→    69→  AlertDialogFooter,
+    70→    70→  AlertDialogHeader,
+    71→    71→  AlertDialogTitle,
+    72→    72→} from "@/components/ui/alert-dialog";
+    73→    73→
+    74→    74→// ─────────────────────────────────────────────────────────────
+    75→    75→// Types
+    76→    76→// ─────────────────────────────────────────────────────────────
+    77→    77→
+    78→    78→type ExpenseCategory =
+    79→    79→  | "GROCERY"
+    80→    80→  | "UTILITIES"
+    81→    81→  | "SALARY"
+    82→    82→  | "MAINTENANCE"
+    83→    83→  | "GENERAL"
+    84→    84→  | "CUSTOM";
+    85→    85→
+    86→    86→type Expense = {
+    87→    87→  id: string;
+    88→    88→  title: string;
+    89→    89→  description: string | null;
+    90→    90→  category: string;
+    91→    91→  quantity: number;
+    92→    92→  unit: string;
+    93→    93→  amount: number;
+    94→    94→  currency: string;
+    95→    95→  expenseDate: string;
+    96→    96→  paidTo: string | null;
+    97→    97→  status: string;
+    98→    98→  user: { name: string } | null;
+    99→    99→};
+   100→   100→
+   101→   101→type ApiResponse<T> = { success: boolean; data: T; error?: string };
+   102→   102→
+   103→   103→/** Payload sent to POST /api/expenses and PUT /api/expenses/[id]. */
+   104→   104→type ExpensePayload = {
+   105→   105→  title: string;
+   106→   106→  category: string;
+   107→   107→  quantity: number;
+   108→   108→  unit: string;
+   109→   109→  amount: number;
+   110→   110→  description?: string;
+   111→   111→  expenseDate: string;
+   112→   112→};
+   113→   113→
+   114→   114→// ─────────────────────────────────────────────────────────────
+   115→   115→// Style maps
+   116→   116→// ─────────────────────────────────────────────────────────────
+   117→   117→
+   118→   118→const CATEGORY_META: Record<
+   119→   119→  ExpenseCategory,
+   120→   120→  {
+   121→   121→    label: string;
+   122→   122→    icon: React.ReactNode;
+   123→   123→    className: string;
+   124→   124→    colorVar: string;
+   125→   125→    chartColor: string;
+   126→   126→  }
+   127→   127→> = {
+   128→   128→  GROCERY: {
+   129→   129→    label: "Grocery",
+   130→   130→    icon: <ShoppingBag className="h-3.5 w-3.5" />,
+   131→   131→    className: "bg-success/15 text-success border-success/30",
+   132→   132→    colorVar: "var(--success)",
+   133→   133→    chartColor: "var(--success)",
+   134→   134→  },
+   135→   135→  UTILITIES: {
+   136→   136→    label: "Utilities",
+   137→   137→    icon: <Zap className="h-3.5 w-3.5" />,
+   138→   138→    className: "bg-info/15 text-info border-info/30",
+   139→   139→    colorVar: "var(--info)",
+   140→   140→    chartColor: "var(--info)",
+   141→   141→  },
+   142→   142→  SALARY: {
+   143→   143→    label: "Salary",
+   144→   144→    icon: <Users className="h-3.5 w-3.5" />,
+   145→   145→    className: "bg-primary/15 text-primary border-primary/30",
+   146→   146→    colorVar: "var(--primary)",
+   147→   147→    chartColor: "var(--primary)",
+   148→   148→  },
+   149→   149→  MAINTENANCE: {
+   150→   150→    label: "Maintenance",
+   151→   151→    icon: <Wrench className="h-3.5 w-3.5" />,
+   152→   152→    className: "bg-warning/15 text-warning border-warning/30",
+   153→   153→    colorVar: "var(--warning)",
+   154→   154→    chartColor: "var(--warning)",
+   155→   155→  },
+   156→   156→  GENERAL: {
+   157→   157→    label: "General",
+   158→   158→    icon: <Boxes className="h-3.5 w-3.5" />,
+   159→   159→    className: "bg-muted text-muted-foreground border-border",
+   160→   160→    colorVar: "var(--muted-foreground)",
+   161→   161→    chartColor: "var(--muted-foreground)",
+   162→   162→  },
+   163→   163→  CUSTOM: {
+   164→   164→    label: "Custom",
+   165→   165→    icon: <Plus className="h-3.5 w-3.5" />,
+   166→   166→    className: "bg-primary/15 text-primary border-primary/30",
+   167→   167→    colorVar: "var(--primary)",
+   168→   168→    chartColor: "var(--primary)",
+   169→   169→  },
+   170→   170→};
+   171→   171→
+   172→   172→const CATEGORY_ORDER: ExpenseCategory[] = [
+   173→   173→  "GROCERY",
+   174→   174→  "UTILITIES",
+   175→   175→  "SALARY",
+   176→   176→  "MAINTENANCE",
+   177→   177→  "GENERAL",
+   178→   178→  "CUSTOM",
+   179→   179→];
+   180→   180→
+   181→   181→const UNIT_OPTIONS = ["piece", "kg", "gm", "litre", "metre", "box", "dozen"];
+   182→   182→
+   183→   183→function formatINR(n: number) {
+   184→   184→  return `₹${Math.round(n).toLocaleString("en-IN")}`;
+   185→   185→}
+   186→   186→
+   187→   187→/** Safely get category metadata — returns GENERAL meta for unknown/custom categories. */
+   188→   188→function getCatMeta(cat: string) {
+   189→   189→  return CATEGORY_META[cat as ExpenseCategory] || {
+   190→   190→    label: cat.charAt(0) + cat.slice(1).toLowerCase(),
+   191→   191→    icon: <Boxes className="h-3.5 w-3.5" />,
+   192→   192→    className: "bg-muted text-muted-foreground border-border",
+   193→   193→    colorVar: "var(--muted-foreground)",
+   194→   194→    chartColor: "var(--muted-foreground)",
+   195→   195→  };
+   196→   196→}
+   197→   197→
+   198→   198→function formatDate(iso: string) {
+   199→   199→  return new Date(iso).toLocaleDateString("en-IN", {
+   200→   200→    day: "numeric",
+   201→   201→    month: "short",
+   202→   202→    year: "numeric",
+   203→   203→  });
+   204→   204→}
+   205→   205→
+   206→   206→/** Format quantity + unit for display (e.g. "5 kg", "2 piece"). */
+   207→   207→function formatQuantity(qty: number, unit: string): string {
+   208→   208→  if (!qty && !unit) return "";
+   209→   209→  if (!unit) return String(qty);
+   210→   210→  if (!qty) return unit;
+   211→   211→  return `${qty} ${unit}`;
+   212→   212→}
+   213→   213→
+   214→   214→/** An expense is locked when its status is LOCKED or it belongs to a past month. */
+   215→   215→function isExpenseLocked(expense: Expense): boolean {
+   216→   216→  if (expense.status === "LOCKED") return true;
+   217→   217→  const expDate = new Date(expense.expenseDate);
+   218→   218→  const now = new Date();
+   219→   219→  const expYM = expDate.getFullYear() * 12 + expDate.getMonth();
+   220→   220→  const todayYM = now.getFullYear() * 12 + now.getMonth();
+   221→   221→  return expYM < todayYM;
+   222→   222→}
+   223→   223→
+   224→   224→// ─────────────────────────────────────────────────────────────
+   225→   225→// Main view
+   226→   226→// ─────────────────────────────────────────────────────────────
+   227→   227→
+   228→   228→export function ExpensesView() {
+   229→   229→  const user = useAuthStore((s) => s.user);
+   230→   230→  const isAdmin = user?.role === "ADMIN" || false;
+   231→   231→  const qc = useQueryClient();
+   232→   232→
+   233→   233→  const [categoryFilter, setCategoryFilter] = useState<string>("ALL");
+   234→   234→  const [search, setSearch] = useState("");
+   235→   235→  const [formOpen, setFormOpen] = useState(false);
+   236→   236→  const [editTarget, setEditTarget] = useState<Expense | null>(null);
+   237→   237→  const [deleteTarget, setDeleteTarget] = useState<Expense | null>(null);
+   238→   238→  const now = new Date();
+   239→   239→  const [selectedMonth, setSelectedMonth] = useState(now.getMonth());
+   240→   240→  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+   241→   241→
+   242→   242→  const { data: expenses = [], isLoading } = useQuery({
+   243→   243→    queryKey: ["expenses", { month: selectedMonth, year: selectedYear }],
+   244→   244→    queryFn: async () => {
+   245→   245→      const r = await api.get<ApiResponse<Expense[]>>("/expenses", {
+   246→   246→        params: { month: selectedMonth, year: selectedYear, limit: 500 },
+   247→   247→      });
+   248→   248→      return r.data;
+   249→   249→    },
+   250→   250→  });
+   251→   251→
+   252→   252→  const addMutation = useMutation({
+   253→   253→    mutationFn: (payload: ExpensePayload) =>
+   254→   254→      api.post<ApiResponse<Expense>>("/expenses", payload),
+   255→   255→    onSuccess: () => {
+   256→   256→      toast.success("Expense added successfully");
+   257→   257→      closeForm();
+   258→   258→      qc.invalidateQueries({ queryKey: ["expenses"] });
+   259→   259→    },
+   260→   260→    onError: (e: Error) => toast.error(e.message || "Failed to add expense"),
+   261→   261→  });
+   262→   262→
+   263→   263→  const editMutation = useMutation({
+   264→   264→    mutationFn: ({ id, payload }: { id: string; payload: ExpensePayload }) =>
+   265→   265→      api.put<ApiResponse<Expense>>(`/expenses/${id}`, payload),
+   266→   266→    onSuccess: () => {
+   267→   267→      toast.success("Expense updated successfully");
+   268→   268→      closeForm();
+   269→   269→      qc.invalidateQueries({ queryKey: ["expenses"] });
+   270→   270→    },
+   271→   271→    onError: (e: Error) => toast.error(e.message || "Failed to update expense"),
+   272→   272→  });
+   273→   273→
+   274→   274→  function openAddForm() {
+   275→   275→    setEditTarget(null);
+   276→   276→    setFormOpen(true);
+   277→   277→  }
+   278→   278→
+   279→   279→  function openEditForm(exp: Expense) {
+   280→   280→    setEditTarget(exp);
+   281→   281→    setFormOpen(true);
+   282→   282→  }
+   283→   283→
+   284→   284→  function closeForm() {
+   285→   285→    setFormOpen(false);
+   286→   286→    setEditTarget(null);
+   287→   287→  }
+   288→   288→
+   289→   289→  function handleSubmit(payload: ExpensePayload, id?: string) {
+   290→   290→    if (id) {
+   291→   291→      editMutation.mutate({ id, payload });
+   292→   292→    } else {
+   293→   293→      addMutation.mutate(payload);
+   294→   294→    }
+   295→   295→  }
+   296→   296→
+   297→   297→  const deleteMutation = useMutation({
+   298→   298→    mutationFn: (id: string) =>
+   299→   299→      api.delete<ApiResponse<{ success: boolean }>>(`/expenses/${id}`),
+   300→   300→    onSuccess: () => {
+   301→   301→      toast.success("Expense deleted");
+   302→   302→      setDeleteTarget(null);
+   303→   303→      qc.invalidateQueries({ queryKey: ["expenses"] });
+   304→   304→    },
+   305→   305→    onError: (e: Error) => toast.error(e.message || "Failed to delete expense"),
+   306→   306→  });
+   307→   307→
+   308→   308→  // KPIs + breakdown — data is already filtered by selected month from the API
+   309→   309→  const { totalThisMonth, byCategory, count } = useMemo(() => {
+   310→   310→    const total = expenses.reduce((s, e) => s + e.amount, 0);
+   311→   311→    const byCat: Record<string, number> = {};
+   312→   312→    expenses.forEach((e) => {
+   313→   313→      byCat[e.category] = (byCat[e.category] || 0) + e.amount;
+   314→   314→    });
+   315→   315→    return {
+   316→   316→      totalThisMonth: total,
+   317→   317→      byCategory: byCat,
+   318→   318→      count: expenses.length,
+   319→   319→    };
+   320→   320→  }, [expenses]);
+   321→   321→
+   322→   322→  const filtered = useMemo(() => {
+   323→   323→    let result = expenses;
+   324→   324→    if (categoryFilter !== "ALL") {
+   325→   325→      result = result.filter((e) => e.category === categoryFilter);
+   326→   326→    }
+   327→   327→    if (search.trim()) {
+   328→   328→      const q = search.toLowerCase().trim();
+   329→   329→      result = result.filter(
+   330→   330→        (e) =>
+   331→   331→          e.title.toLowerCase().includes(q) ||
+   332→   332→          e.category.toLowerCase().includes(q) ||
+   333→   333→          (e.paidTo || "").toLowerCase().includes(q) ||
+   334→   334→          (e.description || "").toLowerCase().includes(q)
+   335→   335→      );
+   336→   336→    }
+   337→   337→    return result;
+   338→   338→  }, [expenses, categoryFilter, search]);
+   339→   339→
+   340→   340→  if (isLoading) {
+   341→   341→    return (
+   342→   342→      <div className="space-y-4">
+   343→   343→        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+   344→   344→          {Array.from({ length: 4 }).map((_, i) => (
+   345→   345→            <ShimmerSkeleton key={i} className="h-32" />
+   346→   346→          ))}
+   347→   347→        </div>
+   348→   348→        <ShimmerSkeleton className="h-72" />
+   349→   349→        <div className="grid gap-3">
+   350→   350→          {Array.from({ length: 5 }).map((_, i) => (
+   351→   351→            <ShimmerSkeleton key={i} className="h-20" />
+   352→   352→          ))}
+   353→   353→        </div>
+   354→   354→      </div>
+   355→   355→    );
+   356→   356→  }
+   357→   357→
+   358→   358→  return (
+   359→   359→    <StaggerGroup className="space-y-4 md:space-y-6">
+   360→   360→      {/* Month picker — centered, spreaded */}
+   361→   361→      <StaggerItem>
+   362→   362→        <div className="flex items-center justify-center gap-4">
+   363→   363→          <motion.button
+   364→   364→            whileTap={{ scale: 0.9 }}
+   365→   365→            onClick={() => {
+   366→   366→              const d = new Date(selectedYear, selectedMonth - 1, 1);
+   367→   367→              setSelectedMonth(d.getMonth());
+   368→   368→              setSelectedYear(d.getFullYear());
+   369→   369→            }}
+   370→   370→            aria-label="Previous month"
+   371→   371→            className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   372→   372→          >
+   373→   373→            <ChevronLeft className="h-5 w-5" />
+   374→   374→          </motion.button>
+   375→   375→
+   376→   376→          <div className="flex-1 max-w-[280px] flex items-center justify-center gap-2.5 glass-soft rounded-full px-6 py-2.5">
+   377→   377→            <Calendar className="h-4 w-4 text-primary shrink-0" />
+   378→   378→            <div className="leading-tight text-center">
+   379→   379→              <p className="text-sm font-bold text-primary">
+   380→   380→                {new Date(selectedYear, selectedMonth).toLocaleDateString("en-US", { month: "long" })}
+   381→   381→              </p>
+   382→   382→              <p className="text-[11px] text-muted-foreground">
+   383→   383→                {selectedYear}
+   384→   384→              </p>
+   385→   385→            </div>
+   386→   386→          </div>
+   387→   387→
+   388→   388→          <motion.button
+   389→   389→            whileTap={{ scale: 0.9 }}
+   390→   390→            onClick={() => {
+   391→   391→              const d = new Date(selectedYear, selectedMonth + 1, 1);
+   392→   392→              setSelectedMonth(d.getMonth());
+   393→   393→              setSelectedYear(d.getFullYear());
+   394→   394→            }}
+   395→   395→            aria-label="Next month"
+   396→   396→            className="grid place-items-center h-10 w-10 rounded-full glass-strong shrink-0 ring-1 ring-border/40 hover:ring-primary/40 transition-all"
+   397→   397→          >
+   398→   398→            <ChevronRight className="h-5 w-5" />
+   399→   399→          </motion.button>
+   400→   400→        </div>
+   401→   401→      </StaggerItem>
+   402→   402→
+   403→   403→      {/* Action bar */}
+   404→   404→      {isAdmin && (
+   405→   405→        <StaggerItem>
+   406→   406→          <div className="flex items-center justify-end gap-3">
+   407→   407→            <p className="text-sm text-muted-foreground hidden sm:block">
+   408→   408→              Track & manage operational expenses
+   409→   409→            </p>
+   410→   410→            <GlassButton
+   411→   411→              size="lg"
+   412→   412→              onClick={openAddForm}
+   413→   413→              className="shrink-0"
+   414→   414→            >
+   415→   415→              <Plus className="h-4 w-4" />
+   416→   416→              Add Expense
+   417→   417→            </GlassButton>
+   418→   418→          </div>
+   419→   419→        </StaggerItem>
+   420→   420→      )}
+   421→   421→
+   422→   422→      {/* KPIs */}
+   423→   423→      <StaggerItem>
+   424→   424→        <div className="grid grid-cols-2 gap-3 md:gap-4">
+   425→   425→          <KpiCard
+   426→   426→            label={`Total Expenses · ${new Date(selectedYear, selectedMonth).toLocaleDateString("en-US", { month: "short" })}`}
+   427→   427→            value={totalThisMonth}
+   428→   428→            icon={<Wallet className="h-5 w-5" />}
+   429→   429→            color="primary"
+   430→   430→            prefix="₹"
+   431→   431→          />
+   432→   432→          <KpiCard
+   433→   433→            label="Total Entries"
+   434→   434→            value={count}
+   435→   435→            icon={<Receipt className="h-5 w-5" />}
+   436→   436→            color="info"
+   437→   437→          />
+   438→   438→        </div>
+   439→   439→      </StaggerItem>
+   440→   440→
+   441→   441→      {/* Top Categories — horizontal bars sorted high to low */}
+   442→   442→      <StaggerItem>
+   443→   443→        <GlassCard className="p-4 md:p-6" hover={false}>
+   444→   444→          <h3 className="font-semibold mb-4">Top Categories <span className="text-xs font-normal text-muted-foreground ml-1">· {new Date(selectedYear, selectedMonth).toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span></h3>
+   445→   445→          <div className="space-y-3">
+   446→   446→            {(() => {
+   447→   447→              const sorted = Object.entries(byCategory)
+   448→   448→                .map(([cat, amount]) => ({ cat, amount }))
+   449→   449→                .filter((x) => x.amount > 0)
+   450→   450→                .sort((a, b) => b.amount - a.amount);
+   451→   451→              if (sorted.length === 0) {
+   452→   452→                return <p className="text-sm text-muted-foreground text-center py-4">No expenses this month</p>;
+   453→   453→              }
+   454→   454→              const maxAmount = sorted[0].amount;
+   455→   455→              return sorted.map(({ cat, amount }) => {
+   456→   456→                const pct = maxAmount > 0 ? (amount / maxAmount) * 100 : 0;
+   457→   457→                const meta = getCatMeta(cat);
+   458→   458→                return (
+   459→   459→                  <div key={cat} className="space-y-1">
+   460→   460→                    <div className="flex items-center justify-between text-xs">
+   461→   461→                      <span className="flex items-center gap-1.5 text-muted-foreground">
+   462→   462→                        <span
+   463→   463→                          className="h-2 w-2 rounded-full"
+   464→   464→                          style={{ background: meta.chartColor }}
+   465→   465→                        />
+   466→   466→                        {meta.label}
+   467→   467→                      </span>
+   468→   468→                      <span className="font-medium tabular-nums">₹{amount.toLocaleString("en-IN")}</span>
+   469→   469→                    </div>
+   470→   470→                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+   471→   471→                      <motion.div
+   472→   472→                        initial={{ width: 0 }}
+   473→   473→                        animate={{ width: `${pct}%` }}
+   474→   474→                        transition={{ duration: 0.8, ease: "easeOut" }}
+   475→   475→                        className="h-full rounded-full"
+   476→   476→                        style={{ background: meta.chartColor }}
+   477→   477→                      />
+   478→   478→                    </div>
+   479→   479→                  </div>
+   480→   480→                );
+   481→   481→              });
+   482→   482→            })()}
+   483→   483→          </div>
+   484→   484→        </GlassCard>
+   485→   485→      </StaggerItem>
+   486→   486→
+   487→   487→      {/* Search + Filters */}
+   488→   488→      <StaggerItem>
+   489→   489→        <div className="space-y-3">
+   490→   490→          <GlassInput
+   491→   491→            placeholder="Search by title, category, vendor, or description…"
+   492→   492→            value={search}
+   493→   493→            onChange={(e) => setSearch(e.target.value)}
+   494→   494→            icon={<Search />}
+   495→   495→          />
+   496→   496→          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+   497→   497→            {(() => {
+   498→   498→              // Build list: ALL + predefined categories (except CUSTOM) + any custom categories from expenses
+   499→   499→              const predefined = CATEGORY_ORDER.filter((c) => c !== "CUSTOM");
+   500→   500→              const customCats = [...new Set(expenses.map((e) => e.category))].filter(
+   501→   501→                (c) => !CATEGORY_ORDER.includes(c as ExpenseCategory)
+   502→   502→              );
+   503→   503→              const allCats = ["ALL", ...predefined, ...customCats] as const;
+   504→   504→              return allCats.map((c) => {
+   505→   505→              const active = categoryFilter === c;
+   506→   506→              const meta = c === "ALL" ? null : getCatMeta(c);
+   507→   507→              return (
+   508→   508→                <button
+   509→   509→                  key={c}
+   510→   510→                  onClick={() => setCategoryFilter(c)}
+   511→   511→                  className={cn(
+   512→   512→                    "inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-full whitespace-nowrap transition-all",
+   513→   513→                    active
+   514→   514→                      ? "bg-primary text-primary-foreground shadow-md shadow-primary/30"
+   515→   515→                      : "glass-soft text-muted-foreground hover:text-foreground"
+   516→   516→                  )}
+   517→   517→                >
+   518→   518→                  {meta?.icon}
+   519→   519→                  {c === "ALL" ? "All Categories" : meta!.label}
+   520→   520→                </button>
+   521→   521→              );
+   522→   522→              });
+   523→   523→            })()}
+   524→   524→          </div>
+   525→   525→        </div>
+   526→   526→      </StaggerItem>
+   527→   527→
+   528→   528→      {/* List */}
+   529→   529→      <StaggerItem>
+   530→   530→        {filtered.length === 0 ? (
+   531→   531→          <GlassCard className="p-10 md:p-16" hover={false}>
+   532→   532→            <div className="flex flex-col items-center justify-center text-center gap-3">
+   533→   533→              <div className="grid place-items-center h-14 w-14 rounded-3xl bg-muted/40">
+   534→   534→                <Receipt className="h-6 w-6 text-muted-foreground" />
+   535→   535→              </div>
+   536→   536→              <div>
+   537→   537→                <p className="font-medium">No expenses found</p>
+   538→   538→                <p className="text-sm text-muted-foreground">
+   539→   539→                  {isAdmin
+   540→   540→                    ? "Add your first expense to start tracking spending."
+   541→   541→                    : "There are no expenses in this category yet."}
+   542→   542→                </p>
+   543→   543→              </div>
+   544→   544→            </div>
+   545→   545→          </GlassCard>
+   546→   546→        ) : (
+   547→   547→          <>
+   548→   548→            {/* Mobile cards */}
+   549→   549→            <div className="md:hidden space-y-3">
+   550→   550→              <StaggerGroup className="space-y-3">
+   551→   551→                {filtered.map((exp) => (
+   552→   552→                  <StaggerItem key={exp.id}>
+   553→   553→                    <ExpenseCard
+   554→   554→                      expense={exp}
+   555→   555→                      canManage={isAdmin}
+   556→   556→                      onEdit={() => openEditForm(exp)}
+   557→   557→                      onDelete={() => setDeleteTarget(exp)}
+   558→   558→                    />
+   559→   559→                  </StaggerItem>
+   560→   560→                ))}
+   561→   561→              </StaggerGroup>
+   562→   562→            </div>
+   563→   563→
+   564→   564→            {/* Desktop table */}
+   565→   565→            <GlassCard className="hidden md:block p-2" hover={false}>
+   566→   566→              <Table>
+   567→   567→                <TableHeader>
+   568→   568→                  <TableRow className="border-border/60">
+   569→   569→                    <TableHead className="pl-4">Item</TableHead>
+   570→   570→                    <TableHead>Category</TableHead>
+   571→   571→                    <TableHead className="text-right">Qty</TableHead>
+   572→   572→                    <TableHead className="text-right">Cost</TableHead>
+   573→   573→                    <TableHead>Date</TableHead>
+   574→   574→                    {isAdmin && <TableHead className="text-right pr-4">Actions</TableHead>}
+   575→   575→                  </TableRow>
+   576→   576→                </TableHeader>
+   577→   577→                <TableBody>
+   578→   578→                  {filtered.map((exp) => {
+   579→   579→                    const locked = isExpenseLocked(exp);
+   580→   580→                    return (
+   581→   581→                      <TableRow key={exp.id} className="border-border/40">
+   582→   582→                        <TableCell className="pl-4">
+   583→   583→                          <div className="flex flex-col">
+   584→   584→                            <span className="font-medium">{exp.title}</span>
+   585→   585→                            {exp.description && (
+   586→   586→                              <span className="text-xs text-muted-foreground line-clamp-1 max-w-[260px]">
+   587→   587→                                {exp.description}
+   588→   588→                              </span>
+   589→   589→                            )}
+   590→   590→                          </div>
+   591→   591→                        </TableCell>
+   592→   592→                        <TableCell>
+   593→   593→                          <Badge
+   594→   594→                            variant="outline"
+   595→   595→                            className={cn(
+   596→   596→                              "rounded-full",
+   597→   597→                              getCatMeta(exp.category).className
+   598→   598→                            )}
+   599→   599→                          >
+   600→   600→                            {getCatMeta(exp.category).icon}
+   601→   601→                            {getCatMeta(exp.category).label}
+   602→   602→                          </Badge>
+   603→   603→                        </TableCell>
+   604→   604→                        <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+   605→   605→                          {formatQuantity(exp.quantity, exp.unit) || "—"}
+   606→   606→                        </TableCell>
+   607→   607→                        <TableCell className="text-right font-semibold tabular-nums">
+   608→   608→                          {formatINR(exp.amount)}
+   609→   609→                        </TableCell>
+   610→   610→                        <TableCell className="text-sm text-muted-foreground">
+   611→   611→                          {formatDate(exp.expenseDate)}
+   612→   612→                        </TableCell>
+   613→   613→                        {isAdmin && (
+   614→   614→                          <TableCell className="text-right pr-4">
+   615→   615→                            {locked ? (
+   616→   616→                              <Badge
+   617→   617→                                variant="outline"
+   618→   618→                                className="rounded-full bg-muted/60 text-muted-foreground border-border/60"
+   619→   619→                              >
+   620→   620→                                🔒 Locked
+   621→   621→                              </Badge>
+   622→   622→                            ) : (
+   623→   623→                              <div className="flex items-center justify-end gap-1">
+   624→   624→                                <GlassButton
+   625→   625→                                  variant="ghost"
+   626→   626→                                  size="icon"
+   627→   627→                                  onClick={() => openEditForm(exp)}
+   628→   628→                                  aria-label="Edit expense"
+   629→   629→                                >
+   630→   630→                                  <PencilLine className="h-4 w-4" />
+   631→   631→                                </GlassButton>
+   632→   632→                                <GlassButton
+   633→   633→                                  variant="ghost"
+   634→   634→                                  size="icon"
+   635→   635→                                  className="text-destructive hover:text-destructive"
+   636→   636→                                  onClick={() => setDeleteTarget(exp)}
+   637→   637→                                  aria-label="Delete expense"
+   638→   638→                                >
+   639→   639→                                  <Trash2 className="h-4 w-4" />
+   640→   640→                                </GlassButton>
+   641→   641→                              </div>
+   642→   642→                            )}
+   643→   643→                          </TableCell>
+   644→   644→                        )}
+   645→   645→                      </TableRow>
+   646→   646→                    );
+   647→   647→                  })}
+   648→   648→                </TableBody>
+   649→   649→              </Table>
+   650→   650→            </GlassCard>
+   651→   651→          </>
+   652→   652→        )}
+   653→   653→      </StaggerItem>
+   654→   654→
+   655→   655→      {/* Add/Edit Expense Sheet */}
+   656→   656→      <ExpenseFormSheet
+   657→   657→        open={formOpen}
+   658→   658→        onOpenChange={(o) => !o && closeForm()}
+   659→   659→        onSubmit={handleSubmit}
+   660→   660→        loading={addMutation.isPending || editMutation.isPending}
+   661→   661→        expense={editTarget}
+   662→   662→      />
+   663→   663→
+   664→   664→      {/* Delete confirm */}
+   665→   665→      <AlertDialog
+   666→   666→        open={!!deleteTarget}
+   667→   667→        onOpenChange={(o) => !o && setDeleteTarget(null)}
+   668→   668→      >
+   669→   669→        <AlertDialogContent className="rounded-3xl">
+   670→   670→          <AlertDialogHeader>
+   671→   671→            <AlertDialogTitle>Delete expense?</AlertDialogTitle>
+   672→   672→            <AlertDialogDescription>
+   673→   673→              {deleteTarget && (
+   674→   674→                <>
+   675→   675→                  Permanently delete{" "}
+   676→   676→                  <span className="font-medium text-foreground">
+   677→   677→                    {deleteTarget.title}
+   678→   678→                  </span>{" "}
+   679→   679→                  ({formatINR(deleteTarget.amount)})? This cannot be undone.
+   680→   680→                </>
+   681→   681→              )}
+   682→   682→            </AlertDialogDescription>
+   683→   683→          </AlertDialogHeader>
+   684→   684→          <AlertDialogFooter>
+   685→   685→            <AlertDialogCancel className="rounded-2xl">Cancel</AlertDialogCancel>
+   686→   686→            <AlertDialogAction
+   687→   687→              className="rounded-2xl bg-destructive text-white hover:bg-destructive/90"
+   688→   688→              onClick={() =>
+   689→   689→                deleteTarget && deleteMutation.mutate(deleteTarget.id)
+   690→   690→              }
+   691→   691→              disabled={deleteMutation.isPending}
+   692→   692→            >
+   693→   693→              {deleteMutation.isPending ? "Deleting…" : "Delete"}
+   694→   694→            </AlertDialogAction>
+   695→   695→          </AlertDialogFooter>
+   696→   696→        </AlertDialogContent>
+   697→   697→      </AlertDialog>
+   698→   698→    </StaggerGroup>
+   699→   699→  );
+   700→   700→}
+   701→   701→
+   702→   702→// ─────────────────────────────────────────────────────────────
+   703→   703→// Sub-components
+   704→   704→// ─────────────────────────────────────────────────────────────
+   705→   705→
+   706→   706→function KpiCard({
+   707→   707→  label,
+   708→   708→  value,
+   709→   709→  icon,
+   710→   710→  color,
+   711→   711→  prefix,
+   712→   712→  suffixLabel,
+   713→   713→}: {
+   714→   714→  label: string;
+   715→   715→  value: number;
+   716→   716→  icon: React.ReactNode;
+   717→   717→  color: "primary" | "success" | "warning" | "danger" | "info";
+   718→   718→  prefix?: string;
+   719→   719→  suffixLabel?: string;
+   720→   720→}) {
+   721→   721→  const colorVar =
+   722→   722→    color === "primary"
+   723→   723→      ? "var(--primary)"
+   724→   724→      : color === "success"
+   725→   725→        ? "var(--success)"
+   726→   726→        : color === "warning"
+   727→   727→          ? "var(--warning)"
+   728→   728→          : color === "danger"
+   729→   729→            ? "var(--destructive)"
+   730→   730→            : "var(--info)";
+   731→   731→  return (
+   732→   732→    <GlassCard
+   733→   733→      className="p-4 md:p-5"
+   734→   734→      glow={color === "danger" ? "danger" : color === "warning" ? "warning" : color === "success" ? "success" : "primary"}
+   735→   735→    >
+   736→   736→      <div className="flex items-start justify-between mb-3">
+   737→   737→        <div
+   738→   738→          className="grid place-items-center h-10 w-10 rounded-2xl"
+   739→   739→          style={{
+   740→   740→            background: `color-mix(in oklch, ${colorVar} 15%, transparent)`,
+   741→   741→            color: colorVar,
+   742→   742→          }}
+   743→   743→        >
+   744→   744→          {icon}
+   745→   745→        </div>
+   746→   746→      </div>
+   747→   747→      <p className="text-xs text-muted-foreground">{label}</p>
+   748→   748→      <div className="text-2xl md:text-3xl font-bold tracking-tight tabular-nums">
+   749→   749→        <AnimatedCounter value={value} prefix={prefix || ""} />
+   750→   750→      </div>
+   751→   751→      {suffixLabel && (
+   752→   752→        <p className="text-[11px] text-muted-foreground mt-1">{suffixLabel}</p>
+   753→   753→      )}
+   754→   754→    </GlassCard>
+   755→   755→  );
+   756→   756→}
+   757→   757→
+   758→   758→function ExpenseCard({
+   759→   759→  expense,
+   760→   760→  canManage,
+   761→   761→  onEdit,
+   762→   762→  onDelete,
+   763→   763→}: {
+   764→   764→  expense: Expense;
+   765→   765→  canManage: boolean;
+   766→   766→  onEdit: () => void;
+   767→   767→  onDelete: () => void;
+   768→   768→}) {
+   769→   769→  const meta = getCatMeta(expense.category);
+   770→   770→  const locked = isExpenseLocked(expense);
+   771→   771→  const qty = formatQuantity(expense.quantity, expense.unit);
+   772→   772→  return (
+   773→   773→    <motion.div
+   774→   774→      whileTap={{ scale: 0.99 }}
+   775→   775→      className="glass rounded-3xl p-4 relative overflow-hidden"
+   776→   776→    >
+   777→   777→      <div
+   778→   778→        className="absolute inset-y-0 left-0 w-1"
+   779→   779→        style={{ background: meta.colorVar }}
+   780→   780→      />
+   781→   781→      <div className="flex items-start justify-between gap-3 mb-3">
+   782→   782→        <div className="min-w-0 flex-1">
+   783→   783→          <p className="font-semibold truncate">{expense.title}</p>
+   784→   784→          <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+   785→   785→            <Calendar className="h-3 w-3" />
+   786→   786→            {formatDate(expense.expenseDate)}
+   787→   787→          </p>
+   788→   788→        </div>
+   789→   789→        <Badge variant="outline" className={cn("rounded-full", meta.className)}>
+   790→   790→          {meta.icon}
+   791→   791→          {meta.label}
+   792→   792→        </Badge>
+   793→   793→      </div>
+   794→   794→      <div className="flex items-end justify-between gap-3">
+   795→   795→        <div className="min-w-0">
+   796→   796→          <p className="text-[10px] text-muted-foreground uppercase">Cost</p>
+   797→   797→          <p className="text-2xl font-bold tabular-nums">
+   798→   798→            {formatINR(expense.amount)}
+   799→   799→          </p>
+   800→   800→        </div>
+   801→   801→        {qty && (
+   802→   802→          <div className="text-right shrink-0">
+   803→   803→            <p className="text-[10px] text-muted-foreground uppercase">Qty</p>
+   804→   804→            <p className="text-sm font-semibold tabular-nums">{qty}</p>
+   805→   805→          </div>
+   806→   806→        )}
+   807→   807→      </div>
+   808→   808→      {expense.description && (
+   809→   809→        <p className="mt-3 text-xs text-muted-foreground glass-soft rounded-2xl p-2.5 line-clamp-2">
+   810→   810→          {expense.description}
+   811→   811→        </p>
+   812→   812→      )}
+   813→   813→      {canManage && (
+   814→   814→        <div className="mt-3 flex items-center justify-end gap-2">
+   815→   815→          {locked ? (
+   816→   816→            <Badge
+   817→   817→              variant="outline"
+   818→   818→              className="rounded-full bg-muted/60 text-muted-foreground border-border/60"
+   819→   819→            >
+   820→   820→              🔒 Locked
+   821→   821→            </Badge>
+   822→   822→          ) : (
+   823→   823→            <>
+   824→   824→              <GlassButton variant="ghost" size="sm" onClick={onEdit}>
+   825→   825→                <PencilLine className="h-3.5 w-3.5" />
+   826→   826→                Edit
+   827→   827→              </GlassButton>
+   828→   828→              <GlassButton
+   829→   829→                variant="ghost"
+   830→   830→                size="sm"
+   831→   831→                className="text-destructive"
+   832→   832→                onClick={onDelete}
+   833→   833→              >
+   834→   834→                <Trash2 className="h-3.5 w-3.5" />
+   835→   835→                Delete
+   836→   836→              </GlassButton>
+   837→   837→            </>
+   838→   838→          )}
+   839→   839→        </div>
+   840→   840→      )}
+   841→   841→    </motion.div>
+   842→   842→  );
+   843→   843→}
+   844→   844→
+   845→   845→// ─────────────────────────────────────────────────────────────
+   846→   846→// Add / Edit Expense Sheet
+   847→   847→// ─────────────────────────────────────────────────────────────
+   848→   848→
+   849→   849→function ExpenseFormSheet({
+   850→   850→  open,
+   851→   851→  onOpenChange,
+   852→   852→  onSubmit,
+   853→   853→  loading,
+   854→   854→  expense,
+   855→   855→}: {
+   856→   856→  open: boolean;
+   857→   857→  onOpenChange: (o: boolean) => void;
+   858→   858→  onSubmit: (payload: ExpensePayload, id?: string) => void;
+   859→   859→  loading: boolean;
+   860→   860→  expense: Expense | null;
+   861→   861→}) {
+   862→   862→  // A `key` based on the editing target forces the body to remount whenever
+   863→   863→  // the user switches between add / edit / a different expense. Combined with
+   864→   864→  // the Sheet unmounting its content when closed, this means each open starts
+   865→   865→  // with fresh state initialized from the `expense` prop — no useEffect sync
+   866→   866→  // needed (which would trigger cascading renders per the react-hooks rule).
+   867→   867→  const bodyKey = expense ? `edit-${expense.id}` : "add";
+   868→   868→  return (
+   869→   869→    <Sheet open={open} onOpenChange={onOpenChange}>
+   870→   870→      <SheetContent
+   871→   871→        side="right"
+   872→   872→        className="w-full sm:max-w-md flex flex-col gap-0 p-0"
+   873→   873→      >
+   874→   874→        <ExpenseFormBody
+   875→   875→          key={bodyKey}
+   876→   876→          expense={expense}
+   877→   877→          onSubmit={onSubmit}
+   878→   878→          loading={loading}
+   879→   879→          onCancel={() => onOpenChange(false)}
+   880→   880→        />
+   881→   881→      </SheetContent>
+   882→   882→    </Sheet>
+   883→   883→  );
+   884→   884→}
+   885→   885→
+   886→   886→function ExpenseFormBody({
+   887→   887→  expense,
+   888→   888→  onSubmit,
+   889→   889→  loading,
+   890→   890→  onCancel,
+   891→   891→}: {
+   892→   892→  expense: Expense | null;
+   893→   893→  onSubmit: (payload: ExpensePayload, id?: string) => void;
+   894→   894→  loading: boolean;
+   895→   895→  onCancel: () => void;
+   896→   896→}) {
+   897→   897→  const today = new Date().toISOString().slice(0, 10);
+   898→   898→  const isEdit = !!expense;
+   899→   899→
+   900→   900→  // Derive initial category (predefined or CUSTOM) from the expense.
+   901→   901→  const initialCategory: ExpenseCategory = (() => {
+   902→   902→    if (!expense?.category) return "GROCERY";
+   903→   903→    if (
+   904→   904→      CATEGORY_ORDER.includes(expense.category as ExpenseCategory) &&
+   905→   905→      expense.category !== "CUSTOM"
+   906→   906→    ) {
+   907→   907→      return expense.category as ExpenseCategory;
+   908→   908→    }
+   909→   909→    return "CUSTOM";
+   910→   910→  })();
+   911→   911→  const initialCustomCategory =
+   912→   912→    initialCategory === "CUSTOM" ? expense?.category ?? "" : "";
+   913→   913→
+   914→   914→  // Derive initial unit (predefined or CUSTOM) from the expense.
+   915→   915→  const initialUnit: string = (() => {
+   916→   916→    if (!expense?.unit) return "piece";
+   917→   917→    if (UNIT_OPTIONS.includes(expense.unit)) return expense.unit;
+   918→   918→    return "CUSTOM";
+   919→   919→  })();
+   920→   920→  const initialCustomUnit = initialUnit === "CUSTOM" ? expense?.unit ?? "" : "";
+   921→   921→
+   922→   922→  const [title, setTitle] = useState(expense?.title ?? "");
+   923→   923→  const [amount, setAmount] = useState(
+   924→   924→    expense?.amount ? String(expense.amount) : ""
+   925→   925→  );
+   926→   926→  const [quantity, setQuantity] = useState(
+   927→   927→    expense?.quantity ? String(expense.quantity) : ""
+   928→   928→  );
+   929→   929→  const [category, setCategory] = useState<ExpenseCategory>(initialCategory);
+   930→   930→  const [customCategory, setCustomCategory] = useState(initialCustomCategory);
+   931→   931→  const [unit, setUnit] = useState<string>(initialUnit);
+   932→   932→  const [customUnit, setCustomUnit] = useState(initialCustomUnit);
+   933→   933→  const [date, setDate] = useState(
+   934→   934→    expense
+   935→   935→      ? new Date(expense.expenseDate).toISOString().slice(0, 10)
+   936→   936→      : today
+   937→   937→  );
+   938→   938→  const [description, setDescription] = useState(expense?.description ?? "");
+   939→   939→  const [errors, setErrors] = useState<Record<string, string>>({});
+   940→   940→
+   941→   941→  function handleSubmit() {
+   942→   942→    const next: Record<string, string> = {};
+   943→   943→    if (!title.trim() || title.trim().length < 2) next.title = "Item name is required";
+   944→   944→    const amt = parseFloat(amount);
+   945→   945→    if (!amt || amt <= 0) next.amount = "Enter a valid cost";
+   946→   946→    if (!date) next.date = "Date is required";
+   947→   947→    if (category === "CUSTOM" && customCategory.trim().length < 2) {
+   948→   948→      next.customCategory = "Enter a custom category name";
+   949→   949→    }
+   950→   950→    const qty = quantity ? parseFloat(quantity) : 0;
+   951→   951→    if (quantity && (!qty || qty <= 0)) next.quantity = "Enter a valid quantity";
+   952→   952→    if (unit === "CUSTOM" && customUnit.trim().length < 1) {
+   953→   953→      next.customUnit = "Enter a custom unit";
+   954→   954→    }
+   955→   955→    setErrors(next);
+   956→   956→    if (Object.keys(next).length > 0) return;
+   957→   957→
+   958→   958→    const finalCategory =
+   959→   959→      category === "CUSTOM"
+   960→   960→        ? customCategory.trim().toUpperCase().replace(/\s+/g, "_")
+   961→   961→        : category;
+   962→   962→    const finalUnit = unit === "CUSTOM" ? customUnit.trim() : unit;
+   963→   963→
+   964→   964→    onSubmit(
+   965→   965→      {
+   966→   966→        title: title.trim(),
+   967→   967→        amount: amt,
+   968→   968→        category: finalCategory,
+   969→   969→        quantity: qty || 0,
+   970→   970→        unit: finalUnit,
+   971→   971→        expenseDate: new Date(date).toISOString(),
+   972→   972→        description: description.trim() || undefined,
+   973→   973→      },
+   974→   974→      isEdit ? expense!.id : undefined
+   975→   975→    );
+   976→   976→  }
+   977→   977→
+   978→   978→  return (
+   979→   979→    <>
+   980→   980→      <SheetHeader className="px-6 pt-6 pb-2">
+   981→   981→        <SheetTitle className="flex items-center gap-2 text-xl">
+   982→   982→          <PencilLine className="h-5 w-5 text-primary" />
+   983→   983→          {isEdit ? "Edit Expense" : "Add Expense"}
+   984→   984→        </SheetTitle>
+   985→   985→        <SheetDescription>
+   986→   986→          {isEdit
+   987→   987→            ? "Update the details of this expense."
+   988→   988→            : "Record a new operational expense. It will be visible immediately."}
+   989→   989→        </SheetDescription>
+   990→   990→      </SheetHeader>
+   991→   991→
+   992→   992→      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 no-scrollbar">
+   993→   993→        <GlassInput
+   994→   994→          label="Item"
+   995→   995→          placeholder="e.g. Monthly groceries"
+   996→   996→          value={title}
+   997→   997→          onChange={(e) => setTitle(e.target.value)}
+   998→   998→          error={errors.title}
+   999→   999→          icon={<Receipt />}
+  1000→  1000→        />
+  1001→  1001→
+  1002→  1002→        <div className="space-y-1.5">
+  1003→  1003→          <label className="text-xs font-medium text-muted-foreground ml-1">
+  1004→  1004→            Category
+  1005→  1005→          </label>
+  1006→  1006→          <Select
+  1007→  1007→            value={category}
+  1008→  1008→            onValueChange={(v) => setCategory(v as ExpenseCategory)}
+  1009→  1009→          >
+  1010→  1010→            <SelectTrigger className="w-full h-11 rounded-2xl">
+  1011→  1011→              <SelectValue />
+  1012→  1012→            </SelectTrigger>
+  1013→  1013→            <SelectContent>
+  1014→  1014→              {CATEGORY_ORDER.map((c) => (
+  1015→  1015→                <SelectItem key={c} value={c}>
+  1016→  1016→                  {CATEGORY_META[c].label}
+  1017→  1017→                </SelectItem>
+  1018→  1018→              ))}
+  1019→  1019→            </SelectContent>
+  1020→  1020→          </Select>
+  1021→  1021→          {category === "CUSTOM" && (
+  1022→  1022→            <GlassInput
+  1023→  1023→              placeholder="Enter custom category name…"
+  1024→  1024→              value={customCategory}
+  1025→  1025→              onChange={(e) => setCustomCategory(e.target.value)}
+  1026→  1026→              error={errors.customCategory}
+  1027→  1027→              icon={<PencilLine className="h-4 w-4" />}
+  1028→  1028→            />
+  1029→  1029→          )}
+  1030→  1030→        </div>
+  1031→  1031→
+  1032→  1032→        <div className="grid grid-cols-2 gap-3">
+  1033→  1033→          <GlassInput
+  1034→  1034→            label="Quantity"
+  1035→  1035→            type="number"
+  1036→  1036→            inputMode="decimal"
+  1037→  1037→            placeholder="0"
+  1038→  1038→            value={quantity}
+  1039→  1039→            onChange={(e) => setQuantity(e.target.value)}
+  1040→  1040→            error={errors.quantity}
+  1041→  1041→          />
+  1042→  1042→          <div className="space-y-1.5">
+  1043→  1043→            <label className="text-xs font-medium text-muted-foreground ml-1">
+  1044→  1044→              Unit
+  1045→  1045→            </label>
+  1046→  1046→            <Select value={unit} onValueChange={(v) => setUnit(v)}>
+  1047→  1047→              <SelectTrigger className="w-full h-11 rounded-2xl">
+  1048→  1048→                <SelectValue />
+  1049→  1049→              </SelectTrigger>
+  1050→  1050→              <SelectContent>
+  1051→  1051→                {UNIT_OPTIONS.map((u) => (
+  1052→  1052→                  <SelectItem key={u} value={u}>
+  1053→  1053→                    {u}
+  1054→  1054→                  </SelectItem>
+  1055→  1055→                ))}
+  1056→  1056→                <SelectItem value="CUSTOM">Custom</SelectItem>
+  1057→  1057→              </SelectContent>
+  1058→  1058→            </Select>
+  1059→  1059→            {unit === "CUSTOM" && (
+  1060→  1060→              <GlassInput
+  1061→  1061→                placeholder="Enter custom unit…"
+  1062→  1062→                value={customUnit}
+  1063→  1063→                onChange={(e) => setCustomUnit(e.target.value)}
+  1064→  1064→                error={errors.customUnit}
+  1065→  1065→                icon={<PencilLine className="h-4 w-4" />}
+  1066→  1066→              />
+  1067→  1067→            )}
+  1068→  1068→          </div>
+  1069→  1069→        </div>
+  1070→  1070→
+  1071→  1071→        <GlassInput
+  1072→  1072→          label="Cost (₹)"
+  1073→  1073→          type="number"
+  1074→  1074→          inputMode="decimal"
+  1075→  1075→          placeholder="0.00"
+  1076→  1076→          value={amount}
+  1077→  1077→          onChange={(e) => setAmount(e.target.value)}
+  1078→  1078→          error={errors.amount}
+  1079→  1079→          icon={<IndianRupee />}
+  1080→  1080→        />
+  1081→  1081→
+  1082→  1082→        <div className="space-y-1.5">
+  1083→  1083→          <label className="text-xs font-medium text-muted-foreground ml-1">
+  1084→  1084→            Date
+  1085→  1085→          </label>
+  1086→  1086→          <GlassInput
+  1087→  1087→            type="date"
+  1088→  1088→            value={date}
+  1089→  1089→            onChange={(e) => setDate(e.target.value)}
+  1090→  1090→            error={errors.date}
+  1091→  1091→            icon={<Calendar />}
+  1092→  1092→          />
+  1093→  1093→        </div>
+  1094→  1094→
+  1095→  1095→        <GlassTextarea
+  1096→  1096→          label="Notes (optional)"
+  1097→  1097→          placeholder="Add any notes about this expense…"
+  1098→  1098→          value={description}
+  1099→  1099→          onChange={(e) => setDescription(e.target.value)}
+  1100→  1100→          rows={3}
+  1101→  1101→        />
+  1102→  1102→      </div>
+  1103→  1103→
+  1104→  1104→      <SheetFooter className="px-6 py-4 border-t border-border/40 flex-row gap-2">
+  1105→  1105→        <GlassButton variant="ghost" className="flex-1" onClick={onCancel}>
+  1106→  1106→          Cancel
+  1107→  1107→        </GlassButton>
+  1108→  1108→        <GlassButton
+  1109→  1109→          className="flex-1"
+  1110→  1110→          onClick={handleSubmit}
+  1111→  1111→          loading={loading}
+  1112→  1112→        >
+  1113→  1113→          {isEdit ? (
+  1114→  1114→            <PencilLine className="h-4 w-4" />
+  1115→  1115→          ) : (
+  1116→  1116→            <Plus className="h-4 w-4" />
+  1117→  1117→          )}
+  1118→  1118→          {isEdit ? "Save Changes" : "Add Expense"}
+  1119→  1119→        </GlassButton>
+  1120→  1120→      </SheetFooter>
+  1121→  1121→    </>
+  1122→  1122→  );
+  1123→  1123→}
+  1124→  1124→
+  1125→  1125→// ─────────────────────────────────────────────────────────────
+  1126→  1126→// Helpers
+  1127→  1127→// ─────────────────────────────────────────────────────────────
+  1128→  1128→

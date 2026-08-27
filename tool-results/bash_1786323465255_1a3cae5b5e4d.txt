@@ -1,0 +1,701 @@
+Edits to `src/components/features/auth/profile-view.tsx`:
+- Loading skeleton: `<div className="grid md:grid-cols-2 gap-4">` → `grid grid-cols-1 gap-4`.
+- `<StaggerGroup className="space-y-4 md:space-y-6 pb-6">` → `space-y-4 pb-6`.
+- Profile header GlassCard `className="p-6 md:p-8 relative overflow-hidden"` → `p-6 relative overflow-hidden`.
+- Header layout `<div className="flex flex-col md:flex-row md:items-center gap-5 md:gap-7">` → `flex flex-col gap-5` (avatar on top, name/badges below, edit button below that — vertical stack).
+- Info column `<div className="flex-1 min-w-0 text-center md:text-left">` → `flex-1 min-w-0 text-center` (text stays centered under the centered avatar).
+- Name `<h2 className="text-2xl md:text-3xl font-bold truncate">` → `text-2xl font-bold truncate` (rule 4).
+- Badges row `<div className="flex items-center gap-2 mt-3 flex-wrap justify-center md:justify-start">` → `justify-center` only (paired with text-center above for the centered mobile layout).
+- Quick action cards `<div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">` → `grid grid-cols-1 gap-3` (3 cards stack vertically).
+- Info cards `<div className="grid md:grid-cols-2 gap-4">` → `grid grid-cols-1 gap-4` (Contact + Preferences stack).
+- Sign out card `<GlassCard className="p-4 md:p-5" hover={false}>` → `p-4`.
+- AvatarUpload wrapper `className="relative shrink-0 mx-auto md:mx-0"` → `relative shrink-0 mx-auto` (avatar stays centered, drops the md:mx-0 that left-aligned it in the old horizontal layout).
+- `<Avatar className="relative h-24 w-24 md:h-28 md:w-28 rounded-3xl">` → `relative h-24 w-24 rounded-3xl` (rule 6: responsive widths).
+- AvatarFallback `"rounded-3xl bg-gradient-to-br text-white font-bold text-2xl md:text-3xl"` → `text-2xl` only (rule 4).
+- QuickActionCard `<GlassCard className="p-4 md:p-5 h-full" hover>` → `p-4 h-full`.
+- InfoCard `<GlassCard className="p-4 md:p-6" hover={false}>` → `p-4` (rule 3).
+- Left unchanged: SheetContent `sm:max-w-md` on SessionsSheet (line 1449 — it's an overlay/sheet, not inside the AppShell container; rule 8 says max-w-* on dialogs/sheets is fine; `sm:max-w-md` provides the right behavior: full-width on mobile viewport, capped at 448px on tablet/desktop — matches the app's centered max-w-md design).
+
+Edits to `src/components/features/personalization/personalization-view.tsx`:
+- Loading skeleton `<div className="grid md:grid-cols-2 gap-4">` → `grid grid-cols-1 gap-4`.
+- `<StaggerGroup className="space-y-4 md:space-y-6 pb-6">` → `space-y-4 pb-6`.
+- Header GlassCard `className="p-5 md:p-7"` → `p-5`.
+- Header layout `<div className="flex flex-col md:flex-row md:items-center justify-between gap-4">` → `flex flex-col justify-between gap-4`.
+- Title `<h2 className="text-xl md:text-2xl font-bold">` → `text-xl font-bold` (rule 4).
+- Main 2-col layout `<div className="grid lg:grid-cols-2 gap-4 md:gap-6">` → `grid grid-cols-1 gap-4` (rule 1: Controls and Live Preview stack vertically).
+- Both left/right column wrappers `<div className="space-y-4 md:space-y-6">` → `space-y-4` (two instances, both updated).
+- Three GlassCards in the Controls column (`Preset Themes`, `Custom Colors`, `Corner Radius`) `className="p-5 md:p-6"` → `p-5` (rule 3).
+- Live Preview GlassCard `className="p-5 md:p-6 sticky top-24"` → `p-5 sticky top-24` (kept the sticky positioning since the preview now scrolls below the controls — still useful for the preview to stick while scrolling through controls).
+- Left unchanged: `grid grid-cols-2 gap-3` for PRESETS (8 preset theme cards in a 2-col grid — fits 448px), `grid grid-cols-5 gap-2` for RADIUS_OPTIONS (5 small radius buttons — fits), the mini-app preview's internal `grid grid-cols-2 gap-2` and `grid grid-cols-3 gap-2` (color swatches — fits).
+
+Edits to `src/components/features/auth/auth-screen.tsx` (rule 9 special case — NOT inside AppShell):
+- Outer container `<div className="w-full max-w-5xl grid lg:grid-cols-2 gap-6 items-center">` → `<div className="w-full max-w-md mx-auto flex flex-col gap-6 items-center">` (single-column centered mobile layout — drops the 2-col split entirely, matches AppShell's max-w-md constraint).
+- Hero motion.div `className="hidden lg:flex flex-col gap-6 p-8"` → `className="hidden flex-col gap-6 p-8"` (rule 5: keep mobile version — hero is now always hidden, since stacking it above the form would push the form below the fold on a 448px-wide centered app). The hero's source content is preserved (not deleted) per the "don't change content/text" rule; it's just `display:none`.
+- Form GlassCard `className="p-6 md:p-8"` → `p-6` (rule 3).
+- Mobile brand block `<div className="lg:hidden flex items-center gap-3 mb-6">` → `<div className="flex items-center gap-3 mb-6">` (rule 5: remove `lg:hidden` so the mobile brand is ALWAYS visible — needed now that the hero is hidden everywhere; otherwise the form would have no BoardOps branding at all).
+
+Verification:
+- `cd /home/z/my-project && bun run lint` → 0 errors, 1 pre-existing informational warning in variables-view.tsx (`react-hooks/incompatible-library` on `form.watch` — unrelated, predates this task, called out as acceptable in the task spec).
+- `grep -n "md:|lg:|sm:"` on all 5 edited files → 0 matches in 4 files; the only remaining match is `sm:max-w-md` on the SessionsSheet in profile-view.tsx (intentionally preserved per rule 8 — Sheet is an overlay).
+- Dev server was already running (port 3000, shared with prior tasks). After the edits, `curl http://localhost:3000/` → 200 with `compile: 60ms, render: 277ms` (no compile errors, no runtime errors). dev.log tail shows only healthy `GET / 200`, `GET /api/... 200` lines — no errors, no warnings, no "Module not found" or "Unhandled Runtime Error".
+- Did NOT touch: any component logic, state, mutations, queries, actual content/text, icon sizes, color classes, animation classes, any `safe-top`/`safe-bottom`/`safe-x` classes, any other files outside the 5 listed.
+
+Stage Summary:
+- All 5 views (settings, variables, profile, personalization, auth) now use mobile-first layout classes only. On any viewport (phone/tablet/desktop), they render in a single centered column capped at max-w-md (448px) by the AppShell — no dual-layout branches, no `md:`/`lg:` breakpoint transitions, no desktop sidebar remnants.
+- KPI/stats grids collapse to 2 columns (variables) or 1 column (profile quick-action cards, info cards; personalization controls + preview stack). Form input pairs that fit in 448px (Phone+Room, Theme+Language, Unit+Category, Category+Type) stay 2-col for compactness.
+- Profile header is now a centered vertical stack: avatar (24×24, centered) → name + email + badges (text-center, justify-center) → Edit Profile button. Avatar size locked at h-24 w-24 (was md:h-28 md:w-28 on desktop). Initials font-size locked at text-2xl (was md:text-3xl).
+- Personalization page: Controls (Preset Themes / Custom Colors / Corner Radius) stack on top; Live Preview is below (sticky top-24 preserved so it stays visible while scrolling the controls section). All padding normalized to p-5 (was md:p-6 / md:p-7).
+- Auth screen: container is now `w-full max-w-md mx-auto flex flex-col gap-6 items-center`. The desktop hero/branding motion.div is `hidden` (always — its source content preserved for if someone re-enables it later). The compact mobile brand block (BoardOps logo + name + tagline) is now always visible above the GlassNav tabs and form. Form GlassCard padding locked at p-6 (was md:p-8).
+- Variables view: Accordion content cards now stack 1-per-row (was 2-per-row at lg). Search + Type filter + Category filter all stack full-width (was md:flex-row with 44-width selects). KPI stats grid stays 2×2 (was 1×4 at md+).
+- Settings view: Each SettingRow is now a vertical stack (input/textarea/switch on top, full-width Save button below). The Save button is `w-full` so it spans the row regardless of dirty state (was `md:w-32` fixed-width on desktop, content-width on mobile — the latter looked awkward as a tiny left-aligned button below the input).
+- SessionsSheet in profile-view retains its `sm:max-w-md` — appropriate because Sheets are overlays not constrained by AppShell, and `sm:max-w-md` gives full-width on phone + 448px cap on tablet/desktop (matching the app's centered design).
+- Lint clean (0 errors). Dev server healthy, no compile errors. Only 5 specified files were modified.
+
+---
+Task ID: DYNAMIC-GRIDS
+Agent: dynamic-grids-agent
+Task: Replace all fixed grid-cols-2/3 KPI and content grids with auto-fit utility classes (.grid-kpi / .grid-cards)
+
+Work Log:
+- Read worklog.md tail for recent context (MOBILE-FIRST-A/B/C — app container was max-w-md (448px), now widened to max-w-6xl (1152px) per the new AppShell change). All KPI/content grids from the mobile-first task were locked to fixed 2/3 columns — they need to dynamically add columns now that there's much more horizontal space on tablet/desktop.
+- Verified the 3 new utility classes exist in `/home/z/my-project/src/app/globals.css` (lines 344-356): `.grid-kpi` (minmax 150px), `.grid-cards` (minmax 280px), `.grid-cards-sm` (minmax 220px) — all `repeat(auto-fit, minmax(min(Npx, 100%), 1fr))`.
+- Ran `rg "grid grid-cols-[123] gap-[34]"` against `src/components/features/` to enumerate every fixed grid that matched the patterns. Found 39 matches across 12 files. Then read each match with surrounding context (12-30 lines around each) to classify it as: (a) KPI grid (contains KpiCard/StatCard or motion.button cards with icon+number+label), (b) content card grid (contains MealCard/MealConfigCard/VariableCard/QuickActionCard/InfoCard or layout grids), (c) form field grid (contains GlassInput/Select/Textarea), or (d) small UI element grid (PRESETS theme swatches, RADIUS_OPTIONS, mini-app preview color swatches).
+- Loaded-skeleton grids were classified by what they mirror (e.g. the kitchen skeleton's 3-col grid mirrors the KpiCard grid → use .grid-kpi; the 6-card content skeleton mirrors MealCard grid → use .grid-cards).
+
+Edits to `src/components/features/dashboard/dashboard-view.tsx`:
+- Loading skeleton KPI grid `grid grid-cols-2 gap-3` → `grid-kpi gap-3` (line 63).
+- Loading skeleton content grid `grid grid-cols-1 gap-4` → `grid-cards gap-4` (line 68 — mirrors Recent Activity).
+- KPI grid (motion.button cards, isAdmin 4-KPI / non-admin 4-KPI) `grid grid-cols-2 gap-3` → `grid-kpi gap-3` (line 110).
+
+Edits to `src/components/features/billing/billing-view.tsx`:
+- Loading skeleton KPI grid `grid grid-cols-2 gap-3` → `grid-kpi gap-3` (line 371).
+- KPI grid (Total Billed / Total Received / Pending / Refunded KpiCards) `grid grid-cols-2 gap-3` → `grid-kpi gap-3` (line 448).
+- Left unchanged: line 624 `grid grid-cols-2 gap-3` containing Month + Year Selects (form field grid).
+
+Edits to `src/components/features/billing/payments-view.tsx`:
+- Loading skeleton KPI grid `grid grid-cols-2 gap-3` → `grid-kpi gap-3` (line 456).
+- KPI grid (Total Approved / Pending / Rejected / Today KpiCards) `grid grid-cols-2 gap-3` → `grid-kpi gap-3` (line 535).
+
+Edits to `src/components/features/billing/expenses-view.tsx`:
+- Loading skeleton KPI grid `grid grid-cols-2 gap-3` → `grid-kpi gap-3` (line 411).
+- KPI grid (Total Expenses / Total Entries KpiCards) `grid grid-cols-2 gap-3` → `grid-kpi gap-3` (line 489).
+- Left unchanged: line 1155 `grid grid-cols-2 gap-3` containing Quantity + Unit GlassInput/Select (form field grid).
+
+Edits to `src/components/features/users/users-view.tsx`:
+- KPI grid (Total Users / Active / Pending Approval / Suspended KpiCards) `grid grid-cols-2 gap-3` → `grid-kpi gap-3` (line 410).
+- Left unchanged: line 605 `grid grid-cols-2 gap-3` containing Email + Phone GlassInputs (form field grid), line 620 `grid grid-cols-2 gap-3` containing Room + Gender GlassInput/Select (form field grid).
+
+Edits to `src/components/features/kitchen/kitchen-view.tsx`:
+- KPI grid (Total Meals / Guests / Meals OFF KpiCards) `grid grid-cols-3 gap-3` → `grid-kpi gap-3` (line 172).
+- Per-meal content card grid (MealCard components) `grid grid-cols-1 gap-3` → `grid-cards gap-3` (line 220).
+- KitchenSkeleton KPI grid `grid grid-cols-3 gap-3` → `grid-kpi gap-3` (line 402 — mirrors the KPI grid).
+- KitchenSkeleton content card grid `grid grid-cols-1 gap-3` → `grid-cards gap-3` (line 408 — mirrors the MealCard grid).
+
+Edits to `src/components/features/variables/variables-view.tsx`:
+- Stats bar KPI grid (StatCard: Total / System / Custom / Active) `grid grid-cols-2 gap-3` → `grid-kpi gap-3` (line 278).
+- AccordionContent variable card grid (VariableCard) `grid grid-cols-1 gap-3 pb-3 pt-1` → `grid-cards gap-3 pb-3 pt-1` (line 408 — kept the `pb-3 pt-1` classes).
+- VariablesSkeleton stats grid `grid grid-cols-2 gap-3` → `grid-kpi gap-3` (line 929 — mirrors the stats bar).
+- Left unchanged: line 851 `grid grid-cols-2 gap-3` containing Unit + Category GlassInput/Select (form field grid).
+
+Edits to `src/components/features/meals/meals-config-view.tsx`:
+- ConfigSkeleton meal card grid `grid grid-cols-1 gap-4` → `grid-cards gap-4` (line 791 — mirrors the MealConfigCard list).
+- Main meal config cards list `StaggerGroup className="grid grid-cols-1 gap-4"` → `grid-cards gap-4` (line 1105).
+- Left unchanged: 5 form field grids (line 318 Identity section with GlassInput, line 420 Type + status with Select, line 459 Times with GlassInput, line 480 Cutoff with Select, line 539 Defaults with Switch).
+- Left unchanged: line 361 `grid grid-cols-8 gap-1.5` (time slot picker — 8-col small UI grid, not in scope).
+
+Edits to `src/components/features/auth/profile-view.tsx`:
+- Loading skeleton content grid `grid grid-cols-1 gap-4` → `grid-cards gap-4` (line 228 — mirrors Info Cards).
+- Quick action cards grid (QuickActionCard: Change Password / Sessions / etc.) `grid grid-cols-1 gap-3` → `grid-cards gap-3` (line 300).
+- Info Cards grid (InfoCard: Contact + Preferences) `grid grid-cols-1 gap-4` → `grid-cards gap-4` (line 331).
+- Left unchanged: line 758 `grid grid-cols-2 gap-3` containing Phone + Room GlassInputs (form field grid), line 792 `grid grid-cols-2 gap-3` containing Theme + Language Selects (form field grid).
+
+Edits to `src/components/features/personalization/personalization-view.tsx`:
+- Loading skeleton content grid `grid grid-cols-1 gap-4` → `grid-cards gap-4` (line 137 — mirrors the main Controls + Preview layout).
+- Main layout grid (Controls left + Live Preview right) `grid grid-cols-1 gap-4` → `grid-cards gap-4` (line 176 — on desktop the 280px minmax will let Controls and Preview sit side-by-side again at ~576px each inside the 1152px container).
+- Left unchanged: line 186 `grid grid-cols-2 gap-3` (PRESETS theme cards — 8 small color swatch + name cards, preserved per MOBILE-FIRST-C; conservative call since these are inside the Controls column which itself auto-fits, and 2-col still reads cleanly), line 258 `grid grid-cols-5 gap-2` (RADIUS_OPTIONS — 5 small radius buttons), line 346 `grid grid-cols-2 gap-2` (mini-app preview KPI swatches — demo UI), line 433 `grid grid-cols-3 gap-2` (color swatches — small UI elements).
+
+Edits to `src/components/features/settings/settings-view.tsx`:
+- No edits — the only fixed grid in this file is line 498 (Category + Type Selects — form field grid). Verified by `rg "grid grid-cols" settings-view.tsx` → single match, kept as-is.
+
+Edits to `src/components/features/notifications/notifications-view.tsx`:
+- No edits — `rg "grid grid-cols" notifications-view.tsx` returned 0 matches. No fixed grids in this file.
+
+Final verification grep — `rg "grid grid-cols-[123] gap-[34]" src/components/features/` now returns only 14 matches, all of which are intentionally-preserved form field grids (GlassInput/Select pairs) or the personalization PRESETS grid. Specifically:
+- 8 form field grids: expenses-view.tsx:1155 (Quantity+Unit), billing-view.tsx:624 (Month+Year), settings-view.tsx:498 (Category+Type), variables-view.tsx:851 (Unit+Category), meals-config-view.tsx:318/420/459/480/539 (5 form sections), profile-view.tsx:758 (Phone+Room), profile-view.tsx:792 (Theme+Language), users-view.tsx:605 (Email+Phone), users-view.tsx:620 (Room+Gender).
+- 1 preserved small UI grid: personalization-view.tsx:186 (PRESETS theme cards).
+
+Verification:
+- `cd /home/z/my-project && bun run lint` → 0 errors, 1 pre-existing warning in variables-view.tsx (`react-hooks/incompatible-library` on `form.watch` at line 734 — pre-existing, called out as acceptable in the task spec).
+- `tail -25 dev.log` → healthy dev server: multiple `✓ Compiled in <X>ms` lines and `GET /api/... 200` lines (users / notifications / kitchen / dashboard / payments / expenses). No compile errors, no runtime errors. All 11 edited files hot-reloaded cleanly.
+- Did NOT modify: globals.css (already had the 3 new utility classes — verified), any API routes, any layout components, any component logic, state, mutations, queries, content/text, icon sizes, color classes, animation classes, or any files outside the 12 listed target files.
+
+Stage Summary:
+- All KPI stat grids across the app (dashboard, billing, payments, expenses, users, kitchen, variables) now use `.grid-kpi gap-3` — `repeat(auto-fit, minmax(min(150px, 100%), 1fr))`. On mobile (~375px) → 2 cols; on tablet (~768px) → 3-4 cols; on desktop (1152px container) → 4-6 cols. Each KPI card now dynamically resizes to fill available horizontal space instead of being locked to 2 or 3 columns.
+- All larger content card grids (kitchen MealCard, variables VariableCard, meals-config MealConfigCard, profile QuickActionCard, profile InfoCard) now use `.grid-cards gap-3` or `.grid-cards gap-4` — `repeat(auto-fit, minmax(min(280px, 100%), 1fr))`. On mobile → 1 col; on tablet → 2 cols; on desktop → 3-4 cols. Cards now flow into multiple columns on wider screens instead of stacking vertically.
+- Personalization main layout grid (Controls + Live Preview) now uses `.grid-cards gap-4` — on desktop, Controls and Preview sit side-by-side again at ~576px each (which was the original design intent before the mobile-first task collapsed it to 1 col). On mobile/tablet portrait they stack vertically.
+- All loading skeletons that mirror KPI/content grids were updated to use the same `.grid-kpi` / `.grid-cards` class as their real-grid counterpart, so the loading state matches the final layout (skeleton columns scale with viewport width too).
+- All form field grids (GlassInput/Select/Textarea pairs like Email+Phone, Month+Year, Quantity+Unit, Phone+Room, Theme+Language, Category+Type, Unit+Category) were left as `grid grid-cols-2 gap-3` — form inputs stay side-by-side at 2 columns since they're narrow fields, not auto-sizing cards.
+- Small UI element grids (PRESETS theme swatches, RADIUS_OPTIONS, color swatches, mini-app preview) were left unchanged — they're compact UI elements that already fit cleanly in their containers.
+- File size delta is minimal — each edit only shortened class strings (replacing `grid grid-cols-N` with `grid-kpi`/`grid-cards`), no logic added or removed. No non-target files modified. Lint clean (0 errors). Dev server healthy.
+
+---
+Task ID: OPTIMIZE-UI
+Agent: optimize-ui-agent
+Task: Optimize UI/UX and performance without removing animations/blur/transparency
+
+Work Log:
+- Read worklog.md tail for recent context (DYNAMIC-GRIDS — grid-kpi/grid-cards utility classes already in place; dev server running healthy on port 3000).
+- Audited the 8 specified files for performance issues. Verified `useMemo` is already in place for `kpis`, `filtered`, `filteredUsers`, `sourceBills`/`sourcePayments`/`sourceExpenses` (simple ternaries — stable per render), `totals`, `byCategory`, `kpis` across billing/payments/expenses/users/kitchen. Confirmed TopBar already has `refetchInterval: 30_000` + `staleTime: 10_000` on the unread-count query — no changes needed there.
+
+Edits to `src/components/features/billing/billing-view.tsx`:
+- Import: added `memo`, `useEffect` to the named React imports.
+- Debounced search: split `search` state into `searchInput` (drives the GlassInput) and `search` (the debounced value, 200ms after typing stops, used in the `filtered` useMemo). Added a `useEffect` with `setTimeout`/`clearTimeout`. Prevents re-filtering the list on every keystroke.
+- Bills query: added `placeholderData: (prev) => prev` (stale-while-revalidate — eliminates the flash of empty content when switching months). Destructured `isFetching`.
+- Deleted-bills query: added `placeholderData: (prev) => prev`.
+- Subtle refetch indicator: added a thin `motion.div` (h-0.5, bg-primary/60, animated scaleX from 0→1) wrapped in `AnimatePresence` at the top of the `StaggerGroup`. Shows on every refetch (month change, mutation invalidation) but NOT on initial load (the full skeleton handles that, since `isLoading` is true only on first load with `placeholderData`).
+- Wrapped `BillRow` in `memo(function BillRow(...) { ... })`. Note: inline `onView`/`onVoid`/`onDelete`/`onRestore` arrows in the `.map()` callback create new refs on every render, defeating memo during search-driven re-renders — acknowledged as a known limitation per the task spec (not converting to `useCallback` to avoid overcomplicating). Memo still helps when the parent re-renders for OTHER reasons.
+- Wrapped `BillDetail` in `memo(function BillDetail(...) { ... })` too (rendered inside a Dialog; memoized so it doesn't re-render on parent search/filter changes while open).
+
+Edits to `src/components/features/billing/payments-view.tsx`:
+- Import: added `memo`, `useCallback`, `useEffect`.
+- Debounced search: same `searchInput`/`search` split with 200ms debounce.
+- All three queries (all-payments KPIs, month-filtered payments, deleted-payments queue): added `placeholderData: (prev) => prev`. Destructured `isFetching` from the month-filtered payments query.
+- Subtle refetch indicator: same thin animated `motion.div` at the top of the `StaggerGroup`.
+- Wrapped `PendingRow` and `PaymentRow` in `memo(function ... { ... })`.
+- Wrapped `openEditForm` and `closeEditForm` in `useCallback` with empty deps (they only call stable state setters). They're called from inline arrows in the `.map()` callback AND from the `PaymentEditSheet`'s `onOpenChange`, so the stable refs help avoid re-renders of the sheet body.
+
+Edits to `src/components/features/billing/expenses-view.tsx`:
+- Import: added `memo`, `useCallback`, `useEffect`.
+- Debounced search: same `searchInput`/`search` split with 200ms debounce.
+- Expenses query + deleted-expenses query: added `placeholderData: (prev) => prev`. Destructured `isFetching`.
+- Subtle refetch indicator: same thin animated `motion.div` at the top of the `StaggerGroup`.
+- Wrapped `ExpenseRow` in `memo(function ... { ... })`.
+- Wrapped `openAddForm`, `openEditForm`, `closeForm`, `handleSubmit` in `useCallback`. `handleSubmit` has `[addMutation, editMutation]` deps (the `.mutate` functions are stable per react-query, but listing the mutation objects satisfies `react-hooks/exhaustive-deps`). `openAddForm`/`openEditForm`/`closeForm` have empty deps (only call state setters).
+
+Edits to `src/components/features/users/users-view.tsx`:
+- Import: added `memo`, `useCallback`, `useEffect` (already had `useState`, `useMemo`).
+- Debounced search: same `searchInput`/`search` split with 200ms debounce. IMPORTANT: `search` (the debounced value) is used in the `queryKey: ["users", { search }]` AND in the API params `q: search` — NOT `searchInput`. This means the API refetch is also debounced (only fires 200ms after typing stops), which is the desired behavior — was previously refetching on every keystroke.
+- Destructured `isFetching` from the users query (already had `placeholderData: (prev) => prev`).
+- Subtle refetch indicator: same thin animated `motion.div` at the top of the `StaggerGroup`.
+- Wrapped `UserRow` in `memo(function ... { ... })`.
+- Wrapped `handleAction`, `submitEdit`, `submitConfirm`, `submitAssignRole`, `submitDelete` in `useCallback`. CRITICAL: moved these handlers ABOVE the `if (!isAdmin)` early return so the `useCallback` hooks run unconditionally on every render (rules of hooks — hooks cannot be called conditionally). The handlers don't depend on `isAdmin`, only on stable state setters and the mutation objects, so moving them above the early return is safe.
+  - `handleAction` deps: `[actionMutation, restoreDeletedMutation]` (the `.mutate` functions are stable).
+  - `submitEdit` deps: `[editUser, editForm, editMutation]`.
+  - `submitConfirm` deps: `[confirm, reason, actionMutation]`.
+  - `submitAssignRole` deps: `[assignRole, newRole, assignReason, actionMutation]`.
+  - `submitDelete` deps: `[deleteTarget, deleteReason, deleteMutation]`.
+
+Edits to `src/components/features/dashboard/dashboard-view.tsx`:
+- Added `placeholderData: (prev) => prev` to the dashboard query. Already had `refetchInterval: 30000`. With placeholderData, the existing `if (isLoading || !data)` check now only shows the full skeleton on the very first load (no cached data); subsequent 30s refetches keep the previous data visible (no flash).
+
+Edits to `src/components/features/kitchen/kitchen-view.tsx`:
+- Increased `refetchInterval` from `15_000` to `30_000` (halves the API load while still being responsive for a live kitchen dashboard). Kept `refetchOnWindowFocus: true` (returns to the tab → fresh counts immediately).
+- Added `placeholderData: (prev) => prev` — keeps the previous day's data visible while a new date loads (no flash when navigating between dates). The existing `if (isLoading) return <KitchenSkeleton />` now only shows the skeleton on the very first load (no cached data); date changes show previous data + subtle background refresh.
+
+No changes to:
+- `src/components/layout/app-shell.tsx` — only contains the AnimatePresence page transition wrapper; no queries or list rendering to optimize.
+- `src/components/layout/top-bar.tsx` — already had `refetchInterval: 30_000` + `staleTime: 10_000` on the unread-count query (verified). No list rendering, no row components, no search input.
+
+Verification:
+- `cd /home/z/my-project && bun run lint` → 0 errors, 1 pre-existing warning in `variables-view.tsx` (`react-hooks/incompatible-library` on `form.watch` at line 739 — pre-existing, called out as acceptable in the task spec; NOT in any of the 8 files I edited).
+- `tail -20 dev.log` → healthy dev server: multiple `✓ Compiled in <X>ms` lines and `GET / 200`, `GET /api/dashboard 200`, `GET /api/notifications?unread=true 200` lines. No compile errors, no runtime errors after my edits. (One transient parsing error appeared in the log from a brief intermediate state mid-edit — `Expected ',', got 'const'` — but it was fixed within seconds by closing the `memo(function ... { })` wrappers with `});`, and subsequent compiles succeeded.)
+- Did NOT modify: any CSS, any glass classes, any API routes, any prisma schema, any backend files, any animations (Framer Motion / CSS transitions), any backdrop-filter blur, any transparency/opacity, any visual design, any features or functionality.
+
+Stage Summary:
+- React rendering performance: All 5 row components rendered inside `.map()` loops (`BillRow`, `BillDetail`, `PendingRow`, `PaymentRow`, `ExpenseRow`, `UserRow`) are now wrapped in `React.memo`. When the parent re-renders (e.g., on filter pill change, mutation completion, query refetch), only rows whose props actually changed re-render — the rest skip their render function. Known limitation: inline `onXxx={() => ...}` arrows in the `.map()` callbacks create new function references on every render, defeating memo during search-driven re-renders; per the task spec, NOT converting these to `useCallback` to avoid overcomplicating the code. The debounced search (200ms) means the parent re-renders far less frequently during typing, which is the bigger win.
+- Event handler stability: `openEditForm`, `closeEditForm` (payments-view), `openAddForm`, `openEditForm`, `closeForm`, `handleSubmit` (expenses-view), and `handleAction`, `submitEdit`, `submitConfirm`, `submitAssignRole`, `submitDelete` (users-view) are now wrapped in `useCallback` with proper dependency arrays. The users-view handlers were moved above the `if (!isAdmin)` early return to satisfy the rules of hooks (hooks must be called unconditionally).
+- Query performance: All list-fetching queries (`bills`, `payments` ×3, `expenses` ×2, `dashboard`, `kitchen`, `users`) now use `placeholderData: (prev) => prev` — implementing stale-while-revalidate. Switching months/dates no longer shows a flash of empty content; the previous data stays visible while the new data loads in the background. Kitchen refetch interval doubled from 15s → 30s (halves API load for the live dashboard). TopBar's notification query already had the correct `refetchInterval: 30_000` + `staleTime: 10_000`.
+- UX polish: Search inputs across billing/payments/expenses/users now debounce the actual filter value by 200ms — the user can type freely without the list re-filtering on every keystroke (especially important for large lists of 500+ items). For users-view, the debounce also applies to the API queryKey, so the `/api/users?q=...` request only fires 200ms after typing stops (was firing on every keystroke before). All four list views (billing/payments/expenses/users) now show a subtle thin animated progress bar at the top of the list when `isFetching` is true (refetch in flight) — replaces the previous behavior of showing the full skeleton on every month change. The full skeleton now only shows on the very first load (when `isLoading` is true and there's no cached data), thanks to `placeholderData`.
+- Files modified: 6 of the 8 specified files (billing-view, payments-view, expenses-view, users-view, dashboard-view, kitchen-view). The other 2 (app-shell, top-bar) needed no changes — verified during audit.
+- Net effect: smoother list interactions (no flashing on month/date changes, no per-keystroke re-filtering), fewer API calls (kitchen 30s vs 15s, users debounced query), and fewer React renders (memoized rows, stable callbacks). Zero impact on animations, blur, transparency, or visual design.
+
+---
+Task ID: PAY-REFUND
+Agent: pay-refund-agent
+Task: Add Pay Refund feature — backend refund API + frontend glass card button + dialogs
+
+Work Log:
+- Read worklog.md tail for recent context (DYNAMIC-GRIDS, OPTIMIZE-UI tasks — grid-kpi/grid-cards utilities, debounced search, memoized rows, placeholderData already in place; dev server running healthy on port 3000).
+- Verified the data model and helpers: `Bill` model has `paidAmount`, `totalAmount`, `dueAmount`, `status` (DRAFT | GENERATED | PARTIALLY_PAID | PAID | OVERDUE | VOID | DELETED), `userId`, `user` relation; `Payment` model has `status` (PENDING | APPROVED | REJECTED | REFUNDED | VOID | DELETED), `method` (CASH | UPI | CARD | BANK_TRANSFER | WALLET), `approvedBy`, `billId`. Confirmed `requireRole` (session.ts), `ok`/`err`/`handleApiError` (api-response.ts), `logAudit` (audit.ts), `createNotification` (notify.ts — supports `title`, `description`, `type`, `priority`, `route`) all exist and match the patterns used by the existing `/api/payments/route.ts`. Checked `GlassButton` supports `variant="danger"` + `loading` + `size="lg"`, `GlassInput`/`GlassTextarea` accept `label` (and `GlassInput` accepts `icon` + spreads remaining props to the input element).
+
+Created `/home/z/my-project/src/app/api/payments/refund/route.ts` (new file, ~160 lines):
+- `GET /api/payments/refund` (admin only): queries all non-deleted/non-VOID bills where `paidAmount > totalAmount` using Prisma's field-comparison filter `paidAmount: { gt: db.bill.fields.totalAmount }`. Includes the `user` relation (`id`, `name`, `email`, `avatarUrl`, `room`). Groups by `userId` in a `Map`, summing the credit (`paidAmount - totalAmount`) across all overpaid bills for that user and collecting per-bill details (`id`, `periodMonth`, `periodYear`, `totalAmount`, `paidAmount`, `credit`). Returns an array sorted by `creditAmount` descending.
+- `POST /api/payments/refund` (admin only): validates `{ userId, amount: positive number, billId?: string, notes?: string }` with zod. Looks up the user's bills — either a specific `billId` or all non-VOID/non-DELETED bills ordered by `createdAt desc`. Computes the total credit; if insufficient, returns 422 with `User only has ₹X credit (requested ₹Y)`. Creates a `Payment` record with `method: "REFUND"`, `status: "REFUNDED"`, `reference: "REFUND"`, `approvedBy: admin.id`. Then reduces the bills' `paidAmount` from the most-recent-first (or just the specified billId) until the refund amount is fully consumed, recomputing `dueAmount = max(0, totalAmount - newPaidAmount)` and setting `status` to `PAID` (due===0) / `GENERATED` (paid===0) / `PARTIALLY_PAID`. Sends a HIGH-priority INFO notification to the user (`route: "billing"`) via `createNotification`. Logs `PAYMENT_REFUND` audit entry via `logAudit`. Returns 201 with the created payment.
+- Error handling: all `requireRole` failures (UNAUTHORIZED/FORBIDDEN/ACCOUNT_NOT_ACTIVE) and ZodErrors are caught by `handleApiError`; the credit-insufficient check returns a structured 422 via `err(...)`.
+
+Edits to `/home/z/my-project/src/components/features/billing/payments-view.tsx`:
+- Imports: verified all needed icons/components are already imported — `RotateCcw`, `IndianRupee` (lucide-react), `Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter` (ui/dialog), `Avatar, AvatarFallback` (ui/avatar), `GlassInput, GlassTextarea` (glass/glass-input), `GlassButton`, `StaggerGroup, StaggerItem`, `motion, AnimatePresence`, `cn`, `api`, `toast`, `useMutation`, `useQueryClient`. `gradientFor` and `initials` helpers already defined at module scope. No new imports needed.
+- Added state block after `voidTarget` (lines 265–278): `refundOpen`, `refundUsers` (typed array of `{ userId, name, email, avatarUrl, room, creditAmount }`), `refundLoading`, `refundTarget` (`{ userId, name, creditAmount } | null`), `refundAmount` (string), `refundNotes` (string).
+- Added `fetchRefundUsers` async function and `refundMutation` useMutation after `closeEditForm` (lines 434–468). `fetchRefundUsers` calls `api.get<{ success, data }>("/payments/refund")` and opens the user-list dialog. `refundMutation.mutate` posts `{ userId, amount: parseFloat(refundAmount), notes }` and on success: shows a toast, clears `refundTarget`/`refundAmount`/`refundNotes`, invalidates both `["payments"]` and `["bills"]` query keys, and re-fetches the refund users list so the just-refunded user disappears (or their credit decreases) immediately.
+- Added "Pay Refund" button (lines 584–600) between the month picker and the non-admin action bar — `isAdmin &&` gated, centered via `flex items-center justify-center`, `GlassButton variant="ghost" size="lg"` with `glass text-primary hover:text-primary font-semibold` classes (matches the "Generate Bills" centered transparent glass card style in billing-view). Uses `RotateCcw` icon. `loading={refundLoading}` shows the spinner during the GET fetch.
+- Added two `Dialog`s at the end of the `StaggerGroup` (lines 1003–1097):
+  - User-list dialog (`open={refundOpen && !refundTarget}`): header with `RotateCcw` icon + "Users with Credit Balance" title + description. Empty-state shows "No users have credit balance right now." Otherwise maps `refundUsers` to centered buttons: gradient `AvatarFallback` (initials), name + email (truncated), and right-aligned `₹X credit` badge in success color. Clicking a user sets `refundTarget`, prefills `refundAmount` with the full credit, and opens the confirm dialog.
+  - Confirm/amount dialog (`open={!!refundTarget}`): header shows target name + available credit. Body has `GlassInput` (type=number, IndianRupee icon, label="Refund Amount (₹)") and `GlassTextarea` (label="Notes (optional)"). Footer has Cancel (`variant="ghost"`) + Process Refund (`variant="danger"`, `RotateCcw` icon). The Process button is disabled when amount is empty/≤0 or exceeds available credit. `onOpenChange` clears all three fields on dismiss.
+
+Verification:
+- `cd /home/z/my-project && bun run lint` → 0 errors, 1 pre-existing warning in `variables-view.tsx` (line 739, `react-hooks/incompatible-library` on `form.watch` — pre-existing, called out as acceptable in the OPTIMIZE-UI worklog entry; NOT in any file I edited).
+- `tail -20 dev.log` → healthy dev server: multiple `✓ Compiled in <X>ms` lines (207ms, 101ms, 91ms, 167ms) and `GET /api/notifications?unread=true 200` lines (11–23ms). No compile errors, no runtime errors. The two new files (route.ts and edited payments-view.tsx) hot-reloaded cleanly.
+- Did NOT modify: any other files, the prisma schema, any other API routes, any glass components, any CSS, any animations/blur/transparency, any other features.
+
+Stage Summary:
+- Backend: new `/api/payments/refund` route with GET (list users with credit balance, grouped & summed) and POST (process refund — creates REFUNDED payment record, reduces bill paidAmount across one-or-more bills, recomputes dueAmount/status, sends HIGH-priority notification, logs PAYMENT_REFUND audit). Admin-only via `requireRole("ADMIN")`. Validates input with zod; returns structured 422 if credit is insufficient.
+- Frontend: new "Pay Refund" centered glass card button (admin only) placed between the month picker and the KPIs in `payments-view.tsx`. Clicking opens a user-list dialog showing every user with credit (avatar, name, email, ₹credit badge). Selecting a user opens a confirm dialog with a prefilled amount input (IndianRupee icon) + optional notes textarea + danger-styled Process Refund button (disabled when amount invalid or exceeds credit). On success: toast notification, dialog closes, `["payments"]` and `["bills"]` queries invalidated, refund users list re-fetched so the UI stays in sync.
+- Net effect: admins can now refund excess deposits to overpaying users with full audit trail + user notification, entirely from the Payments section. Reuses all existing glass UI primitives, matches the centered-glass-card-button pattern of "Generate Bills" in billing-view, and respects the existing memoization/debounce/placeholderData architecture. Lint clean (0 errors). Dev server healthy.
+
+---
+Task ID: USER-MEALS
+Agent: user-meals-agent
+Task: Build user-facing Meals page with meal cards + toggle + cutoff validation
+
+Work Log:
+- Read worklog.md tail for recent context (OPTIMIZE-UI, PAY-REFUND tasks — memoized rows, debounced search, placeholderData, glass primitives all in place; dev server running healthy on port 3000).
+- Audited existing infrastructure before writing any code:
+  - `use-app-store.ts`: the `View` type is named `ViewKey` (not `View`); contains a union of 13 view strings. Added `"user-meals"` to the union (between `meals` and `kitchen`).
+  - `nav-config.ts`: imports `UtensilsCrossed` but NOT `Utensils` — added `Utensils` to the lucide-react import. NAV_ITEMS uses a flat array with `view`/`label`/`icon`/`roles`/`primary`/`primaryRoles`/`rail` fields. Added the new item with `primaryRoles: ["USER"]` so it shows on the USER mobile bottom bar (matching how `billing` is set up) while still being accessible to ADMIN via the rail/sidebar. Added `"user-meals": "Meals"` to NAV_LABELS.
+  - `nav-groups.ts`: Workspace group filter is a hardcoded array `["dashboard", "meals", "kitchen"]`. Added `"user-meals"` to that array so the new item lands in the Workspace section alongside the other meal-related views.
+  - `page.tsx`: uses a flat list of `{view === "x" && <XView />}` conditionals (not a switch). Added `{view === "user-meals" && <UserMealsView />}` and the import. Fixed a stray double-brace `}}` that appeared mid-edit.
+  - `/api/meals/entries` route: **CRITICAL DISCOVERY** — the actual response shape differs from the task spec's description. The spec said the endpoint returns `{ success, data: MealEntry[] }` where each entry has a nested `meal` object with `cutoffTime`. The ACTUAL response is `{ success, data: { meals: MealConfiguration[], byDate: Record<string, FlatEntry[]> } }` where (a) entries are grouped by date key, (b) each entry is FLAT (no nested `meal` object — fields are `mealId`/`mealName`/`mealDisplayName`/`mealIcon`/`mealColor`/`startTime`/`endTime`/`mealType`), and (c) entries do NOT include `cutoffTime` (only the top-level `meals` array of raw MealConfiguration objects has `cutoffTime`). Since the task explicitly forbade modifying any API routes or backend files, I adapted the frontend's `queryFn` to normalize the response into the shape the spec's rendering code expects: extract `byDate[dateStr] ?? []`, build a `Map<mealId, MealConfig>` from `r.data.meals`, and map each flat entry into a `MealEntry` with a nested `meal` object (looking up `cutoffTime` from the map). This preserves the spec's intended component code (`entry.meal.displayName`, `entry.meal.cutoffTime`, etc.) without touching the backend.
+  - `/api/meals/toggle` route: confirmed body `{ entryId, status: "ON"|"OFF" }`, returns 422 with a message when the meal is locked/past-cutoff. The frontend's `onError` surfaces `e.message` via toast — matches the API's error envelope (`body?.error` → `ApiError.message`).
+  - `api-client.ts`: `api.get` returns the full `{ success, data }` envelope (callers access `.data`). `api.patch` accepts `(path, data)`. Both confirmed compatible with the spec's usage.
+  - Glass primitives: verified `GlassCard` (supports `glow`/`hover` props), `AnimatedCounter` (accepts `value`), `StaggerGroup`/`StaggerItem` (motion variants), `ShimmerSkeleton` (accepts `className`). All exist and match the spec's usage. `grid-kpi` CSS class exists (auto-fit grid, minmax 150px). `glass-soft`/`glass-strong` classes exist. Color utilities `bg-success`/`text-success`/`bg-warning`/`text-warning`/`bg-destructive`/`text-destructive` all defined via Tailwind v4 theme variables.
+  - `kitchen-view.tsx`: confirmed the date-capsule design pattern (prev/today/next buttons with `glass-strong` round buttons + `glass-soft` capsule center) and the `toDateString(d)` local-time YYYY-MM-DD helper. Reused the same helper in user-meals-view for timezone consistency (the API parses `date` param via `new Date(specificDate)` then `setHours(0,0,0,0)` in local time, so local-time date strings avoid off-by-one drift).
+  - eslint config: `@typescript-eslint/no-unused-vars` and `no-unused-vars` are both OFF, so unused imports won't error. Still removed the unused `GlassButton` import from the spec for cleanliness (the spec imported it but never used it).
+
+Created `/home/z/my-project/src/components/features/meals/user-meals-view.tsx` (new file, ~340 lines):
+- Imports: `useState, useMemo, memo` from react (used `memo` instead of `React.memo` per the task note — cleaner, no need for a default `React` import); `useQuery, useMutation, useQueryClient` from `@tanstack/react-query`; `motion, AnimatePresence` from framer-motion; `toast` from sonner; `format, addDays, isSameDay` from date-fns; 8 lucide icons (`ChevronLeft, ChevronRight, Calendar, RotateCcw, Utensils, Lock, Check, X`); `api` from `@/lib/api-client`; `cn` from `@/lib/utils`; `GlassCard`, `AnimatedCounter`, `StaggerGroup, StaggerItem`, `ShimmerSkeleton` from glass primitives. Deliberately omitted the spec's unused `GlassButton` import.
+- Types: defined `MealConfig`, `FlatEntry` (matches the actual API's flat entry shape), `MealEntry` (normalized with nested `meal` object — the shape the spec's rendering code expects), and `EntriesResponse = { meals: MealConfig[]; byDate: Record<string, FlatEntry[]> }`.
+- Helpers: `toDateString(d)` — local-time YYYY-MM-DD (matches kitchen-view); `to12h(t)` — converts "HH:mm" to "h:mm AM/PM".
+- `UserMealsView` component: date state (`selectedDate`, default `new Date()`), `isToday` derived via `isSameDay`. `dateStr` built via `toDateString`. `useQuery` with key `["user-meals", dateStr]` and `placeholderData: (prev) => prev` (stale-while-revalidate — no flash when navigating between dates, matching the OPTIMIZE-UI convention). `queryFn` normalizes the API response as described above. `toggleMutation` calls `api.patch("/meals/toggle", { entryId, status })`; on success invalidates both `["user-meals"]` and `["kitchen"]` query keys (so the admin kitchen dashboard stays in sync when a user toggles a meal); on error shows a toast with `e.message`. `stats` useMemo computes ON/OFF/Locked counts. Loading skeleton renders a `ShimmerSkeleton` for the date picker + 3 KPI cards.
+- Render: `StaggerGroup` wrapper with 3 `StaggerItem` blocks: (1) date picker capsule (prev/next `motion.button` with `whileTap` scale + center capsule showing "Today"/"d MMM" + "EEE, d MMM yyyy" + reset-to-today `RotateCcw` icon when not today); (2) 3-column KPI grid (Meals ON with success glow + Check icon, Meals OFF with warning glow + X icon, Locked with danger glow + Lock icon — each with `AnimatedCounter`); (3) meal cards list with `AnimatePresence mode="popLayout"` and `motion.div layout` per card for smooth reordering. Empty state shows a centered `Utensils` icon + "No meals configured for this date." message.
+- `MealCard` component (wrapped in `memo`): displays meal icon (emoji in a tinted rounded square using `color-mix(in oklch, ${color} 15%, transparent)`), display name, time range (start–end in 12h format), locked badge if applicable, and a toggle switch (14×8 rounded-full button with a 6×6 white knob that animates position via `motion.span layout` with spring physics). Toggle is disabled when `isLocked || loading`. Status row at the bottom shows "ON"/"OFF"/"🔒 Locked" pill + cutoff time in 12h format (only when not locked and cutoffTime is present).
+
+Verification:
+- `cd /home/z/my-project && bun run lint` → 0 errors, 1 pre-existing warning in `variables-view.tsx` (line 739, `react-hooks/incompatible-library` on `form.watch` — pre-existing, called out in prior worklog entries; NOT in any file I edited).
+- `tail -20 dev.log` → healthy dev server. After my edits: `✓ Compiled in 1225ms` (successful recompile of the new file), `GET / 200`, `GET /api/auth/me 200`, `GET /api/meals/entries?date=2026-06-29 200 in 144ms` (the new UserMealsView mounted and successfully fetched meal entries for today), `GET /api/notifications?unread=true 200`. Two transient 500s on the notifications endpoint appeared mid-session (pre-existing endpoint I did NOT touch) and recovered to 200 immediately. No compile errors, no runtime errors from the new view.
+- Did NOT modify: any API routes, prisma schema, backend files, glass components, CSS, other views, or the command palette (the task scope was limited to 4 nav/store files + 1 new component + page.tsx wiring).
+
+Stage Summary:
+- New "Meals" nav item (`user-meals` view) is now available to both USER and ADMIN roles, appearing in the Workspace group of the sidebar/rail. For USER role it also shows on the mobile bottom bar (via `primaryRoles: ["USER"]`), making it the user's primary way to manage their daily meal status — distinct from the admin-only "Meal Configuration" view (`meals`) which manages meal type definitions.
+- The `UserMealsView` renders a date capsule picker (prev/next/today, matching the kitchen-view design), 3 KPI cards (Meals ON / Meals OFF / Locked with animated counters + colored glass glows), and a list of meal cards. Each meal card shows the meal's emoji icon (tinted with its configured color), display name, service time window, a glass toggle switch, and a status pill + cutoff time. Toggling calls `PATCH /api/meals/toggle` with cutoff validation on the backend; locked meals (past cutoff) show a 🔒 badge and a disabled toggle. The toggle mutation invalidates both `["user-meals"]` (refetches this view) and `["kitchen"]` (refreshes the admin kitchen dashboard counts in the background).
+- Key adaptation: the task spec assumed the `/api/meals/entries` endpoint returns a flat array of entries with a nested `meal` object including `cutoffTime`. The actual API returns `{ meals, byDate }` with flat entries (no nested meal, no cutoffTime on entries). Rather than modifying the backend (forbidden by the task), the frontend's `queryFn` normalizes the response — extracting entries from `byDate[dateStr]` and looking up `cutoffTime` from the `meals` array via a `Map`. This preserves the spec's intended rendering code unchanged while correctly adapting to the real API contract.
+- Architecture consistency: reuses all existing glass UI primitives (`GlassCard`, `AnimatedCounter`, `StaggerGroup`/`StaggerItem`, `ShimmerSkeleton`), the established date-capsule pattern from kitchen-view, the local-time `toDateString` helper (avoids TZ drift), `placeholderData: (prev) => prev` for stale-while-revalidate (no flash on date change), `memo` for the `MealCard` row component (avoids re-rendering unchanged cards when the parent re-renders on toggle), and sonner toasts for error surfacing. Lint clean (0 errors). Dev server healthy with the new view successfully fetching `/api/meals/entries?date=2026-06-29 200`.
+
+---
+Task ID: AV-1 + FUNDS-SORT
+Agent: main (orchestrator)
+Task: Use avatar pictures in all user pills if user updated avatars; then make funds user pills UI/details look like billing page user pills + add All/Due/Paid sort bar.
+
+Work Log:
+- Created shared `src/components/glass/user-avatar.tsx` exporting `UserAvatar` component (renders `AvatarImage` when `avatarUrl` set, else deterministic gradient + initials fallback). Also re-exports `gradientFor` + `initials` helpers.
+- Updated `src/app/api/payments/route.ts` GET: `user` select now includes `room` + `avatarUrl` (was only name+email).
+- Updated `src/app/api/payments/[id]/restore/route.ts`: same select expansion for consistency.
+- Refactored `funds-view.tsx`: replaced inline gradient avatar div with `<UserAvatar>`, removed local AVATAR_GRADIENTS/gradientFor/initials helpers.
+- Refactored `payments-view.tsx`: PaymentRow + refund-dialog user list now use `<UserAvatar>`; removed unused `Avatar`/`AvatarImage`/`AvatarFallback` imports + local gradient/initials helpers; extended `Payment.user` type with `room` + `avatarUrl`.
+- Refactored `kitchen-view.tsx`: user meal status row avatar replaced with `<UserAvatar>` (was a plain `bg-primary/15` div with initials, no image support).
+- Refactored `billing-view.tsx`: BillRow avatar replaced with `<UserAvatar>`; removed local gradient/initials helpers + unused avatar imports.
+- Rewrote `funds-view.tsx` user pills to match billing-view BillRow layout: avatar (h-10 w-10 rounded-xl) on left → name + status badge (Settled/Due/No Bills) on top row → transaction strip with Total/Deposit/Due (all same `text-base font-bold` size, labelled like billing's Total/Paid/Due) → room info row below.
+- Added sort bar to `funds-view.tsx` below the search: horizontal scrollable pills `All / Due / Paid` with count badges (same pattern as payments-view statusFilter). Filter buckets: no-bills & isPaid → PAID; needToPay>0 → DUE.
+- Lint: `bun run lint` passes (0 errors, 1 pre-existing warning in variables-view).
+- Browser self-verification (agent-browser): logged in as admin → Funds page renders month picker, 3 KPIs, search, sort bar (All 5 / Due 4 / Paid 1), 5 user rows. Verified Due filter → 4 rows, Paid filter → 1 row (Priya Sharma). Row content confirmed: "Ananya Iyer / Due / TOTAL ₹4,650 / DEPOSIT ₹0 / DUE ₹4,650 / Room B-201". Paid row: "Priya Sharma / Settled / TOTAL ₹4,650 / DEPOSIT ₹10,300 / DUE ₹0 / Room A-101". Kitchen page shows UserAvatar (initials for users without avatar, image for Priya). Payments + Billing pages render correctly with refactored UserAvatar. No console/runtime errors.
+
+Stage Summary:
+- Shared `UserAvatar` glass component now used consistently across funds, payments (row + refund dialog), kitchen, and billing views — uploaded avatar pictures render everywhere, gradient-initials fallback otherwise.
+- Funds page user pills now match billing page's BillRow aesthetic (avatar + name + status badge + Total/Deposit/Due transaction strip + room row).
+- Funds page has a horizontal scrollable All/Due/Paid sort bar with live count badges.
+- All changes verified end-to-end in the browser with no errors.
+
+---
+Task ID: BILLING-KPI-REFRESH
+Agent: main (orchestrator)
+Task: Remove the Outstanding KPI from billing; make billing KPIs look like meal counts (kitchen) KPIs.
+
+Work Log:
+- Removed the "Outstanding" KpiCard from billing-view (was admin-only, between Total Collected and Overdue Amount).
+- Removed now-unused `TrendingUp` import and `totalOutstanding` from the `kpis` memo (no longer consumed).
+- Restyled `billing-view.tsx` `KpiCard` to match kitchen-view's `KpiCard`:
+  * Added `relative overflow-hidden` + `whileHover={{ y: -2 }}` on the GlassCard.
+  * Added blurred color blob: `absolute -top-8 -right-8 h-24 w-24 rounded-full blur-3xl opacity-30` with `background: colorVar`.
+  * Wrapped content in `relative` div.
+  * Icon tile: `h-10 w-10` → `h-9 w-9 rounded-2xl` (kitchen size), background `color-mix 18%` (was 15%), kept `color: colorVar` so the icon inherits the accent.
+  * Icons: `h-5 w-5` → `h-4 w-4` (kitchen size).
+  * Label: `text-xs` → `text-[11px]` (kitchen size).
+  * Value: kept `text-2xl font-bold tracking-tight tabular-nums` with AnimatedCounter.
+  * Added optional `sub` prop rendered as `text-[10px] text-muted-foreground mt-1` (kitchen pattern).
+- KPI grid: `grid-kpi` (auto-fit) → fixed `grid grid-cols-3` for admin (3 KPIs) / `grid grid-cols-2` for user (2 KPIs). Matches kitchen's fixed 3-col layout.
+- Added sub labels: Total Billed → "All bills" / "Your bills"; Total Collected → "Paid amount"; Overdue Amount → "{n} overdue" / "None overdue".
+- Updated loading skeleton: dynamic KPI count (3 for admin, 2 for user) in matching `grid-cols-3`/`grid-cols-2`.
+- Renamed BillDetail panel label "Outstanding" → "Due" for terminology consistency with the BillRow transaction strip.
+- Lint: `bun run lint` passes (0 errors, 1 pre-existing warning).
+- Browser self-verification (agent-browser): signed in as admin → Billing page renders 3 KPIs: "Total Billed ₹27,900 / All bills", "Total Collected ₹4,650 / Paid amount", "Overdue Amount ₹0 / None overdue". Verified DOM structure matches kitchen: blurred color blob present, icon tile `h-9 w-9 rounded-2xl`, relative wrapper present. No console/runtime errors.
+
+Stage Summary:
+- Billing KPIs now visually match the meal counts (kitchen) KPI aesthetic: glass card + glow + blurred color blob + 9×9 rounded-2xl icon tile + text-[11px] label + text-2xl value + text-[10px] sub + hover lift.
+- Outstanding KPI removed; admin now sees 3 KPIs (Total Billed, Total Collected, Overdue Amount), users see 2 (Total Billed, Overdue Amount).
+- Fixed grid-cols-3/cols-2 layout (was auto-fit) so the KPIs sit in a clean single row like kitchen.
+- Verified end-to-end in the browser with no errors.
+
+---
+Task ID: BILL-REGEN
+Agent: main (orchestrator)
+Task: Make admin able to generate bills multiple times.
+
+Work Log:
+- Root cause: `POST /api/bills` had a guard on line 107 (`if (existing && existing.status !== "DRAFT") continue;`) that skipped any bill already in GENERATED/PARTIALLY_PAID/PAID/OVERDUE status — so once bills were generated, the admin couldn't regenerate them. Additionally, the update branch force-set `status: "GENERATED"`, which would have wrongly reset a PAID/PARTIALLY_PAID bill back to GENERATED.
+- Rewrote `POST /api/bills` in `src/app/api/bills/route.ts`:
+  * Removed the skip-on-non-DRAFT guard — bills can now be regenerated regardless of current status.
+  * Skip only VOID bills (deliberately voided — don't resurrect via generation) and soft-deleted bills (use the restore endpoint instead). Both are counted as `skipped`.
+  * When updating an existing bill: preserve `paidAmount`, recompute `dueAmount = max(0, totalAmount - paidAmount)`, and intelligently recompute status: `paidAmount >= totalAmount` → PAID, `paidAmount > 0` → PARTIALLY_PAID, else GENERATED. No longer force-resets to GENERATED.
+  * Due date: if the admin provides a new one, use it; otherwise keep the existing bill's due date; otherwise default to 10th of next month. (Previously always reset to default or custom.)
+  * Returns detailed counts: `{ generated, created, updated, skipped, month, year }` instead of just `{ generated, month, year }`.
+  * Audit log updated to include `created`, `updated`, `skipped`.
+- Updated `billing-view.tsx` `generateMutation`:
+  * Response type now includes `created`, `updated`, `skipped`.
+  * Toast message now shows breakdown: e.g. "Bills generated — 6 updated for June 2026" or "Bills generated — 1 new, 5 updated · 1 skipped (void/deleted)".
+- Updated Generate Bills dialog description: "Generate or refresh bills for all active residents. Run this anytime — existing bills are re-calculated from current meal entries while payment history is preserved. Voided and deleted bills are skipped."
+- Lint: `bun run lint` passes (0 errors, 1 pre-existing warning).
+- Browser self-verification (agent-browser): signed in as admin → Billing page (June 2026, 6 existing bills) → opened Generate Bills dialog → clicked Generate (1st time, POST 200) → opened dialog again → clicked Generate (2nd time, POST 200). Verified: still 6 bills (no duplicates), Priya Sharma's bill correctly preserved as "Partially Paid" with Paid ₹4,650 / Due ₹3,190 (total recalculated to ₹7,840), other unpaid bills stayed "Generated". No console/runtime errors.
+
+Stage Summary:
+- Admins can now generate bills multiple times for the same period.
+- Regeneration re-calculates meal charges from current meal entries while preserving payment history (paidAmount kept, dueAmount + status intelligently recomputed).
+- VOID and soft-deleted bills are skipped (not resurrected).
+- Due date is preserved on regeneration unless the admin explicitly provides a new one.
+- Detailed toast feedback: created / updated / skipped counts.
+- Verified end-to-end with two consecutive generations — no duplicates, no payment data lost, no errors.
+
+---
+Task ID: KITCHEN-MONTH-TALLY
+Agent: main (orchestrator)
+Task: In Meal Counts → User Meal Status, when admin swipes (expands) a user pill, show "Total Meals Consumed This Month" above the meals list.
+
+Work Log:
+- Clarified with user that bills are correct (per-meal billing based on personal meal consumption) — no billing change made.
+- Extended `GET /api/kitchen` in `src/app/api/kitchen/route.ts`: added `monthConsumed` per user — counts the user's ON+LOCKED MealEntry rows within the selected date's month (reuses the existing `monthEntries` query, zero extra DB calls).
+- Updated `UserMealStatus` type in `kitchen-view.tsx` to include `monthConsumed: number`.
+- Added a "Total Meals Consumed" pill at the top of the expanded user card (above the per-meal list):
+  * Layout: flex row, `rounded-2xl bg-primary/10 ring-1 ring-primary/20`, padding 2.5.
+  * Left: 8×8 primary-tinted icon tile (Utensils icon) + label "Total Meals Consumed" (text-[11px]) + month subtitle (text-[10px], e.g. "Jun 2026") via `format(date, "MMM yyyy")`.
+  * Right: large `text-xl font-bold tabular-nums text-primary` count.
+- Lint: `bun run lint` passes (0 errors, 1 pre-existing warning).
+- Browser self-verification (agent-browser): signed in as admin → Counts page → expanded Priya Sharma → "Total Meals Consumed | Jun 2026 | 58" pill appears above her meal list. Expanded Ananya Iyer → shows "2" (she only has 2 meal entries this month). No console/runtime errors.
+
+Stage Summary:
+- Admin now sees a per-user monthly meal tally at the top of each expanded user card in the Meal Counts → User Meal Status section.
+- Tally reflects actual meal consumption (ON + LOCKED entries) for the selected date's month — matches the same data used by the billing engine.
+- Zero extra DB queries (reuses existing monthEntries); no performance impact.
+- Verified end-to-end in the browser with no errors.
+
+---
+Task ID: KITCHEN-TALLY-VISIBILITY
+Agent: main (orchestrator)
+Task: Fix visibility issue with "Total Meals Consumed Jun 2026 58" pill in kitchen user meal status.
+
+Work Log:
+- Diagnosed with VLM: the count "58" used `text-primary` (bright purple) on `bg-primary/10` (light purple) background → low contrast, number blended into background. VLM rated it "not easy to see".
+- Fixed in `kitchen-view.tsx`: wrapped the count in a solid primary badge — `bg-primary text-primary-foreground` (solid purple background with white text) + `shadow-sm shadow-primary/30` + `min-w-[2.5rem] h-9 rounded-xl`. This guarantees high contrast in both light and dark themes.
+- Also improved label readability: "Total Meals Consumed" changed from `text-muted-foreground` → `text-foreground/80 font-medium` for better contrast against the tinted card.
+- Lint: passes (0 errors, 1 pre-existing warning).
+- VLM re-verification (light mode): 8/10 — "generally visible", "no major visibility problems".
+- VLM re-verification (dark mode): 8/10 — clearly visible.
+- No console/runtime errors.
+
+Stage Summary:
+- The "Total Meals Consumed" count now renders as a solid primary-colored badge with white text (high contrast) instead of low-contrast primary-on-primary-tint text.
+- Verified readable in both light and dark themes via VLM analysis.
+
+---
+Task ID: BILL-NOTIFY
+Agent: main (orchestrator)
+Task: New generated bills should notify the user.
+
+Work Log:
+- Root cause: `POST /api/bills` created/updated bills but never called `createNotification` — users had no way to know their bill was ready or changed.
+- Added `createNotification` import to `src/app/api/bills/route.ts`.
+- Added `MONTHS` helper + `periodLabel` (e.g. "July 2026") for readable notification text.
+- New bills (created branch): notify the user with title "Bill generated", description "Your {periodLabel} bill of ₹{totalAmount} is now available. Due {dueDate}.", type INFO, priority HIGH, route "billing".
+- Updated bills (updated branch): notify only when the total increased (avoids spamming on no-op regenerations and decreases). Title "Bill updated", description "Your {periodLabel} bill increased by ₹{diff} — new total ₹{totalAmount}.", type WARNING, priority HIGH, route "billing".
+- Lint: passes (0 errors, 1 pre-existing warning).
+- Browser self-verification (agent-browser): signed in as admin → Billing → Generate Bills dialog → selected July 2026 → clicked Generate (POST /api/bills 200). Signed out → signed in as Priya Sharma (priya@boardops.io / Resident@123). Notifications bell shows "5 unread". Opened notifications → top entry: "Bill generated | High | Your July 2026 bill of ₹8060 is now available. Due 10 Jul 2026. | 1 minute ago | View". No console/runtime errors.
+
+Stage Summary:
+- Users now receive a notification whenever a new bill is generated for them, with the period, amount, and due date.
+- Users also receive a notification when an existing bill is regenerated with an increased amount (e.g. more meals added after the initial generation). No-op regenerations and decreases are skipped to avoid notification spam.
+- Notifications are HIGH priority + route "billing" so clicking "View" takes the user to the billing page.
+- Verified end-to-end: admin generated July 2026 bills → Priya Sharma received the "Bill generated" notification on her next login.
+
+---
+Task ID: FUNDS-DEPOSIT-FIX
+Agent: main (orchestrator)
+Task: Fix payments and funds total deposit not matching per user (Priya paid ₹10,493 but funds showed ₹18,333).
+
+Work Log:
+- Diagnosed root cause with investigation script: the funds API per-user `deposit` was computed as `billPaid + directDeposit`, which DOUBLE-COUNTED bill-linked payments. `billPaid` (the bill's paidAmount field) is itself derived from the same approved payments, so a payment linked to a bill was counted once in `billPaid` and again in `directDeposit`.
+  - Priya's data: bill 6/2026 paidAmount = ₹7,840 (from ₹4,650 + ₹3,190 linked payments) + direct payments ₹10,493 (all approved payments including the linked ones) = ₹18,333 (the wrong number). Actual correct deposit = ₹10,493.
+- Fixed `GET /api/funds` in `src/app/api/funds/route.ts`:
+  * Per-user `deposit` is now the sum of the user's approved, non-deleted payments created in the selected month — the single source of truth. No more `billPaid + directDeposit`.
+  * This matches the Payments page's "Total Deposit" KPI exactly (both sum approved payments by `createdAt` month).
+  * Also excluded soft-deleted bills from the bills query (`deletedAt: null`) so bills pending permanent deletion don't inflate billTotal/needToPay.
+  * Kept `billTotal` and `needToPay` (bill due) for the transaction strip — these come from the bill records, not payments.
+- Verified with investigation script: funds totalDeposit (June 2026) = ₹10,493, Priya deposit = ₹10,493 (was ₹18,333).
+- Lint: passes (0 errors, 1 pre-existing warning).
+- Browser self-verification (agent-browser):
+  * Payments page → Total Deposit KPI = ₹10,493
+  * Funds page → Total Deposit KPI = ₹10,493 (matches Payments)
+  * Priya row: TOTAL ₹7,840 | DEPOSIT ₹10,493 | DUE ₹0 | Settled ✓
+  * Other users (Ananya, Karan, Rohan, Sneha): DEPOSIT ₹0 (no payments made) ✓
+  * No console/runtime errors.
+
+Stage Summary:
+- Funds page deposit now matches Payments page exactly — both sum approved, non-deleted payments by creation month.
+- Eliminated double-counting of bill-linked payments (the bill's paidAmount is a derived view of the same payments, not a separate money pool).
+- Soft-deleted bills excluded from bill totals.
+- Verified end-to-end: Priya ₹10,493 on both pages; no errors.
+
+---
+Task ID: PAYMENT-SYNC-AUDIT
+Agent: main (orchestrator)
+Task: Cross-check all payment-related logic, ensure all works correctly without bugs and syncs correctly.
+
+Work Log:
+- Audited all payment endpoints: POST /api/payments (create), PATCH /api/payments/[id] (approve/reject), PUT /api/payments/[id] (edit/void), DELETE /api/payments/[id] (soft-delete), POST /api/payments/[id]/restore, POST /api/payments/refund, POST /api/bills (generation), GET /api/funds.
+
+- Found 4 bugs:
+  1. DOUBLE-COUNT on re-approve: PATCH /api/payments/[id] had no idempotency check — re-approving an already-APPROVED payment added its amount to the bill's paidAmount AGAIN. Confirmed with test: 0 → 1000 → 2000 for a single ₹1000 payment.
+  2. MISSING REVERSAL on reject: Rejecting a previously-APPROVED payment did NOT subtract its amount from the bill's paidAmount (the old code only added on APPROVE, never reversed on REJECT).
+  3. MISSING REVERSAL on soft-delete: DELETE /api/payments/[id] marked the payment DELETED but did NOT reverse the bill's paidAmount. The bill still showed the money as paid.
+  4. Refund + recompute conflict: The refund flow manually reduced bill.paidAmount, but a recompute (which only summed APPROVED payments) would have undone the refund reduction.
+
+- Fix: Created `src/lib/bill-sync.ts` exporting `recomputeBillPaidState(billId)` — the single source of truth. It recomputes a bill's paidAmount/dueAmount/status from scratch by summing APPROVED payments (positive) and REFUNDED payments (negative) on that bill. Excludes VOID/REJECTED/DELETED/soft-deleted payments. Clamps paidAmount at >= 0. Preserves VOID/DELETED bill status (only syncs numbers).
+
+- Rewrote all payment status-change endpoints to call recomputeBillPaidState after changing the payment status:
+  * PATCH /api/payments/[id] (approve/reject): added idempotency check (no-op if already in target status) + recompute.
+  * PUT /api/payments/[id] (void): removed manual bill update, now calls recompute.
+  * DELETE /api/payments/[id] (soft-delete): added recompute after marking DELETED.
+  * POST /api/payments/refund: replaced manual paidAmount reduction loop with recompute (REFUNDED payments are negative contributions).
+  * POST /api/bills (generation): added recompute after updating existing bills — defensive sync to catch any drift.
+
+- Ran comprehensive 10-step sync test (test-sync.ts): PENDING→approve→re-approve(idempotent)→second approve→reject→void→re-approve→soft-delete→overpay→refund. ALL 10 PASSED ✓.
+
+- Re-synced all 17 existing bills — all already consistent (no historical drift, only code paths were buggy).
+
+- Lint: passes (0 errors, 1 pre-existing warning).
+
+- Browser self-verification (agent-browser):
+  * Billing page: Priya June 2026 — TOTAL ₹7,840 | PAID ₹7,840 | DUE ₹0 | Paid ✓
+  * Payments page: Total Deposit KPI = ₹10,493 ✓
+  * Funds page: Total Deposit KPI = ₹10,493 (matches Payments) ✓
+  * Funds page: Priya row — TOTAL ₹7,840 | DEPOSIT ₹10,493 | DUE ₹0 | Settled ✓
+  * All three pages agree. No console/runtime errors.
+
+Stage Summary:
+- Created `recomputeBillPaidState` helper — single source of truth for bill paid/due/status derived from APPROVED (+REFUNDED as negative) payments.
+- Fixed 4 bugs: double-count on re-approve, missing reversal on reject, missing reversal on soft-delete, refund/recompute conflict.
+- All payment status changes (approve, reject, void, soft-delete, refund, bill regeneration) now re-sync the linked bill from scratch — no incremental add/subtract, no drift.
+- Idempotency: re-approving an approved payment is a safe no-op.
+- Verified end-to-end with 10-step DB test + browser cross-check across Billing/Payments/Funds pages. All numbers consistent.
+
+---
+Task ID: REFUND-AUTO-FETCH
+Agent: main (orchestrator)
+Task: Pay Refund button not automatically fetching users who may get refunds.
+
+Work Log:
+- Root cause: GET /api/payments/refund used a narrow credit definition — only bills where `paidAmount > totalAmount` (bill-level overpayment). This missed:
+  1. Unlinked approved payments (direct deposits / wallet top-ups with no billId)
+  2. Overpayment across multiple bills (user overpaid one bill but underpaid another)
+  3. Payments for voided/reduced bills
+  Also, future-period bills (e.g. July 2026 generated in advance) were counted against the user, hiding credit they should be able to reclaim.
+
+- Created `src/lib/credit.ts` exporting `getUserCredit(userId)`:
+  * credit = (sum of APPROVED payments) − (sum of totalAmount for current/past-period bills) − (sum of REFUNDED payments)
+  * Excludes VOID, DELETED, soft-deleted bills.
+  * Excludes future-period bills (periodYear*12 + periodMonth > current period) — a user shouldn't be denied a refund just because next month's bill exists.
+  * Clamps credit at >= 0.
+  * Returns breakdown { credit, totalApproved, totalBilled, totalRefunded }.
+
+- Rewrote GET /api/payments/refund: now iterates all ACTIVE users, calls getUserCredit, returns only those with credit > 0. Includes breakdown for transparency.
+
+- Rewrote POST /api/payments/refund: uses getUserCredit for the credit validation check (same calculation as GET). If no billId specified, links the refund to the user's most recent non-void/non-deleted bill for attribution.
+
+- Frontend UX improvements in payments-view.tsx:
+  * Pay Refund button now opens the dialog IMMEDIATELY with a loading skeleton (3 ShimmerSkeletons) instead of waiting for the fetch to complete before opening. Users see instant feedback.
+  * Clears stale refundUsers list on each open so old data doesn't flash.
+  * On fetch error, closes the dialog + shows toast.
+  * Dialog now has 3 states: loading (skeletons), empty ("No users have credit balance right now"), populated (user list).
+
+- Verified with test data: created ₹6,000 unlinked approved payments for Rohan (whose June bill is ₹4,800) → Rohan shows ₹1,200 credit in the refund dialog. Avatar + name + email + ₹1,200 credit all render correctly. Cleaned up test data after.
+
+- Lint: passes (0 errors, 1 pre-existing warning).
+- Browser self-verification: Pay Refund button → dialog opens instantly with loading → populates with Rohan (₹1,200 credit). No console/runtime errors.
+
+Stage Summary:
+- Pay Refund now correctly identifies ALL users with refundable credit, not just bill-level overpayers.
+- Credit = approved payments − (current/past-period) billed − already refunded. Future bills excluded.
+- Dialog opens instantly with loading skeleton, then populates — no more perceived "not fetching" delay.
+- Single source of truth (getUserCredit) used by both GET (list) and POST (validate) endpoints.
+
+---
+Task ID: REFUND-BILL-LINKAGE
+Agent: main (orchestrator)
+Task: When users pay more than billed amount, auto-fetch for refund + fix refund bill linkage.
+
+Work Log:
+- Confirmed the credit calculation (getUserCredit) correctly detects bill-level overpayment: when Rohan pays ₹6,000 on a ₹4,800 bill, credit = ₹1,200 ✓.
+- Found a NEW bug in POST /api/payments/refund: when no billId was specified by the admin, the refund was linked to the user's MOST RECENT bill (by createdAt), NOT the bill with the overpayment. This meant recomputeBillPaidState ran on the wrong bill and didn't reduce the overpaid bill's paidAmount.
+  - Example: Rohan overpaid June 2026 bill (₹6,000 on ₹4,800). The refund was linked to July 2027 (most recent by createdAt). June bill's paidAmount stayed at ₹6,000 instead of dropping to ₹4,800.
+- Fixed POST /api/payments/refund bill-linkage priority:
+  1. Admin-specified billId (if any)
+  2. The bill with the MOST overpayment (paidAmount > totalAmount, sorted by overpay desc) — this is the bill the refund should reduce
+  3. Fallback: most recent non-void, non-deleted bill (for unlinked-payment credit)
+- After the fix, verified end-to-end:
+  * Rohan overpays June bill (₹6,000 on ₹4,800) → appears in refund list with ₹1,200 credit
+  * Admin processes ₹1,200 refund → refund linked to June bill (the overpaid one)
+  * June bill after refund: total ₹4,800, paid ₹4,800 (₹6,000 approved − ₹1,200 refunded), due ₹0, PAID ✓
+  * Refund list auto-refreshes → Rohan removed (credit now ₹0), only Priya remains (₹2,653 unlinked credit)
+- Lint: passes (0 errors, 1 pre-existing warning).
+- Browser self-verification: full flow tested — Pay Refund → dialog shows Rohan (₹1,200) + Priya (₹2,653) → click Rohan → process ₹1,200 refund → toast "Refund of ₹1200 processed — user notified" → dialog auto-refreshes, Rohan gone → bill paidAmount correctly reduced to ₹4,800. No errors.
+
+Stage Summary:
+- Pay Refund now auto-fetches ANY user who paid more than their billed amount (bill-level overpayment OR unlinked excess payments).
+- Refund is correctly linked to the OVERPAID bill (not just the most recent bill), so recomputeBillPaidState reduces the right bill's paidAmount.
+- After refund: bill paidAmount = approved payments − refunded payments = exactly the bill total (no more stuck overpayment).
+- Refund list auto-refreshes after each refund, removing users whose credit is fully consumed.
+- Verified end-to-end with real overpayment scenario.
+
+---
+Task ID: PAYMENTS-REFUND-PENDING-KPI
+Agent: main (orchestrator)
+Task: In payments section, remove the Rejected KPI and make it Refund Pending (showing count of users eligible for refund).
+
+Work Log:
+- Removed the "Rejected" KPI from the payments-view KPI grid (was the 3rd KPI showing count of rejected payments).
+- Added a new "Refund Pending" KPI in its place — shows the count of users who currently have refundable credit (overpaid / unlinked excess payments).
+- Added a TanStack Query `["payments", "refund-users"]` that fetches GET /api/payments/refund on mount (admin only). The query is auto-invalidated by all payment mutations (approve/reject/void/delete/refund) since they invalidate `["payments"]` by prefix, so the KPI count stays in sync in real time.
+- Updated `KpiCard` to accept an optional `onClick` prop — when provided, the card renders as a button (text-left, hover ring + lift) that triggers the handler. The "Refund Pending" KPI is clickable and opens the Pay Refund dialog directly (via `fetchRefundUsers`).
+- KPI styling: Refund Pending uses the `primary` color (purple) + `RotateCcw` icon, consistent with the Pay Refund button's iconography.
+- Removed the now-unused `rejected` field from the `kpis` memo (no longer referenced anywhere).
+- Lint: passes (0 errors, 1 pre-existing warning).
+- Browser self-verification (agent-browser): signed in as admin → Payments page → KPIs show "Total Deposit ₹16,493 | Pending Approvals 0 | Refund Pending 2" (2 = Rohan ₹1,200 + Priya ₹2,653 credit). Clicked the "Refund Pending" KPI → refund dialog opened showing both users with credit. No console/runtime errors. Cleaned up test data after.
+
+Stage Summary:
+- Payments KPIs are now: Total Deposit (₹), Pending Approvals (count), Refund Pending (count of users with refundable credit).
+- The Refund Pending KPI is clickable — opens the Pay Refund dialog directly.
+- KPI count auto-updates in real time whenever payments are approved/rejected/voided/deleted/refunded (TanStack Query invalidation).
+- Verified end-to-end with test data showing count = 2 and click-to-open flow.
+
+---
+Task ID: DFD-PAYMENTS
+Agent: main (orchestrator)
+Task: Generate DFD (Data Flow Diagram) of all payment-related flows (billing, payments, funds, expenses) from user and admin perspective.
+
+Work Log:
+- Used the charts skill (Playwright + CSS rendering engine) to create a comprehensive DFD.
+- Analyzed content structure: 2 actors (User, Admin), 5 data stores (Bills, Payments, Expenses, MealEntries, Notifications), 12 numbered processes across 4 domains (Billing, Payments, Expenses, Funds).
+- Designed a three-column swimlane layout: User lane (left) | Data Stores (center) | Admin lane (right), with domain section dividers (Billing, Payments, Funds, Expenses) in each lane.
+- Created `dfd-payments.html` with:
+  * Title + subtitle explaining the diagram scope.
+  * Legend bar showing shape conventions (entity=amber square, process=blue rounded rect, data store=purple open rect) + role badges (USER/ADMIN/SYSTEM).
+  * User lane: View Bills, Pay Bill, Submit Payment, Receive Notification, (No Access to Funds/Expenses).
+  * Data Stores column: D1 Bills, D2 Payments, D3 Expenses, D4 MealEntries, D5 Notifications — each with key fields.
+  * Admin lane: Generate Bills, Manage Bills, Approve/Reject Payment, Edit/Void/Delete Payment, Process Refund, Add Expense, Manage Expenses, View Funds Dashboard.
+  * Funds aggregation formula box at bottom: Total Deposit (Σ APPROVED) − Total Expenses (Σ Expenses) = Remaining Fund.
+  * Two summary cards: Bill→Payment Flow, Funds & Expense Flow (numbered step-by-step).
+  * Sync rules box explaining recomputeBillPaidState (the single source of truth for bill paid/due/status).
+- Rendered to PNG via Playwright (4000x4440px, 1273KB).
+- VLM verification: 9/10 readability — all text readable, three columns clearly separated, no overlaps, formula renders correctly.
+
+Stage Summary:
+- Comprehensive DFD delivered as `/home/z/my-project/dfd-payments.png` (and source `dfd-payments.html`).
+- Covers all payment-related flows: bill generation → payment submission → approval → refund, plus expenses and funds aggregation.
+- Shows both User and Admin perspectives via swimlane layout with role badges on every process.
+- Includes data store schemas, the funds aggregation formula, and the bill↔payment sync rules.
+
+---
+Task ID: KITCHEN-TOGGLE-READONLY
+Agent: main (orchestrator)
+Task: Re-implement the lost kitchen-view change — show the toggle in ON/OFF state (disabled/read-only) for unlocked meals, with a red "Not clickable" indicator when the admin tries to interact. (Previous session's work was lost when context ran out before saving.)
+
+Work Log:
+- Diagnosed the issue: the previous session was mid-task on the kitchen-view toggle read-only feature when context ran out. The work was never written to the file — `kitchen-view.tsx` still had the old fully-clickable toggle for ALL meals (line 445-472), with no read-only state and no red indicator. Confirmed via `git log` (last 2 commits only touched the DB, not source) and file mtime (Jun 29 18:18).
+- Added `Ban` icon to the lucide-react imports (for the "Not clickable" badge).
+- Added `notClickableHint` state (`useState<string | null>`) keyed by `${userId}_${mealId}` — tracks which read-only toggle the admin just attempted to click, so we can show the red indicator.
+- Rewrote the meal toggle block in `kitchen-view.tsx`:
+  * New `isReadOnly = !isLocked` — unlocked meals (before cutoff) are read-only for the admin; the user can still toggle these themselves. Admin override is only available on LOCKED meals (past cutoff).
+  * Read-only toggle: shows current ON/OFF state (green when ON, gray when OFF) but with `opacity-70`, `cursor-not-allowed`, and a `ring-2 ring-destructive/50` red ring + offset to signal read-only.
+  * Click guard: `onClick` intercepts read-only clicks and sets `notClickableHint` (auto-clears after 1.5s) instead of calling `overrideMutation.mutate`. No `POST /api/meals/override` fires.
+  * Red "Not clickable" indicator appears in two places on attempted click: (1) a red Ban badge on the top-right corner of the toggle (`bg-destructive` circle, animate-in fade+zoom), and (2) a red "Not clickable" text label under the meal name (replaces the muted "Read-only — user can edit" label).
+  * Status labels now always render the row (no conditional wrapper) so the read-only / not-clickable labels have a stable slot. Locked meals show "Locked"; overridden meals show "Overridden"; unlocked meals show "Read-only — user can edit" (muted) which swaps to "Not clickable" (destructive) on click attempt.
+  * Locked meals: unchanged behavior — toggle is clickable, fires `POST /api/meals/override`, shows success toast.
+- Lint: passes (0 errors, 1 pre-existing warning in variables-view.tsx).
+- Browser self-verification (agent-browser): signed in as admin → Counts (Kitchen) page → expanded Ananya Iyer's meal status.
+  * Morning Meal (LOCKED, past cutoff): toggle title = "Toggle Morning Meal — currently ON. Admin can override." Clicked → `POST /api/meals/override 200` → state flipped to OFF, "Locked" + "Overridden" badges shown. Admin override works. ✓
+  * Dinner (UNLOCKED, before cutoff): toggle title = "Dinner — read-only. The user can still change this meal before the cutoff. Admin override is only available after the meal is locked." Label = "Read-only — user can edit" (muted). Red ring on toggle. Clicked → NO override request fired (confirmed in dev.log) → label swapped to red "Not clickable" + red Ban badge appeared on toggle corner. Auto-cleared after 1.5s. ✓
+  * No console/runtime errors.
+
+Stage Summary:
+- Kitchen-view meal toggles now have two distinct modes:
+  - LOCKED meals (past cutoff): admin can override (clickable, fires override API). Unchanged.
+  - UNLOCKED meals (before cutoff): read-only. Toggle shows current ON/OFF state with a red ring + reduced opacity + not-allowed cursor. Clicking shows a red "Not clickable" indicator (Ban badge on toggle + red text label) for 1.5s. No override fires.
+- This prevents admins from overriding meals the user can still control themselves, while keeping admin override available for locked meals (the legitimate use case).
+- Re-implementation complete and verified end-to-end in the browser.
+
+---
+Task ID: PHASE-1-AUTH-OTP
+Agent: full-stack-developer + main (orchestrator) — agent hit turn limit mid-task; main finished verification, bugfix, and commit
+Task: Email OTP verification + Request Changes registration workflow (PRD Module 03 — Authentication & Identity Engine, DEC-015/016/017)
+
+Work Log:
+- Schema: added User fields (institutionName, institutionUserId, emailVerified, emailVerifyToken, emailVerifyExpires, changesRequested, changesRequestReason, changesRequestedAt, changesRequestedBy) + new RegistrationRequest model (cycle, status, fields snapshot, reason, fieldsNeedingCorrection, reviewedBy, reviewedAt) + relation on User. db:push applied.
+- Backend routes (all in src/app/api/auth/ + src/app/api/users/[id]/):
+  * POST /auth/register — validates name/institutionName/institutionUserId/phone/email/password/confirmPassword/room/gender/consents. Checks email+phone+institutionUserId uniqueness. Hashes password, creates User (status=PENDING, emailVerified=false), creates RegistrationRequest (cycle=1, status=PENDING_REVIEW). Generates 6-digit OTP, stores SHA-256 hash + 10-min expiry. Logs OTP to console (dev) + returns devOtp when ?dev=1. Audit log: USER_REGISTER.
+  * POST /auth/send-verification — regenerates OTP for an existing unverified user. Rate-limited by 10-min expiry. Returns devOtp when ?dev=1.
+  * POST /auth/verify-email — validates OTP (SHA-256 compare + expiry check). On success: emailVerified=true, clears token+expiry. Audit log: EMAIL_VERIFIED. Idempotent (re-verify returns ok).
+  * GET /auth/registration-status?email=... — returns {exists, status, emailVerified, name, email, institutionName, institutionUserId, phone, room, gender, changesRequested, changesRequestReason, changesRequestedAt, rejectionReason, cycle, reviewStatus, reviewedAt, submittedAt}. No auth required (lets pending users poll their status without logging in).
+  * POST /auth/resubmit — for users with changesRequested set. Validates + updates the requested fields, clears changesRequested/Reason/At/By, creates a NEW RegistrationRequest (cycle = previous+1, status=PENDING_REVIEW). Notifies all admins. Audit log: USER_RESUBMITTED.
+  * PATCH /users/[id]/request-changes — admin only. Body: {fields: string[], reason: string}. Sets user.changesRequested (JSON) + reason + at + by. Updates latest RegistrationRequest: status=CHANGES_REQUESTED, fieldsNeedingCorrection, reason, reviewedBy, reviewedAt. Notifies user (WARNING, HIGH, route=registration-status). Audit log: USER_REQUEST_CHANGES.
+  * PATCH /users/[id]/reject — admin only. Body: {reason: string}. Sets user.status=ARCHIVED, rejectionReason, deletedAt, deletedBy, deletionReason="Rejected: <reason>". Updates RegistrationRequest: status=REJECTED, reviewedBy, reviewedAt, reason. Notifies user (DANGER, HIGH). Audit log: USER_REJECTED. (Per PRD "Reject & Archive" recommendation — preserves application for audit.)
+  * Existing PATCH /users/[id] APPROVE action: also now updates the latest RegistrationRequest status to APPROVED (reviewedBy, reviewedAt) so the registration history is complete.
+- Login route: now blocks login when !user.emailVerified with "Please verify your email address first" (403). PENDING users still blocked with "Your account is awaiting admin approval". SUSPENDED/ARCHIVED/INACTIVE messages unchanged.
+- Frontend (src/components/features/auth/auth-screen.tsx):
+  * Mode expanded: "login" | "register" | "verify" | "pending".
+  * Register form fields (PRD DEC-016): Full Name *, Institution Name (pre-filled "BoardOps Institute", read-only — single deployment), Institution User ID *, Mobile Number *, Personal Email *, Room Number *, Gender (optional, combobox), Password *, Confirm Password *, 3 consent checkboxes (Institution Rules, Privacy Policy, T&C — all required). Uses shadcn Checkbox + Select.
+  * Verify mode: 6-slot InputOTP (shadcn input-otp) with auto-submit. Shows dev OTP banner when devOtp is present. "Resend code" button calls /auth/send-verification.
+  * Pending mode: "Registration received — Step 3 of 3 — Awaiting Review" screen. Shows email-verified ✓ + review status. Auto-polls GET /auth/registration-status every 10s. When changesRequested is set, renders the admin's reason + a list of fields needing correction + an "Update & Resubmit" form (only the requested fields are editable). On resubmit, calls POST /auth/resubmit and shows cycle progress.
+  * Zod bugfix: gender field used z.enum(["MALE","FEMALE","OTHER"]).optional() which rejected empty string "". Changed to z.union([z.literal(""), z.enum(...)]).optional() on BOTH frontend registerSchema and backend register route schema. This was blocking registration when the user didn't select a gender.
+- Frontend (src/components/features/users/users-view.tsx):
+  * User actions menu (for PENDING users) now has: Edit User, Approve, Request Changes, Reject.
+  * "Request Changes" opens a dialog with: checkboxes for each field (Full Name, Institution User ID, Mobile Number, Email, Room Number, Gender), a mandatory reason textarea, and a confirm button. Calls PATCH /users/[id]/request-changes.
+  * "Reject" opens a confirmation dialog with a mandatory reason textarea. Calls PATCH /users/[id]/reject.
+  * ACTIONS_NEED_REASON array now includes REJECT. REQUEST_CHANGES_FIELDS constant lists the correctable fields.
+  * Users with changesRequested set show a "Changes Requested" indicator on their row.
+- Verification (agent-browser end-to-end):
+  * Registered "Browser Test User" (TIU-BROWSER-002, browsertest2@boardops.io) via the UI → POST /auth/register?dev=1 200 → OTP 310926 returned + logged to console.
+  * Verify Email screen rendered with 6-slot OTP input + dev OTP banner. Entered 310926 → POST /auth/verify-email 200 → "Registration received — Step 3 of 3 — Awaiting Review — Email verified — In review" screen.
+  * Admin (admin@boardops.io) → Users page → saw browsertest2 as Pending + Verified badge → User actions menu → "Request Changes" → selected Institution User ID + Room Number, entered reason → PATCH /users/[id]/request-changes 200 → toast "Changes Requested".
+  * registration-status API confirmed: changesRequested=["institutionUserId","room"], reason set, reviewStatus=CHANGES_REQUESTED.
+  * Resubmit via API: updated institutionUserId + room → cycle incremented to 2, changes cleared, reviewStatus=PENDING_REVIEW.
+  * Admin approve → PATCH /users/[id] action=APPROVE 200 → user status ACTIVE.
+  * Login as browsertest2 → POST /auth/login 200 → token + user object returned. Full flow works end-to-end.
+  * Also tested reject flow on a second user (rejectme@boardops.io): verify-email → reject with reason → status ARCHIVED, reviewStatus REJECTED, login blocked with "Your account is no longer active". Rejection reason visible in registration-status API.
+- Cleanup: removed test users (testphase1, browsertest2, rejectme) + their RegistrationRequests, notifications, sessions, login history from the DB so the demo is clean.
+- Lint: passes (0 errors, 1 pre-existing warning in variables-view.tsx).
+- No console/runtime errors in dev.log throughout the entire flow.
+
+Stage Summary:
+- Email OTP verification + Request Changes registration workflow is LIVE and fully functional.
+- Registration flow: Register → Email OTP → Verify → Pending Review (auto-poll) → [Admin: Approve / Request Changes / Reject] → [User: Resubmit if changes requested] → Approved → Login.
+- All actions create audit logs (USER_REGISTER, EMAIL_VERIFIED, USER_REQUEST_CHANGES, USER_REJECTED, USER_RESUBMITTED, USER_APPROVE) + notifications to the user (and to admins on resubmit).
+- RegistrationRequest model tracks the full review history per user (cycle 1 = first submission, cycle 2 = after resubmit, etc.) — no data lost across review cycles.
+- Files created: src/app/api/auth/{register,send-verification,verify-email,registration-status,resubmit}/route.ts, src/app/api/users/[id]/{request-changes,reject}/route.ts.
+- Files modified: prisma/schema.prisma (User fields + RegistrationRequest model), src/app/api/auth/login/route.ts (emailVerified check), src/app/api/users/[id]/route.ts (APPROVE updates RegistrationRequest), src/components/features/auth/auth-screen.tsx (4 modes + new register form + OTP + pending screen), src/components/features/users/users-view.tsx (Request Changes + Reject dialogs).
+- PRD decisions implemented: DEC-015 (Review → Approve/Reject/Request Changes), DEC-016 (Institution Name + Institution User ID, not Student ID), DEC-017 (no identity document upload).
+
+---
+Task ID: PHASE-2-PURCHASE-ENGINE
+Agent: main (orchestrator)
+Task: Product Catalog + Unit Engine + Purchase Engine (PRD Module: Purchase & Expense Engine)
+
+Work Log:
+- Schema: added 4 new models to prisma/schema.prisma:
+  * Unit (name unique, category WEIGHT|VOLUME|QUANTITY|OTHER, isActive) — configurable units, nothing hardcoded.
+  * Product (name unique, slug unique, category, defaultUnitId FK to Unit, isActive, archivedAt) — reusable catalog items referenced by purchases.

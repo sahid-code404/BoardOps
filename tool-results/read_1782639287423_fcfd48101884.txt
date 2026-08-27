@@ -1,0 +1,922 @@
+     1→"use client";
+     2→
+     3→import { useState, useMemo } from "react";
+     4→import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+     5→import { motion, AnimatePresence } from "framer-motion";
+     6→import { formatDistanceToNow, format } from "date-fns";
+     7→import {
+     8→  Users as UsersIcon,
+     9→  UserCheck,
+    10→  UserPlus,
+    11→  UserX,
+    12→  Search,
+    13→  MoreVertical,
+    14→  CheckCircle2,
+    15→  Ban,
+    16→  Power,
+    17→  Archive,
+    18→  RotateCcw,
+    19→  ShieldCheck,
+    20→  Shield,
+    21→  Trash2,
+    22→  X,
+    23→  Mail,
+    24→  Phone,
+    25→  DoorOpen,
+    26→  Pencil,
+    27→  KeyRound,
+    28→  Eye,
+    29→  EyeOff,
+    30→  Clock,
+    31→  AlertTriangle,
+    32→} from "lucide-react";
+    33→import { api } from "@/lib/api-client";
+    34→import { GlassCard } from "@/components/glass/glass-card";
+    35→import { GlassButton } from "@/components/glass/glass-button";
+    36→import { GlassInput, GlassTextarea } from "@/components/glass/glass-input";
+    37→import { AnimatedCounter } from "@/components/glass/animated-counter";
+    38→import { StaggerGroup, StaggerItem } from "@/components/glass/page-transition";
+    39→import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
+    40→import { Badge } from "@/components/ui/badge";
+    41→import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+    42→import {
+    43→  DropdownMenu,
+    44→  DropdownMenuTrigger,
+    45→  DropdownMenuContent,
+    46→  DropdownMenuItem,
+    47→  DropdownMenuSeparator,
+    48→  DropdownMenuLabel,
+    49→} from "@/components/ui/dropdown-menu";
+    50→import {
+    51→  Dialog,
+    52→  DialogContent,
+    53→  DialogHeader,
+    54→  DialogTitle,
+    55→  DialogDescription,
+    56→  DialogFooter,
+    57→} from "@/components/ui/dialog";
+    58→import {
+    59→  Select,
+    60→  SelectTrigger,
+    61→  SelectValue,
+    62→  SelectContent,
+    63→  SelectItem,
+    64→} from "@/components/ui/select";
+    65→import { useAuthStore, type Role } from "@/stores/use-auth-store";
+    66→import { toast } from "sonner";
+    67→import { cn } from "@/lib/utils";
+    68→import { formatDeletionCountdown } from "@/lib/user-cleanup";
+    69→
+    70→type UserStatus = "PENDING" | "APPROVED" | "ACTIVE" | "INACTIVE" | "SUSPENDED" | "ARCHIVED";
+    71→
+    72→type ManagedUser = {
+    73→  id: string;
+    74→  name: string;
+    75→  email: string;
+    76→  phone?: string | null;
+    77→  role: Role;
+    78→  status: UserStatus;
+    79→  room?: string | null;
+    80→  gender?: string | null;
+    81→  emergencyContact?: string | null;
+    82→  avatarUrl?: string | null;
+    83→  createdAt: string;
+    84→  lastLoginAt?: string | null;
+    85→  deletedAt?: string | null;
+    86→  deletionReason?: string | null;
+    87→};
+    88→
+    89→type Action =
+    90→  | "APPROVE"
+    91→  | "SUSPEND"
+    92→  | "ACTIVATE"
+    93→  | "DEACTIVATE"
+    94→  | "ARCHIVE"
+    95→  | "RESTORE"
+    96→  | "ASSIGN_ROLE"
+    97→  | "EDIT_USER"
+    98→  | "DELETE_USER"
+    99→  | "RESTORE_DELETED";
+   100→
+   101→const STATUS_META: Record<UserStatus, { label: string; className: string }> = {
+   102→  PENDING: { label: "Pending", className: "bg-warning/15 text-warning" },
+   103→  APPROVED: { label: "Approved", className: "bg-success/15 text-success" },
+   104→  ACTIVE: { label: "Active", className: "bg-success/15 text-success" },
+   105→  INACTIVE: { label: "Inactive", className: "bg-muted text-muted-foreground" },
+   106→  SUSPENDED: { label: "Suspended", className: "bg-destructive/15 text-destructive" },
+   107→  ARCHIVED: { label: "Archived", className: "bg-muted text-muted-foreground" },
+   108→};
+   109→
+   110→const ROLE_META: Record<Role, { label: string; className: string }> = {
+   111→  ADMIN: { label: "Admin", className: "bg-primary/15 text-primary" },
+   112→  USER: { label: "Resident", className: "bg-muted text-muted-foreground" },
+   113→};
+   114→
+   115→const STATUS_FILTERS: { key: UserStatus | "ALL" | "DELETED"; label: string; short: string }[] = [
+   116→  { key: "ALL", label: "All", short: "All" },
+   117→  { key: "PENDING", label: "Pending", short: "Pending" },
+   118→  { key: "ACTIVE", label: "Active", short: "Active" },
+   119→  { key: "SUSPENDED", label: "Suspended", short: "Suspended" },
+   120→  { key: "ARCHIVED", label: "Archived", short: "Archived" },
+   121→  { key: "DELETED", label: "Deletion Queue", short: "Deletion Queue" },
+   122→];
+   123→
+   124→const ACTIONS_NEED_REASON: Action[] = ["SUSPEND", "DEACTIVATE", "ARCHIVE"];
+   125→
+   126→async function unwrap<T>(promise: Promise<unknown>): Promise<T> {
+   127→  const res = await promise;
+   128→  if (res && typeof res === "object" && "success" in res && "data" in (res as Record<string, unknown>)) {
+   129→    return (res as { data: T }).data;
+   130→  }
+   131→  return res as T;
+   132→}
+   133→
+   134→function initials(name: string) {
+   135→  return name
+   136→    .split(" ")
+   137→    .filter(Boolean)
+   138→    .slice(0, 2)
+   139→    .map((p) => p[0]?.toUpperCase() ?? "")
+   140→    .join("");
+   141→}
+   142→
+   143→const AVATAR_GRADIENTS = [
+   144→  "from-violet-500 to-fuchsia-500",
+   145→  "from-emerald-500 to-teal-500",
+   146→  "from-amber-500 to-orange-500",
+   147→  "from-rose-500 to-pink-500",
+   148→  "from-cyan-500 to-blue-500",
+   149→  "from-indigo-500 to-purple-500",
+   150→];
+   151→
+   152→function gradientFor(name: string) {
+   153→  const idx = name.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0) % AVATAR_GRADIENTS.length;
+   154→  return AVATAR_GRADIENTS[idx];
+   155→}
+   156→
+   157→export function UsersView() {
+   158→  const role = useAuthStore((s) => s.user?.role);
+   159→  const isAdmin = role === "ADMIN";
+   160→  const qc = useQueryClient();
+   161→  const [search, setSearch] = useState("");
+   162→  const [status, setStatus] = useState<UserStatus | "ALL" | "DELETED">("ALL");
+   163→  const [confirm, setConfirm] = useState<{ user: ManagedUser; action: Action } | null>(null);
+   164→  const [reason, setReason] = useState("");
+   165→  const [assignRole, setAssignRole] = useState<ManagedUser | null>(null);
+   166→  const [newRole, setNewRole] = useState<Role>("USER");
+   167→  const [assignReason, setAssignReason] = useState("");
+   168→  const [editUser, setEditUser] = useState<ManagedUser | null>(null);
+   169→  const [editForm, setEditForm] = useState({
+   170→    name: "",
+   171→    email: "",
+   172→    phone: "",
+   173→    room: "",
+   174→    gender: "",
+   175→    emergencyContact: "",
+   176→    password: "",
+   177→  });
+   178→  const [showPassword, setShowPassword] = useState(false);
+   179→  const [deleteTarget, setDeleteTarget] = useState<ManagedUser | null>(null);
+   180→  const [deleteReason, setDeleteReason] = useState("");
+   181→
+   182→  const { data: users = [], isLoading } = useQuery({
+   183→    queryKey: ["users", { search }],
+   184→    queryFn: () =>
+   185→      unwrap<ManagedUser[]>(
+   186→        api.get("/users", {
+   187→          params: { q: search || undefined },
+   188→        })
+   189→      ),
+   190→    enabled: isAdmin,
+   191→    placeholderData: (prev) => prev,
+   192→  });
+   193→
+   194→  const actionMutation = useMutation({
+   195→    mutationFn: ({ id, action, role: r, reason: rs }: { id: string; action: Action; role?: Role; reason?: string }) =>
+   196→      unwrap<ManagedUser>(api.patch(`/users/${id}`, { action, role: r, reason: rs })),
+   197→    onMutate: async ({ id, action, role: r }) => {
+   198→      await qc.cancelQueries({ queryKey: ["users"] });
+   199→      const prev = qc.getQueryData<ManagedUser[]>(["users", { search, status }]);
+   200→      if (prev) {
+   201→        const next = prev.map((u) => {
+   202→          if (u.id !== id) return u;
+   203→          let nextStatus = u.status;
+   204→          let nextRole = u.role;
+   205→          if (action === "APPROVE" || action === "ACTIVATE" || action === "RESTORE") nextStatus = "ACTIVE";
+   206→          if (action === "SUSPEND") nextStatus = "SUSPENDED";
+   207→          if (action === "DEACTIVATE") nextStatus = "INACTIVE";
+   208→          if (action === "ARCHIVE") nextStatus = "ARCHIVED";
+   209→          if (action === "ASSIGN_ROLE" && r) nextRole = r;
+   210→          return { ...u, status: nextStatus, role: nextRole };
+   211→        });
+   212→        qc.setQueryData<ManagedUser[]>(["users", { search, status }], next);
+   213→      }
+   214→      return { prev };
+   215→    },
+   216→    onError: (_e, _v, ctx) => {
+   217→      if (ctx?.prev) qc.setQueryData(["users", { search, status }], ctx.prev);
+   218→      toast.error("Action failed");
+   219→    },
+   220→    onSuccess: (_u, vars) => {
+   221→      const labels: Record<Action, string> = {
+   222→        APPROVE: "approved",
+   223→        SUSPEND: "suspended",
+   224→        ACTIVATE: "activated",
+   225→        DEACTIVATE: "deactivated",
+   226→        ARCHIVE: "archived",
+   227→        RESTORE: "restored",
+   228→        ASSIGN_ROLE: "role updated",
+   229→        EDIT_USER: "updated",
+   230→        DELETE_USER: "moved to deletion queue",
+   231→        RESTORE_DELETED: "restored",
+   232→      };
+   233→      toast.success(`User ${labels[vars.action]}`);
+   234→    },
+   235→    onSettled: () => qc.invalidateQueries({ queryKey: ["users"] }),
+   236→  });
+   237→
+   238→  const editMutation = useMutation({
+   239→    mutationFn: async ({ id, data }: { id: string; data: Record<string, unknown> }) => {
+   240→      const res = await api.put<{ success: boolean; data: ManagedUser }>(`/users/${id}`, data);
+   241→      return res.data;
+   242→    },
+   243→    onSuccess: () => {
+   244→      toast.success("User updated successfully");
+   245→      setEditUser(null);
+   246→      setEditForm({ name: "", email: "", phone: "", room: "", gender: "", emergencyContact: "", password: "" });
+   247→      qc.invalidateQueries({ queryKey: ["users"] });
+   248→    },
+   249→    onError: (e: Error) => {
+   250→      toast.error(e.message || "Failed to update user");
+   251→    },
+   252→  });
+   253→
+   254→  const deleteMutation = useMutation({
+   255→    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+   256→      const res = await api.delete<{ success: boolean; data: ManagedUser }>(`/users/${id}`, { body: JSON.stringify({ reason }) });
+   257→      return res.data;
+   258→    },
+   259→    onSuccess: () => {
+   260→      toast.success("User moved to deletion queue (7 days)");
+   261→      setDeleteTarget(null);
+   262→      setDeleteReason("");
+   263→      qc.invalidateQueries({ queryKey: ["users"] });
+   264→    },
+   265→    onError: (e: Error) => {
+   266→      toast.error(e.message || "Failed to delete user");
+   267→    },
+   268→  });
+   269→
+   270→  const restoreDeletedMutation = useMutation({
+   271→    mutationFn: async (id: string) => {
+   272→      const res = await api.post<{ success: boolean; data: ManagedUser }>(`/users/${id}/restore`);
+   273→      return res.data;
+   274→    },
+   275→    onSuccess: () => {
+   276→      toast.success("User restored successfully");
+   277→      qc.invalidateQueries({ queryKey: ["users"] });
+   278→    },
+   279→    onError: (e: Error) => {
+   280→      toast.error(e.message || "Failed to restore user");
+   281→    },
+   282→  });
+   283→
+   284→  const kpis = useMemo(() => {
+   285→    // Total Users includes everyone (admins + residents, excluding deleted)
+   286→    const total = users.filter((u) => !u.deletedAt).length;
+   287→    // Active/Pending/Suspended exclude admins — these are resident-facing metrics
+   288→    const residents = users.filter((u) => u.role !== "ADMIN");
+   289→    const active = residents.filter((u) => u.status === "ACTIVE" && !u.deletedAt).length;
+   290→    const pending = residents.filter((u) => u.status === "PENDING").length;
+   291→    const suspended = residents.filter((u) => u.status === "SUSPENDED").length;
+   292→    const inQueue = residents.filter((u) => u.deletedAt).length;
+   293→    return { total, active, pending, suspended, inQueue };
+   294→  }, [users]);
+   295→
+   296→  const filteredUsers = useMemo(() => {
+   297→    if (status === "DELETED") return users.filter((u) => u.deletedAt);
+   298→    if (status === "ALL") return users.filter((u) => !u.deletedAt);
+   299→    return users.filter((u) => !u.deletedAt && u.status === status);
+   300→  }, [users, status]);
+   301→
+   302→  if (!isAdmin) {
+   303→    return (
+   304→      <GlassCard className="p-10 text-center" hover={false}>
+   305→        <ShieldCheck className="h-10 w-10 mx-auto text-muted-foreground mb-3" />
+   306→        <h3 className="font-semibold">Admins only</h3>
+   307→        <p className="text-sm text-muted-foreground mt-1">
+   308→          You need administrator privileges to manage users.
+   309→        </p>
+   310→      </GlassCard>
+   311→    );
+   312→  }
+   313→
+   314→  const handleAction = (user: ManagedUser, action: Action) => {
+   315→    if (action === "EDIT_USER") {
+   316→      setEditForm({
+   317→        name: user.name,
+   318→        email: user.email,
+   319→        phone: user.phone || "",
+   320→        room: user.room || "",
+   321→        gender: user.gender || "",
+   322→        emergencyContact: user.emergencyContact || "",
+   323→        password: "",
+   324→      });
+   325→      setShowPassword(false);
+   326→      setEditUser(user);
+   327→      return;
+   328→    }
+   329→    if (action === "DELETE_USER") {
+   330→      setDeleteReason("");
+   331→      setDeleteTarget(user);
+   332→      return;
+   333→    }
+   334→    if (action === "RESTORE_DELETED") {
+   335→      restoreDeletedMutation.mutate(user.id);
+   336→      return;
+   337→    }
+   338→    if (action === "ASSIGN_ROLE") {
+   339→      setNewRole(user.role);
+   340→      setAssignReason("");
+   341→      setAssignRole(user);
+   342→      return;
+   343→    }
+   344→    if (ACTIONS_NEED_REASON.includes(action)) {
+   345→      setReason("");
+   346→      setConfirm({ user, action });
+   347→      return;
+   348→    }
+   349→    actionMutation.mutate({ id: user.id, action });
+   350→  };
+   351→
+   352→  const submitEdit = () => {
+   353→    if (!editUser) return;
+   354→    if (editForm.name.trim().length < 2) {
+   355→      toast.error("Name must be at least 2 characters");
+   356→      return;
+   357→    }
+   358→    if (editForm.password && editForm.password.length < 8) {
+   359→      toast.error("Password must be at least 8 characters");
+   360→      return;
+   361→    }
+   362→    const data: Record<string, unknown> = {
+   363→      name: editForm.name,
+   364→      email: editForm.email,
+   365→      phone: editForm.phone || null,
+   366→      room: editForm.room || null,
+   367→      gender: editForm.gender || null,
+   368→      emergencyContact: editForm.emergencyContact || null,
+   369→    };
+   370→    if (editForm.password) data.password = editForm.password;
+   371→    editMutation.mutate({ id: editUser.id, data });
+   372→  };
+   373→
+   374→  const submitConfirm = () => {
+   375→    if (!confirm) return;
+   376→    if (ACTIONS_NEED_REASON.includes(confirm.action) && !reason.trim()) {
+   377→      toast.error("A reason is required for this action");
+   378→      return;
+   379→    }
+   380→    actionMutation.mutate({ id: confirm.user.id, action: confirm.action, reason });
+   381→    setConfirm(null);
+   382→    setReason("");
+   383→  };
+   384→
+   385→  const submitAssignRole = () => {
+   386→    if (!assignRole) return;
+   387→    actionMutation.mutate({
+   388→      id: assignRole.id,
+   389→      action: "ASSIGN_ROLE",
+   390→      role: newRole,
+   391→      reason: assignReason || undefined,
+   392→    });
+   393→    setAssignRole(null);
+   394→    setAssignReason("");
+   395→  };
+   396→
+   397→  const submitDelete = () => {
+   398→    if (!deleteTarget) return;
+   399→    if (deleteReason.trim().length < 3) {
+   400→      toast.error("A reason is required (min 3 characters)");
+   401→      return;
+   402→    }
+   403→    deleteMutation.mutate({ id: deleteTarget.id, reason: deleteReason });
+   404→  };
+   405→
+   406→  return (
+   407→    <StaggerGroup className="space-y-4 md:space-y-6 pb-6">
+   408→      {/* KPIs */}
+   409→      <StaggerItem>
+   410→        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+   411→          <KpiCard label="Total Users" value={kpis.total} icon={UsersIcon} color="primary" />
+   412→          <KpiCard label="Active" value={kpis.active} icon={UserCheck} color="success" />
+   413→          <KpiCard label="Pending Approval" value={kpis.pending} icon={UserPlus} color="warning" />
+   414→          <KpiCard label="Suspended" value={kpis.suspended} icon={UserX} color="danger" />
+   415→        </div>
+   416→      </StaggerItem>
+   417→
+   418→      {/* Search + filter */}
+   419→      <StaggerItem>
+   420→        <div className="space-y-3">
+   421→          <GlassInput
+   422→            placeholder="Search by name, email, phone, or room…"
+   423→            value={search}
+   424→            onChange={(e) => setSearch(e.target.value)}
+   425→            icon={<Search />}
+   426→          />
+   427→          {/* Filter pills — scrollable, all visible left-to-right */}
+   428→          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1">
+   429→            {STATUS_FILTERS.map((f) => {
+   430→              const active = status === f.key;
+   431→              const pendingBadge = f.key === "PENDING" && kpis.pending > 0 ? kpis.pending : null;
+   432→              const queueBadge = f.key === "DELETED" && kpis.inQueue > 0 ? kpis.inQueue : null;
+   433→              const badge = pendingBadge ?? queueBadge;
+   434→              const isQueueBadge = queueBadge !== null;
+   435→              return (
+   436→                <motion.button
+   437→                  key={f.key}
+   438→                  whileTap={{ scale: 0.96 }}
+   439→                  onClick={() => setStatus(f.key)}
+   440→                  className={cn(
+   441→                    "flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-xl text-[11px] font-medium transition-all whitespace-nowrap shrink-0",
+   442→                    active
+   443→                      ? "bg-primary text-primary-foreground shadow-md shadow-primary/30"
+   444→                      : "glass-soft text-muted-foreground hover:text-foreground"
+   445→                  )}
+   446→                >
+   447→                  <span className="sm:hidden">{f.short}</span>
+   448→                  <span className="hidden sm:inline">{f.label}</span>
+   449→                  {badge !== null && (
+   450→                    <span className={cn(
+   451→                      "text-[9px] rounded-full px-1.5 py-0.5 leading-none font-bold min-w-[16px] text-center",
+   452→                      active
+   453→                        ? "bg-primary-foreground/20 text-primary-foreground"
+   454→                        : isQueueBadge
+   455→                          ? "bg-destructive text-white"
+   456→                          : "bg-warning text-white"
+   457→                    )}>
+   458→                      {badge}
+   459→                    </span>
+   460→                  )}
+   461→                </motion.button>
+   462→              );
+   463→            })}
+   464→          </div>
+   465→        </div>
+   466→      </StaggerItem>
+   467→
+   468→      {/* User list */}
+   469→      <StaggerItem>
+   470→        {isLoading ? (
+   471→          <div className="space-y-3">
+   472→            {Array.from({ length: 5 }).map((_, i) => (
+   473→              <ShimmerSkeleton key={i} className="h-24" />
+   474→            ))}
+   475→          </div>
+   476→        ) : filteredUsers.length === 0 ? (
+   477→          <GlassCard className="p-12 text-center" hover={false}>
+   478→            <UsersIcon className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+   479→            <p className="text-sm text-muted-foreground">
+   480→              {status === "DELETED" ? "No users in the deletion queue." : "No users match your search."}
+   481→            </p>
+   482→          </GlassCard>
+   483→        ) : (
+   484→          <div className="space-y-3">
+   485→            <AnimatePresence mode="popLayout">
+   486→              {filteredUsers.map((u) => (
+   487→                <motion.div
+   488→                  key={u.id}
+   489→                  layout
+   490→                  initial={{ opacity: 0, y: 12, scale: 0.98 }}
+   491→                  animate={{ opacity: 1, y: 0, scale: 1 }}
+   492→                  exit={{ opacity: 0, scale: 0.95 }}
+   493→                  transition={{ type: "spring", stiffness: 280, damping: 26 }}
+   494→                >
+   495→                  <UserRow
+   496→                    user={u}
+   497→                    onAction={(action) => handleAction(u, action)}
+   498→                    canEditRole={role === "ADMIN" && u.role !== "ADMIN"}
+   499→                  />
+   500→                </motion.div>
+   501→              ))}
+   502→            </AnimatePresence>
+   503→          </div>
+   504→        )}
+   505→      </StaggerItem>
+   506→
+   507→      {/* Confirm dialog */}
+   508→      <Dialog open={!!confirm} onOpenChange={(v) => !v && setConfirm(null)}>
+   509→        <DialogContent className="glass-strong border-border/60 rounded-3xl max-w-md">
+   510→          <DialogHeader>
+   511→            <DialogTitle className="text-lg capitalize">
+   512→              {confirm?.action.toLowerCase()} {confirm?.user.name}?
+   513→            </DialogTitle>
+   514→            <DialogDescription>
+   515→              This action will change the user's status to{" "}
+   516→              <span className="font-medium text-foreground">
+   517→                {confirm && actionResultStatus(confirm.action)}
+   518→              </span>
+   519→              . A reason is required and will be logged.
+   520→            </DialogDescription>
+   521→          </DialogHeader>
+   522→          <GlassTextarea
+   523→            label="Reason"
+   524→            rows={3}
+   525→            placeholder={`Reason for ${confirm?.action.toLowerCase()}…`}
+   526→            value={reason}
+   527→            onChange={(e) => setReason(e.target.value)}
+   528→          />
+   529→          <DialogFooter className="gap-2">
+   530→            <GlassButton variant="ghost" size="md" onClick={() => setConfirm(null)}>
+   531→              Cancel
+   532→            </GlassButton>
+   533→            <GlassButton
+   534→              variant={confirm?.action === "SUSPEND" || confirm?.action === "ARCHIVE" ? "danger" : "primary"}
+   535→              size="md"
+   536→              onClick={submitConfirm}
+   537→              loading={actionMutation.isPending}
+   538→            >
+   539→              Confirm
+   540→            </GlassButton>
+   541→          </DialogFooter>
+   542→        </DialogContent>
+   543→      </Dialog>
+   544→
+   545→      {/* Assign role dialog */}
+   546→      <Dialog open={!!assignRole} onOpenChange={(v) => !v && setAssignRole(null)}>
+   547→        <DialogContent className="glass-strong border-border/60 rounded-3xl max-w-md">
+   548→          <DialogHeader>
+   549→            <DialogTitle>Assign Role</DialogTitle>
+   550→            <DialogDescription>
+   551→              Change the role for{" "}
+   552→              <span className="font-medium text-foreground">{assignRole?.name}</span>.
+   553→            </DialogDescription>
+   554→          </DialogHeader>
+   555→          <div className="space-y-3">
+   556→            <div>
+   557→              <label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">Role</label>
+   558→              <Select value={newRole} onValueChange={(v) => setNewRole(v as Role)}>
+   559→                <SelectTrigger className="w-full glass-soft border-0">
+   560→                  <SelectValue />
+   561→                </SelectTrigger>
+   562→                <SelectContent>
+   563→                  <SelectItem value="USER">Resident</SelectItem>
+   564→                  <SelectItem value="ADMIN">Admin</SelectItem>
+   565→                </SelectContent>
+   566→              </Select>
+   567→            </div>
+   568→            <GlassTextarea
+   569→              label="Reason (optional)"
+   570→              rows={2}
+   571→              placeholder="Why is this role being assigned?"
+   572→              value={assignReason}
+   573→              onChange={(e) => setAssignReason(e.target.value)}
+   574→            />
+   575→          </div>
+   576→          <DialogFooter className="gap-2">
+   577→            <GlassButton variant="ghost" size="md" onClick={() => setAssignRole(null)}>
+   578→              Cancel
+   579→            </GlassButton>
+   580→            <GlassButton variant="primary" size="md" onClick={submitAssignRole} loading={actionMutation.isPending}>
+   581→              <Shield className="h-4 w-4" />
+   582→              Assign Role
+   583→            </GlassButton>
+   584→          </DialogFooter>
+   585→        </DialogContent>
+   586→      </Dialog>
+   587→
+   588→      {/* Edit user dialog */}
+   589→      <Dialog open={!!editUser} onOpenChange={(v) => !v && setEditUser(null)}>
+   590→        <DialogContent className="glass-strong border-border/60 rounded-3xl max-w-lg max-h-[90vh] overflow-y-auto no-scrollbar">
+   591→          <DialogHeader>
+   592→            <DialogTitle>Edit User</DialogTitle>
+   593→            <DialogDescription>
+   594→              Update credentials for{" "}
+   595→              <span className="font-medium text-foreground">{editUser?.name}</span>.
+   596→              The user will be notified of the changes.
+   597→            </DialogDescription>
+   598→          </DialogHeader>
+   599→          <div className="space-y-3 mt-2">
+   600→            <GlassInput
+   601→              label="Full Name"
+   602→              value={editForm.name}
+   603→              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+   604→              icon={<Pencil className="h-4 w-4" />}
+   605→            />
+   606→            <div className="grid grid-cols-2 gap-3">
+   607→              <GlassInput
+   608→                label="Email"
+   609→                type="email"
+   610→                value={editForm.email}
+   611→                onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+   612→                icon={<Mail className="h-4 w-4" />}
+   613→              />
+   614→              <GlassInput
+   615→                label="Phone"
+   616→                value={editForm.phone}
+   617→                onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+   618→                icon={<Phone className="h-4 w-4" />}
+   619→              />
+   620→            </div>
+   621→            <div className="grid grid-cols-2 gap-3">
+   622→              <GlassInput
+   623→                label="Room"
+   624→                value={editForm.room}
+   625→                onChange={(e) => setEditForm({ ...editForm, room: e.target.value })}
+   626→                icon={<DoorOpen className="h-4 w-4" />}
+   627→              />
+   628→              <div>
+   629→                <label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">Gender</label>
+   630→                <Select
+   631→                  value={editForm.gender}
+   632→                  onValueChange={(v) => setEditForm({ ...editForm, gender: v })}
+   633→                >
+   634→                  <SelectTrigger className="glass-soft rounded-2xl h-12 border-0">
+   635→                    <SelectValue placeholder="Select" />
+   636→                  </SelectTrigger>
+   637→                  <SelectContent>
+   638→                    <SelectItem value="MALE">Male</SelectItem>
+   639→                    <SelectItem value="FEMALE">Female</SelectItem>
+   640→                    <SelectItem value="OTHER">Other</SelectItem>
+   641→                  </SelectContent>
+   642→                </Select>
+   643→              </div>
+   644→            </div>
+   645→            <GlassInput
+   646→              label="Emergency Contact"
+   647→              value={editForm.emergencyContact}
+   648→              onChange={(e) => setEditForm({ ...editForm, emergencyContact: e.target.value })}
+   649→              icon={<Shield className="h-4 w-4" />}
+   650→              placeholder="Phone number"
+   651→            />
+   652→            <div className="glass-soft rounded-2xl p-3 border border-warning/20">
+   653→              <p className="text-xs font-medium text-warning flex items-center gap-1.5 mb-2">
+   654→                <KeyRound className="h-3.5 w-3.5" />
+   655→                Reset Password (optional)
+   656→              </p>
+   657→              <GlassInput
+   658→                type={showPassword ? "text" : "password"}
+   659→                placeholder="Enter new password (min 8 chars)"
+   660→                value={editForm.password}
+   661→                onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
+   662→                trailing={
+   663→                  <button
+   664→                    type="button"
+   665→                    onClick={() => setShowPassword(!showPassword)}
+   666→                    className="text-muted-foreground hover:text-foreground"
+   667→                  >
+   668→                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+   669→                  </button>
+   670→                }
+   671→                hint="Leave blank to keep the current password"
+   672→              />
+   673→            </div>
+   674→          </div>
+   675→          <DialogFooter className="gap-2 mt-4">
+   676→            <GlassButton variant="ghost" size="md" onClick={() => setEditUser(null)}>
+   677→              Cancel
+   678→            </GlassButton>
+   679→            <GlassButton variant="primary" size="md" onClick={submitEdit} loading={editMutation.isPending}>
+   680→              <CheckCircle2 className="h-4 w-4" />
+   681→              Save Changes
+   682→            </GlassButton>
+   683→          </DialogFooter>
+   684→        </DialogContent>
+   685→      </Dialog>
+   686→
+   687→      {/* Delete confirmation dialog */}
+   688→      <Dialog open={!!deleteTarget} onOpenChange={(v) => !v && setDeleteTarget(null)}>
+   689→        <DialogContent className="glass-strong border-border/60 rounded-3xl max-w-md">
+   690→          <DialogHeader>
+   691→            <DialogTitle className="text-lg flex items-center gap-2">
+   692→              <AlertTriangle className="h-5 w-5 text-destructive" />
+   693→              Delete {deleteTarget?.name}?
+   694→            </DialogTitle>
+   695→            <DialogDescription>
+   696→              This will move the user to the <strong className="text-foreground">deletion queue</strong>.
+   697→              The account will be permanently deleted after{" "}
+   698→              <strong className="text-foreground">7 days</strong> unless restored.
+   699→              All active sessions will be revoked immediately.
+   700→            </DialogDescription>
+   701→          </DialogHeader>
+   702→          <GlassTextarea
+   703→            label="Reason for deletion"
+   704→            rows={3}
+   705→            placeholder="Why is this user being deleted?"
+   706→            value={deleteReason}
+   707→            onChange={(e) => setDeleteReason(e.target.value)}
+   708→          />
+   709→          <div className="glass-soft rounded-2xl p-3 flex items-start gap-2 border border-destructive/20">
+   710→            <Clock className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+   711→            <p className="text-xs text-muted-foreground">
+   712→              The user will receive a notification about the scheduled deletion.
+   713→              You can restore the user from the <strong>Deletion Queue</strong> tab
+   714→              within 7 days.
+   715→            </p>
+   716→          </div>
+   717→          <DialogFooter className="gap-2">
+   718→            <GlassButton variant="ghost" size="md" onClick={() => setDeleteTarget(null)}>
+   719→              Cancel
+   720→            </GlassButton>
+   721→            <GlassButton variant="danger" size="md" onClick={submitDelete} loading={deleteMutation.isPending}>
+   722→              <Trash2 className="h-4 w-4" />
+   723→              Move to Deletion Queue
+   724→            </GlassButton>
+   725→          </DialogFooter>
+   726→        </DialogContent>
+   727→      </Dialog>
+   728→    </StaggerGroup>
+   729→  );
+   730→}
+   731→
+   732→function actionResultStatus(action: Action): string {
+   733→  switch (action) {
+   734→    case "APPROVE":
+   735→    case "ACTIVATE":
+   736→    case "RESTORE":
+   737→      return "Active";
+   738→    case "SUSPEND":
+   739→      return "Suspended";
+   740→    case "DEACTIVATE":
+   741→      return "Inactive";
+   742→    case "ARCHIVE":
+   743→      return "Archived";
+   744→    default:
+   745→      return "";
+   746→  }
+   747→}
+   748→
+   749→function KpiCard({
+   750→  label,
+   751→  value,
+   752→  icon: Icon,
+   753→  color,
+   754→}: {
+   755→  label: string;
+   756→  value: number;
+   757→  icon: typeof UsersIcon;
+   758→  color: "primary" | "success" | "warning" | "danger";
+   759→}) {
+   760→  const colorClass = {
+   761→    primary: "bg-primary/15 text-primary",
+   762→    success: "bg-success/15 text-success",
+   763→    warning: "bg-warning/15 text-warning",
+   764→    danger: "bg-destructive/15 text-destructive",
+   765→  }[color];
+   766→  return (
+   767→    <GlassCard className="p-4 md:p-5" glow={color}>
+   768→      <div className={cn("grid place-items-center h-10 w-10 rounded-2xl mb-3", colorClass)}>
+   769→        <Icon className="h-5 w-5" />
+   770→      </div>
+   771→      <p className="text-xs text-muted-foreground">{label}</p>
+   772→      <div className="text-2xl md:text-3xl font-bold tracking-tight">
+   773→        <AnimatedCounter value={value} />
+   774→      </div>
+   775→    </GlassCard>
+   776→  );
+   777→}
+   778→
+   779→function UserRow({
+   780→  user,
+   781→  onAction,
+   782→  canEditRole,
+   783→}: {
+   784→  user: ManagedUser;
+   785→  onAction: (a: Action) => void;
+   786→  canEditRole: boolean;
+   787→}) {
+   788→  const sMeta = STATUS_META[user.status];
+   789→  const rMeta = ROLE_META[user.role];
+   790→
+   791→  const actions: { action: Action; label: string; icon: typeof CheckCircle2; variant?: "destructive" }[] = [];
+   792→
+   793→  // If user is in deletion queue, only show Restore
+   794→  if (user.deletedAt) {
+   795→    actions.push({ action: "RESTORE_DELETED", label: "Restore User", icon: RotateCcw });
+   796→  } else {
+   797→    // Edit User is always available for all statuses
+   798→    actions.push({ action: "EDIT_USER", label: "Edit User", icon: Pencil });
+   799→    switch (user.status) {
+   800→      case "PENDING":
+   801→        actions.push({ action: "APPROVE", label: "Approve", icon: CheckCircle2 });
+   802→        actions.push({ action: "DEACTIVATE", label: "Reject", icon: Ban, variant: "destructive" });
+   803→        break;
+   804→      case "ACTIVE":
+   805→        actions.push({ action: "SUSPEND", label: "Suspend", icon: Ban, variant: "destructive" });
+   806→        actions.push({ action: "DEACTIVATE", label: "Deactivate", icon: Power });
+   807→        actions.push({ action: "ARCHIVE", label: "Archive", icon: Archive });
+   808→        if (canEditRole) actions.push({ action: "ASSIGN_ROLE", label: "Assign Role", icon: Shield });
+   809→        break;
+   810→      case "SUSPENDED":
+   811→        actions.push({ action: "ACTIVATE", label: "Activate", icon: Power });
+   812→        actions.push({ action: "ARCHIVE", label: "Archive", icon: Archive });
+   813→        break;
+   814→      case "INACTIVE":
+   815→        actions.push({ action: "ACTIVATE", label: "Activate", icon: Power });
+   816→        actions.push({ action: "ARCHIVE", label: "Archive", icon: Archive });
+   817→        break;
+   818→      case "ARCHIVED":
+   819→        actions.push({ action: "RESTORE", label: "Restore", icon: RotateCcw });
+   820→        break;
+   821→      case "APPROVED":
+   822→        actions.push({ action: "ACTIVATE", label: "Activate", icon: Power });
+   823→        break;
+   824→    }
+   825→    // Delete is available for all non-deleted users (except other admins)
+   826→    if (user.role !== "ADMIN") {
+   827→      actions.push({ action: "DELETE_USER", label: "Delete", icon: Trash2, variant: "destructive" });
+   828→    }
+   829→  }
+   830→
+   831→  return (
+   832→    <GlassCard className="p-4 md:p-5" hover={false}>
+   833→      <div className="flex items-start gap-3 md:gap-4">
+   834→        <Avatar className="h-12 w-12 md:h-14 md:w-14 rounded-2xl">
+   835→          {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.name} />}
+   836→          <AvatarFallback className={cn("rounded-2xl bg-gradient-to-br text-white font-semibold", gradientFor(user.name))}>
+   837→            {initials(user.name) || "U"}
+   838→          </AvatarFallback>
+   839→        </Avatar>
+   840→
+   841→        <div className="flex-1 min-w-0">
+   842→          <div className="flex items-start justify-between gap-2">
+   843→            <div className="min-w-0">
+   844→              <div className="flex items-center gap-2 flex-wrap">
+   845→                <h3 className={cn("font-semibold truncate", user.deletedAt && "text-muted-foreground line-through")}>
+   846→                  {user.name}
+   847→                </h3>
+   848→                {user.deletedAt ? (
+   849→                  <Badge variant="outline" className="text-[10px] bg-destructive/15 text-destructive border-destructive/30">
+   850→                    <Clock className="h-2.5 w-2.5" /> {formatDeletionCountdown(new Date(user.deletedAt))}
+   851→                  </Badge>
+   852→                ) : (
+   853→                  <>
+   854→                    <Badge variant="outline" className={cn("text-[10px]", rMeta.className)}>
+   855→                      {rMeta.label}
+   856→                    </Badge>
+   857→                    <Badge variant="outline" className={cn("text-[10px]", sMeta.className)}>
+   858→                      {sMeta.label}
+   859→                    </Badge>
+   860→                  </>
+   861→                )}
+   862→              </div>
+   863→              <div className="flex flex-col sm:flex-row sm:items-center gap-x-3 gap-y-0.5 mt-1.5 text-xs text-muted-foreground">
+   864→                <span className="inline-flex items-center gap-1 truncate">
+   865→                  <Mail className="h-3 w-3" /> {user.email}
+   866→                </span>
+   867→                {user.phone && (
+   868→                  <span className="inline-flex items-center gap-1">
+   869→                    <Phone className="h-3 w-3" /> {user.phone}
+   870→                  </span>
+   871→                )}
+   872→                {user.room && (
+   873→                  <span className="inline-flex items-center gap-1">
+   874→                    <DoorOpen className="h-3 w-3" /> {user.room}
+   875→                  </span>
+   876→                )}
+   877→              </div>
+   878→              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-1.5 text-[11px] text-muted-foreground">
+   879→                <span>Joined {format(new Date(user.createdAt), "MMM d, yyyy")}</span>
+   880→                {user.lastLoginAt && !user.deletedAt && (
+   881→                  <span>· Last login {formatDistanceToNow(new Date(user.lastLoginAt), { addSuffix: true })}</span>
+   882→                )}
+   883→              </div>
+   884→              {user.deletedAt && user.deletionReason && (
+   885→                <div className="mt-1.5 text-[11px] text-destructive/80 flex items-start gap-1">
+   886→                  <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+   887→                  <span>Reason: {user.deletionReason}</span>
+   888→                </div>
+   889→              )}
+   890→            </div>
+   891→            <DropdownMenu>
+   892→              <DropdownMenuTrigger asChild>
+   893→                <GlassButton variant="ghost" size="icon" className="shrink-0" aria-label="User actions">
+   894→                  <MoreVertical className="h-4 w-4" />
+   895→                </GlassButton>
+   896→              </DropdownMenuTrigger>
+   897→              <DropdownMenuContent align="end" className="w-44 rounded-2xl">
+   898→                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+   899→                <DropdownMenuSeparator />
+   900→                {actions.map((a) => {
+   901→                  const Icon = a.icon;
+   902→                  return (
+   903→                    <DropdownMenuItem
+   904→                      key={a.action}
+   905→                      onClick={() => onAction(a.action)}
+   906→                      variant={a.variant}
+   907→                      className="rounded-xl cursor-pointer"
+   908→                    >
+   909→                      <Icon className="h-4 w-4" />
+   910→                      {a.label}
+   911→                    </DropdownMenuItem>
+   912→                  );
+   913→                })}
+   914→              </DropdownMenuContent>
+   915→            </DropdownMenu>
+   916→          </div>
+   917→        </div>
+   918→      </div>
+   919→    </GlassCard>
+   920→  );
+   921→}
+   922→
