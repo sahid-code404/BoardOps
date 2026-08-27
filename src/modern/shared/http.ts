@@ -1,20 +1,18 @@
 export type ApiSuccess<T> = {
-  ok: true;
+  success: true;
   data: T;
   requestId: string;
 };
 
 export type ApiFailure = {
-  ok: false;
-  error: {
-    code: string;
-    message: string;
-  };
+  success: false;
+  error: string;
+  details?: unknown;
   requestId: string;
 };
 
 export type ApiResult<T> = ApiSuccess<T> | ApiFailure;
 
 export function isApiSuccess<T>(value: ApiResult<T>): value is ApiSuccess<T> {
-  return value.ok;
+  return value.success;
 }
