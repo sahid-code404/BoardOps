@@ -32,6 +32,9 @@ jobs:
       - name: Generate Prisma client
         run: bunx prisma generate
 
+      - name: Regression tests
+        run: bun run test
+
       - name: Production TypeScript gate
         run: bun run typecheck
 
