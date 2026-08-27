@@ -12,7 +12,7 @@ const schema = z.object({
 
 /**
  * POST /api/auth/2fa/verify
- * Verifies the TOTP code and enables 2FA.
+ * Verifies the TOTP code and enables authenticator-app 2FA.
  * Returns backup codes (shown only once).
  */
 export async function POST(req: Request) {
@@ -36,8 +36,14 @@ export async function POST(req: Request) {
       where: { id: user.id },
       data: {
         twoFactorEnabled: true,
+        twoFactorMethod: "TOTP",
         twoFactorSecret: secret,
         twoFactorBackupCodes: JSON.stringify(hashes),
+        emailOtpCode: null,
+        emailOtpExpiresAt: null,
+        emailOtpAttempts: 0,
+        otpPendingToken: null,
+        otpPendingExpiresAt: null,
       },
     });
 
@@ -46,11 +52,12 @@ export async function POST(req: Request) {
       action: "2FA_ENABLE",
       entity: "User",
       entityId: user.id,
+      newValue: { method: "TOTP" },
       ipAddress: await getClientIp(),
       userAgent: await getUserAgent(),
     });
 
-    return ok({ backupCodes: plain });
+    return ok({ backupCodes: plain, method: "TOTP" });
   } catch (e) {
     return handleApiError(e);
   }
