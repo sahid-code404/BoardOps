@@ -104,6 +104,15 @@ type RegistrationStatus = {
   submittedAt?: string | null;
 };
 
+type LoginResponseData = {
+  token?: string;
+  user?: any;
+  requiresTwoFactor?: boolean;
+  pendingToken?: string;
+  method?: "EMAIL";
+  expiresAt?: string;
+};
+
 const FIELD_LABELS: Record<string, string> = {
   name: "Full Name",
   institutionUserId: "Institution User ID",
@@ -131,9 +140,10 @@ export function AuthScreen() {
     consents: { rules: false, privacy: false, terms: false },
   });
 
-  // Verify mode state
+  // Verify mode state. loginPendingToken distinguishes login 2FA from registration verification.
   const [verifyEmail, setVerifyEmail] = useState("");
   const [otp, setOtp] = useState("");
+  const [loginPendingToken, setLoginPendingToken] = useState("");
 
   // Forgot password state
   const [forgotEmail, setForgotEmail] = useState("");
@@ -156,7 +166,19 @@ export function AuthScreen() {
       setLoading(true);
       if (mode === "login") {
         const data = loginSchema.parse({ email: form.email, password: form.password });
-        const res = await api.post<{ success: boolean; data: { token: string; user: any } }>("/auth/login", data);
+        const res = await api.post<{ success: boolean; data: LoginResponseData }>("/auth/login", data);
+
+        if (res.data.requiresTwoFactor) {
+          if (!res.data.pendingToken) throw new Error("Two-factor challenge could not be created");
+          setLoginPendingToken(res.data.pendingToken);
+          setVerifyEmail(data.email);
+          setOtp("");
+          setMode("verify");
+          toast.success("Verification code sent to your email.");
+          return;
+        }
+
+        if (!res.data.token || !res.data.user) throw new Error("Invalid login response");
         qc.clear();
         setToken(res.data.token);
         setUser(res.data.user);
@@ -180,6 +202,7 @@ export function AuthScreen() {
         );
         setVerifyEmail(res.data.email);
         setPendingEmail(res.data.email);
+        setLoginPendingToken("");
         setOtp("");
         setMode("verify");
         toast.success("Account created — verify your email next.");
@@ -207,6 +230,21 @@ export function AuthScreen() {
     }
     try {
       setLoading(true);
+
+      if (loginPendingToken) {
+        const res = await api.post<{ success: boolean; data: { token: string; user: any } }>(
+          "/auth/verify-otp",
+          { pendingToken: loginPendingToken, code: otp }
+        );
+        qc.clear();
+        setToken(res.data.token);
+        setUser(res.data.user);
+        setLoginPendingToken("");
+        setOtp("");
+        toast.success(`Welcome back, ${res.data.user.name.split(" ")[0]}!`);
+        return;
+      }
+
       await api.post("/auth/verify-email", { email: verifyEmail, otp });
       toast.success("Email verified! Your registration is now pending review.");
       setMode("pending");
@@ -220,10 +258,19 @@ export function AuthScreen() {
   const resendOtp = async () => {
     try {
       setLoading(true);
-      await api.post<{ success: boolean; data: { sent: boolean } }>(
-        "/auth/send-verification",
-        { email: verifyEmail }
-      );
+
+      if (loginPendingToken) {
+        await api.post<{ success: boolean; data: { resent: boolean } }>(
+          "/auth/resend-otp",
+          { pendingToken: loginPendingToken }
+        );
+      } else {
+        await api.post<{ success: boolean; data: { sent: boolean } }>(
+          "/auth/send-verification",
+          { email: verifyEmail }
+        );
+      }
+
       toast.success("A new code has been sent.");
     } catch (err: any) {
       toast.error(err.message || "Could not resend code");
@@ -236,6 +283,7 @@ export function AuthScreen() {
     setMode("login");
     setOtp("");
     setVerifyEmail("");
+    setLoginPendingToken("");
     setPendingEmail("");
     setForgotEmail("");
     setForgotOtp("");
@@ -488,27 +536,34 @@ export function AuthScreen() {
     );
   }
 
-  // VERIFY mode — render OTP entry without the GlassNav.
+  // VERIFY mode — shared by registration email verification and login 2FA.
   if (mode === "verify") {
+    const isLoginTwoFactor = Boolean(loginPendingToken);
     return (
       <AuthLayout>
         <GlassCard strong className="p-6" hover={false}>
           <div className="flex items-center gap-3 mb-5">
             <div className="grid place-items-center h-11 w-11 rounded-2xl bg-gradient-to-br from-primary to-chart-4 shadow-lg shadow-primary/40">
-              <Mail className="h-5 w-5 text-primary-foreground" />
+              {isLoginTwoFactor ? (
+                <ShieldCheck className="h-5 w-5 text-primary-foreground" />
+              ) : (
+                <Mail className="h-5 w-5 text-primary-foreground" />
+              )}
             </div>
             <div>
-              <p className="font-bold">Verify your email</p>
+              <p className="font-bold">{isLoginTwoFactor ? "Two-factor verification" : "Verify your email"}</p>
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                Step 2 of 3
+                {isLoginTwoFactor ? "Security check" : "Step 2 of 3"}
               </p>
             </div>
           </div>
 
           <p className="text-sm text-muted-foreground mb-5">
-            We sent a 6-digit code to{" "}
+            We sent a 6-digit {isLoginTwoFactor ? "security" : "verification"} code to{" "}
             <span className="font-medium text-foreground">{verifyEmail}</span>.
-            Enter it below to confirm your email address.
+            {isLoginTwoFactor
+              ? " Enter it below to finish signing in."
+              : " Enter it below to confirm your email address."}
           </p>
 
           <div className="flex flex-col items-center gap-5 py-2">
@@ -537,7 +592,7 @@ export function AuthScreen() {
                 loading={loading}
                 onClick={submitOtp}
               >
-                Verify Email
+                {isLoginTwoFactor ? "Verify & sign in" : "Verify Email"}
                 <ArrowRight className="h-4 w-4" />
               </GlassButton>
               <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
