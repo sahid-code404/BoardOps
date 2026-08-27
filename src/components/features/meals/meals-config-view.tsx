@@ -292,7 +292,6 @@ function MealForm({
     handleSubmit,
     control,
     setValue,
-    watch,
     formState: { errors },
   } = useForm<MealFormInput, unknown, MealFormValues>({
     resolver: zodResolver(mealSchema),
@@ -305,6 +304,8 @@ function MealForm({
   const watchedOffset = useWatch({ control, name: "cutoffOffsetMinutes" });
   const watchedColor = useWatch({ control, name: "color" });
   const watchedIcon = useWatch({ control, name: "icon" });
+  const watchedStartTime = useWatch({ control, name: "startTime" });
+  const watchedEndTime = useWatch({ control, name: "endTime" });
 
   const cutoffPreview = computeCutoffPreview(
     watchedStrategy,
@@ -462,13 +463,13 @@ function MealForm({
       <div className="grid grid-cols-2 gap-3">
         <DigitalClockPicker
           label="Service start"
-          value={watch("startTime") || "08:00"}
+          value={watchedStartTime || "08:00"}
           onChange={(v) => setValue("startTime", v, { shouldValidate: true, shouldDirty: true })}
           error={errors.startTime?.message}
         />
         <DigitalClockPicker
           label="Service end"
-          value={watch("endTime") || "10:00"}
+          value={watchedEndTime || "10:00"}
           onChange={(v) => setValue("endTime", v, { shouldValidate: true, shouldDirty: true })}
           error={errors.endTime?.message}
         />
@@ -509,7 +510,7 @@ function MealForm({
           </div>
           <DigitalClockPicker
             label="Cutoff time"
-            value={watch("cutoffTime") || "16:00"}
+            value={watchedCutoffTime || "16:00"}
             onChange={(v) => setValue("cutoffTime", v, { shouldValidate: true, shouldDirty: true })}
             error={errors.cutoffTime?.message}
           />

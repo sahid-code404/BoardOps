@@ -20,7 +20,9 @@
     "deploy": "bunx @vinext/cloudflare deploy",
     "db:migration:initial": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script",
     "db:migrate:local": "wrangler d1 migrations apply boardops --local",
-    "db:migrate:remote": "wrangler d1 migrations apply boardops --remote"
+    "db:migrate:remote": "wrangler d1 migrations apply boardops --remote",
+    "typecheck": "tsc --noEmit -p tsconfig.production.json",
+    "lint:strict": "eslint . --max-warnings=0"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

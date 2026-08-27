@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
@@ -735,7 +735,7 @@ function CreateVariableDialog({
     },
   });
 
-  const type = form.watch("type");
+  const type = useWatch({ control: form.control, name: "type" });
   const isBool = type === "BOOLEAN";
 
   useEffect(() => {
