@@ -61,23 +61,37 @@ export async function POST(req: Request) {
       const trustedDevice = await isDeviceTrusted(user.id, deviceToken);
 
       if (!trustedDevice) {
-        const otp = generateOtp();
         const pendingToken = generatePendingToken();
         const expiresAt = new Date(Date.now() + OTP_CONFIG.ttlMs);
+        const method = user.twoFactorMethod === "TOTP" && user.twoFactorSecret ? "TOTP" : "EMAIL";
 
-        await db.user.update({
-          where: { id: user.id },
-          data: {
-            twoFactorMethod: "EMAIL",
-            emailOtpCode: hashOtp(otp),
-            emailOtpExpiresAt: expiresAt,
-            emailOtpAttempts: 0,
-            otpPendingToken: pendingToken,
-            otpPendingExpiresAt: expiresAt,
-          },
-        });
+        if (method === "TOTP") {
+          await db.user.update({
+            where: { id: user.id },
+            data: {
+              emailOtpCode: null,
+              emailOtpExpiresAt: null,
+              emailOtpAttempts: 0,
+              otpPendingToken: pendingToken,
+              otpPendingExpiresAt: expiresAt,
+            },
+          });
+        } else {
+          const otp = generateOtp();
+          await db.user.update({
+            where: { id: user.id },
+            data: {
+              twoFactorMethod: "EMAIL",
+              emailOtpCode: hashOtp(otp),
+              emailOtpExpiresAt: expiresAt,
+              emailOtpAttempts: 0,
+              otpPendingToken: pendingToken,
+              otpPendingExpiresAt: expiresAt,
+            },
+          });
+          await sendOtpEmail(user.email, otp, "two-factor");
+        }
 
-        await sendOtpEmail(user.email, otp, "two-factor");
         await logAudit({
           actorId: user.id,
           action: "LOGIN_2FA_CHALLENGE",
@@ -85,13 +99,13 @@ export async function POST(req: Request) {
           entityId: user.id,
           ipAddress: ip,
           userAgent,
-          newValue: { method: "EMAIL" },
+          newValue: { method },
         });
 
         return ok({
           requiresTwoFactor: true,
           pendingToken,
-          method: "EMAIL",
+          method,
           expiresAt,
         });
       }
