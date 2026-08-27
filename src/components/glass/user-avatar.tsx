@@ -22,6 +22,16 @@ const AVATAR_GRADIENTS = [
   "from-indigo-500 to-purple-500",
 ];
 
+const AVATAR_SIZES = {
+  xs: "h-6 w-6",
+  sm: "h-8 w-8",
+  md: "h-10 w-10",
+  lg: "h-14 w-14",
+  xl: "h-20 w-20",
+} as const;
+
+type AvatarSize = keyof typeof AVATAR_SIZES;
+
 function gradientFor(name: string) {
   const idx = name
     .split("")
@@ -43,6 +53,10 @@ function initials(name: string) {
 export type UserAvatarProps = {
   name: string;
   avatarUrl?: string | null;
+  /** Optional room metadata accepted by resident/user call sites. */
+  room?: string | null;
+  /** Named size used by shared call sites. */
+  size?: AvatarSize;
   /** Tailwind size + rounding classes, e.g. "h-10 w-10 rounded-xl" */
   className?: string;
   /** Font size / weight classes for the initials fallback */
@@ -52,11 +66,12 @@ export type UserAvatarProps = {
 export function UserAvatar({
   name,
   avatarUrl,
+  size,
   className,
   fallbackClassName,
 }: UserAvatarProps) {
   return (
-    <Avatar className={cn("shrink-0", className)}>
+    <Avatar className={cn("shrink-0", size && AVATAR_SIZES[size], className)}>
       {avatarUrl ? <AvatarImage src={avatarUrl} alt={name} /> : null}
       <AvatarFallback
         className={cn(
