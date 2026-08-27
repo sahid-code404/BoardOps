@@ -1,0 +1,50 @@
+name: Audit Cloudflare production blockers
+
+on:
+  push:
+    branches:
+      - phase/cf-01-runtime-foundation
+    paths:
+      - '.github/workflows/cf-production-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Generate Prisma client
+        run: bunx prisma generate
+      - name: Audit Node filesystem and process assumptions
+        shell: bash
+        run: |
+          echo '=== node/filesystem/process imports ==='
+          grep -RInE 'from ["'\'' ]*(fs|fs/promises|child_process)["'\'']|require\(["'\''](fs|fs/promises|child_process)["'\'']\)' src || true
+          echo '=== hard-coded local paths / temp / cwd ==='
+          grep -RInE '/home/z|/tmp/|process\.cwd\(\)|public/uploads|backup-db\.sh|sqlite3' src || true
+          echo '=== nodemailer references ==='
+          grep -RIn 'nodemailer' src || true
+      - name: TypeScript audit
+        shell: bash
+        run: |
+          set -o pipefail
+          bunx tsc --noEmit 2>&1 | tee /tmp/tsc.txt || true
+          echo '=== TypeScript error count ==='
+          grep -c 'error TS' /tmp/tsc.txt || true
+      - name: ESLint audit
+        shell: bash
+        run: |
+          set -o pipefail
+          bun run lint 2>&1 | tee /tmp/lint.txt || true
+          echo '=== ESLint summary markers ==='
+          tail -n 30 /tmp/lint.txt || true
