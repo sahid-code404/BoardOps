@@ -37,18 +37,25 @@ jobs:
                   raise SystemExit(f'{path}: expected at least {count} occurrence(s), found {found}: {old!r}')
               p.write_text(s.replace(old, new, count))
 
-          # Formula versioning: make the already-validated change note explicitly non-null.
+          # Formula versioning: pin values that were validated before entering
+          # the async Prisma transaction callback so TypeScript can retain narrowing.
           formula_path = 'src/app/api/formulas/[id]/route.ts'
           replace(
               formula_path,
-              '      const newVersion = existing.version + 1;\n      const slugs = extractVarSlugs(data.expression);',
-              '      const changeNote = data.changeNote.trim();\n      const newVersion = existing.version + 1;\n      const slugs = extractVarSlugs(data.expression);'
+              '    if (data.expression && data.expression !== existing.expression) {\n      const validation = validateFormula(data.expression);',
+              '    if (data.expression && data.expression !== existing.expression) {\n      const expression = data.expression;\n      const validation = validateFormula(expression);'
           )
+          replace(
+              formula_path,
+              '      const newVersion = existing.version + 1;\n      const slugs = extractVarSlugs(data.expression);',
+              '      const changeNote = data.changeNote.trim();\n      const newVersion = existing.version + 1;\n      const slugs = extractVarSlugs(expression);'
+          )
+          replace(formula_path, '            expression: data.expression,', '            expression,', count=2)
           replace(formula_path, '            changeNote: data.changeNote,', '            changeNote,')
           replace(
               formula_path,
               'newValue: { version: newVersion, expression: data.expression, changeNote: data.changeNote, slugs, missingVars },',
-              'newValue: { version: newVersion, expression: data.expression, changeNote, slugs, missingVars },'
+              'newValue: { version: newVersion, expression, changeNote, slugs, missingVars },'
           )
           replace(formula_path, '        reason: data.changeNote,', '        reason: changeNote,')
 
