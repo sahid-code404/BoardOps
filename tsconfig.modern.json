@@ -17,7 +17,7 @@
       "@/*": ["src/*"],
       "@modern/*": ["src/modern/*"]
     },
-    "types": ["@cloudflare/workers-types", "vite/client"]
+    "types": ["@cloudflare/workers-types", "vite/client", "bun-types"]
   },
   "include": [
     "src/modern/**/*.ts",
