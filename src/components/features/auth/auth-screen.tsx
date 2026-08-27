@@ -82,6 +82,7 @@ const registerSchema = z
   });
 
 type Mode = "login" | "register" | "verify" | "pending" | "forgot" | "forgot-otp" | "reset";
+type LoginTwoFactorMethod = "EMAIL" | "TOTP";
 
 type RegistrationStatus = {
   exists: boolean;
@@ -109,7 +110,7 @@ type LoginResponseData = {
   user?: any;
   requiresTwoFactor?: boolean;
   pendingToken?: string;
-  method?: "EMAIL";
+  method?: LoginTwoFactorMethod;
   expiresAt?: string;
 };
 
@@ -144,6 +145,7 @@ export function AuthScreen() {
   const [verifyEmail, setVerifyEmail] = useState("");
   const [otp, setOtp] = useState("");
   const [loginPendingToken, setLoginPendingToken] = useState("");
+  const [loginTwoFactorMethod, setLoginTwoFactorMethod] = useState<LoginTwoFactorMethod>("EMAIL");
 
   // Forgot password state
   const [forgotEmail, setForgotEmail] = useState("");
@@ -170,11 +172,17 @@ export function AuthScreen() {
 
         if (res.data.requiresTwoFactor) {
           if (!res.data.pendingToken) throw new Error("Two-factor challenge could not be created");
+          const method = res.data.method ?? "EMAIL";
           setLoginPendingToken(res.data.pendingToken);
+          setLoginTwoFactorMethod(method);
           setVerifyEmail(data.email);
           setOtp("");
           setMode("verify");
-          toast.success("Verification code sent to your email.");
+          toast.success(
+            method === "TOTP"
+              ? "Enter the code from your authenticator app."
+              : "Verification code sent to your email."
+          );
           return;
         }
 
@@ -203,6 +211,7 @@ export function AuthScreen() {
         setVerifyEmail(res.data.email);
         setPendingEmail(res.data.email);
         setLoginPendingToken("");
+        setLoginTwoFactorMethod("EMAIL");
         setOtp("");
         setMode("verify");
         toast.success("Account created — verify your email next.");
@@ -240,6 +249,7 @@ export function AuthScreen() {
         setToken(res.data.token);
         setUser(res.data.user);
         setLoginPendingToken("");
+        setLoginTwoFactorMethod("EMAIL");
         setOtp("");
         toast.success(`Welcome back, ${res.data.user.name.split(" ")[0]}!`);
         return;
@@ -256,6 +266,11 @@ export function AuthScreen() {
   };
 
   const resendOtp = async () => {
+    if (loginPendingToken && loginTwoFactorMethod === "TOTP") {
+      toast.info("Use the current code from your authenticator app.");
+      return;
+    }
+
     try {
       setLoading(true);
 
@@ -284,6 +299,7 @@ export function AuthScreen() {
     setOtp("");
     setVerifyEmail("");
     setLoginPendingToken("");
+    setLoginTwoFactorMethod("EMAIL");
     setPendingEmail("");
     setForgotEmail("");
     setForgotOtp("");
@@ -539,6 +555,7 @@ export function AuthScreen() {
   // VERIFY mode — shared by registration email verification and login 2FA.
   if (mode === "verify") {
     const isLoginTwoFactor = Boolean(loginPendingToken);
+    const isTotpLogin = isLoginTwoFactor && loginTwoFactorMethod === "TOTP";
     return (
       <AuthLayout>
         <GlassCard strong className="p-6" hover={false}>
@@ -558,13 +575,19 @@ export function AuthScreen() {
             </div>
           </div>
 
-          <p className="text-sm text-muted-foreground mb-5">
-            We sent a 6-digit {isLoginTwoFactor ? "security" : "verification"} code to{" "}
-            <span className="font-medium text-foreground">{verifyEmail}</span>.
-            {isLoginTwoFactor
-              ? " Enter it below to finish signing in."
-              : " Enter it below to confirm your email address."}
-          </p>
+          {isTotpLogin ? (
+            <p className="text-sm text-muted-foreground mb-5">
+              Open your authenticator app and enter the current 6-digit code to finish signing in.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground mb-5">
+              We sent a 6-digit {isLoginTwoFactor ? "security" : "verification"} code to{" "}
+              <span className="font-medium text-foreground">{verifyEmail}</span>.
+              {isLoginTwoFactor
+                ? " Enter it below to finish signing in."
+                : " Enter it below to confirm your email address."}
+            </p>
+          )}
 
           <div className="flex flex-col items-center gap-5 py-2">
             <InputOTP
@@ -603,14 +626,16 @@ export function AuthScreen() {
                 >
                   <ArrowLeft className="h-3 w-3" /> Back to login
                 </button>
-                <button
-                  type="button"
-                  onClick={resendOtp}
-                  className="inline-flex items-center gap-1 hover:text-foreground"
-                  disabled={loading}
-                >
-                  <RefreshCw className="h-3 w-3" /> Resend code
-                </button>
+                {!isTotpLogin && (
+                  <button
+                    type="button"
+                    onClick={resendOtp}
+                    className="inline-flex items-center gap-1 hover:text-foreground"
+                    disabled={loading}
+                  >
+                    <RefreshCw className="h-3 w-3" /> Resend code
+                  </button>
+                )}
               </div>
             </div>
           </div>
