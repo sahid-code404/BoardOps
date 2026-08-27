@@ -48,18 +48,16 @@ jobs:
       - name: Verify generated schema exists
         run: test -f src/modern/infrastructure/db/introspected/schema.ts
 
-      - name: Check generated diff whitespace
-        run: git diff --check -- src/modern/infrastructure/db/introspected
-
       - name: Commit generated schema only
         shell: bash
         run: |
-          if git diff --quiet -- src/modern/infrastructure/db/introspected; then
+          if [ -z "$(git status --porcelain --untracked-files=all -- src/modern/infrastructure/db/introspected)" ]; then
             echo 'Introspection produced no changes.'
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/modern/infrastructure/db/introspected
+          git diff --cached --check
           git commit -m 'build: introspect complete BoardOps schema for Drizzle'
           git push origin HEAD:phase/cf-02-modular-monolith
