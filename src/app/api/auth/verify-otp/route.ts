@@ -5,6 +5,7 @@ import { ok, err, handleApiError } from "@/lib/api-response";
 import { z } from "zod";
 import { logAudit } from "@/lib/audit";
 import { verifyOtp, OTP_CONFIG } from "@/lib/otp";
+import { verifyTotp } from "@/lib/two-factor";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { trustDevice, DEVICE_COOKIE_NAME, DEVICE_COOKIE_MAX_AGE } from "@/lib/device-trust";
 import { cookies } from "next/headers";
@@ -37,20 +38,55 @@ export async function POST(req: Request) {
       return err("Session expired or invalid. Please log in again.", 401);
     }
 
-    if (!user.emailOtpExpiresAt || user.emailOtpExpiresAt < now) {
-      return err("Verification code has expired. Please request a new one.", 401);
-    }
-
-    if (user.emailOtpAttempts >= OTP_CONFIG.maxAttempts) {
-      return err("Too many failed attempts. Please log in again.", 429);
-    }
-
-    if (!user.emailOtpCode || !verifyOtp(code, user.emailOtpCode)) {
+    if (user.status !== "ACTIVE" || !user.emailVerified || !user.twoFactorEnabled) {
       await db.user.update({
         where: { id: user.id },
-        data: { emailOtpAttempts: { increment: 1 } },
+        data: {
+          emailOtpCode: null,
+          emailOtpExpiresAt: null,
+          emailOtpAttempts: 0,
+          otpPendingToken: null,
+          otpPendingExpiresAt: null,
+        },
       });
-      const remaining = OTP_CONFIG.maxAttempts - (user.emailOtpAttempts + 1);
+      return err("Account access denied. Please log in again.", 403);
+    }
+
+    const method = user.twoFactorMethod === "TOTP" && user.twoFactorSecret ? "TOTP" : "EMAIL";
+    let verified = false;
+
+    if (method === "TOTP") {
+      verified = verifyTotp(code, user.twoFactorSecret!);
+    } else {
+      if (!user.emailOtpExpiresAt || user.emailOtpExpiresAt < now) {
+        return err("Verification code has expired. Please request a new one.", 401);
+      }
+
+      if (user.emailOtpAttempts >= OTP_CONFIG.maxAttempts) {
+        return err("Too many failed attempts. Please log in again.", 429);
+      }
+
+      verified = Boolean(user.emailOtpCode && verifyOtp(code, user.emailOtpCode));
+      if (!verified) {
+        await db.user.update({
+          where: { id: user.id },
+          data: { emailOtpAttempts: { increment: 1 } },
+        });
+        const remaining = OTP_CONFIG.maxAttempts - (user.emailOtpAttempts + 1);
+        await logAudit({
+          actorId: user.id,
+          action: "OTP_FAILED",
+          entity: "User",
+          entityId: user.id,
+          ipAddress: ip,
+          userAgent: ua,
+          newValue: { method },
+        });
+        return err(`Invalid verification code. ${remaining} attempt(s) remaining.`, 401);
+      }
+    }
+
+    if (!verified) {
       await logAudit({
         actorId: user.id,
         action: "OTP_FAILED",
@@ -58,8 +94,9 @@ export async function POST(req: Request) {
         entityId: user.id,
         ipAddress: ip,
         userAgent: ua,
+        newValue: { method },
       });
-      return err(`Invalid verification code. ${remaining} attempt(s) remaining.`, 401);
+      return err("Invalid verification code.", 401);
     }
 
     const token = generateToken();
@@ -100,6 +137,7 @@ export async function POST(req: Request) {
       entityId: user.id,
       ipAddress: ip,
       userAgent: ua,
+      newValue: { method },
     });
     await logAudit({
       actorId: user.id,
