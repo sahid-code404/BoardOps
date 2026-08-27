@@ -14,7 +14,7 @@ const schema = z.object({
 export async function POST(req: Request) {
   try {
     const ip = await getClientIp();
-    const rateLimit = checkRateLimit(ip, "verify-email");
+    const rateLimit = await checkRateLimit(ip, "verify-email");
     if (!rateLimit.allowed) {
       return err("Too many attempts. Please try again later.", 429);
     }
@@ -26,7 +26,6 @@ export async function POST(req: Request) {
     const user = await db.user.findUnique({ where: { email: normalizedEmail } });
     if (!user) return err("Invalid or expired code", 400);
 
-    // Idempotent: if already verified, return ok.
     if (user.emailVerified) {
       return ok({ userId: user.id, email: user.email, emailVerified: true });
     }
@@ -50,8 +49,6 @@ export async function POST(req: Request) {
       },
     });
 
-    // The user is still PENDING admin approval — the RegistrationRequest
-    // remains PENDING_REVIEW. We just clear the OTP state.
     await logAudit({
       actorId: user.id,
       action: "EMAIL_VERIFIED",
