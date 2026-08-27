@@ -13,7 +13,7 @@ export function createServerApp() {
 
   app.get("/api", (c) =>
     c.json<ApiSuccess<{ version: "v1"; status: "ok" }>>({
-      ok: true,
+      success: true,
       data: { version: "v1", status: "ok" },
       requestId: c.get("requestId"),
     })
@@ -24,11 +24,9 @@ export function createServerApp() {
   app.notFound((c) =>
     c.json<ApiFailure>(
       {
-        ok: false,
-        error: {
-          code: "NOT_FOUND",
-          message: "The requested API resource does not exist.",
-        },
+        success: false,
+        error: "The requested API resource does not exist.",
+        details: { code: "NOT_FOUND" },
         requestId: c.get("requestId"),
       },
       404
@@ -52,11 +50,9 @@ export function createServerApp() {
 
     return c.json<ApiFailure>(
       {
-        ok: false,
-        error: {
-          code: "INTERNAL_ERROR",
-          message: "An unexpected server error occurred.",
-        },
+        success: false,
+        error: "An unexpected server error occurred.",
+        details: { code: "INTERNAL_ERROR" },
         requestId,
       },
       500
