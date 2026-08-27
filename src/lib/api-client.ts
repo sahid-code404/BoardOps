@@ -18,6 +18,17 @@ type FetchOpts = RequestInit & {
   params?: Record<string, unknown>;
 };
 
+type ApiErrorEnvelope = {
+  error?: string;
+  message?: string;
+  details?: unknown;
+};
+
+function asErrorEnvelope(value: unknown): ApiErrorEnvelope | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as ApiErrorEnvelope;
+}
+
 export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
   const { params, headers, ...rest } = opts;
   const token = useAuthStore.getState().token;
@@ -37,10 +48,13 @@ export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T
     credentials: "include",
   });
   const isJson = res.headers.get("content-type")?.includes("application/json");
-  const body = isJson ? await res.json().catch(() => null) : null;
+  const body: unknown = isJson ? await res.json().catch(() => null) : null;
   if (!res.ok) {
+    const errorBody = asErrorEnvelope(body);
     const message =
-      body?.error || body?.message || (typeof body?.details === "string" ? body.details : `Request failed (${res.status})`);
+      errorBody?.error ||
+      errorBody?.message ||
+      (typeof errorBody?.details === "string" ? errorBody.details : `Request failed (${res.status})`);
     throw new ApiError(message, res.status, body);
   }
   // Return the full response envelope { success: true, data: T }.
