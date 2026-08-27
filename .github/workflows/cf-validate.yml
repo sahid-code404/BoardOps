@@ -1,0 +1,39 @@
+name: Validate Cloudflare runtime
+
+on:
+  push:
+    branches:
+      - phase/cf-01-runtime-foundation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cf-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: bunx prisma generate
+
+      - name: Check vinext compatibility
+        run: bunx vinext check
+
+      - name: Build Cloudflare production bundle
+        run: bun run build
