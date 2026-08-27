@@ -7,11 +7,6 @@ import { verifyOtp } from "@/lib/otp";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
 
-/**
- * POST /api/auth/reset-password
- * PRD 03.12: Reset password using the reset token from /verify-reset-otp.
- * Invalidates ALL existing sessions after password reset (configurable).
- */
 const schema = z.object({
   email: z.string().email(),
   resetToken: z.string().min(1, "Reset token is required"),
@@ -21,7 +16,7 @@ const schema = z.object({
 export async function POST(req: Request) {
   try {
     const ip = await getClientIp();
-    const rateLimit = checkRateLimit(ip, "reset-password");
+    const rateLimit = await checkRateLimit(ip, "reset-password");
     if (!rateLimit.allowed) {
       return err("Too many attempts. Please try again later.", 429);
     }
@@ -33,23 +28,19 @@ export async function POST(req: Request) {
     if (!user) return err("Invalid or expired reset token", 400);
     if (!user.resetOtpHash || !user.resetOtpExpires) return err("Invalid or expired reset token", 400);
 
-    // Check token expiry
     if (user.resetOtpExpires < new Date()) {
       return err("Reset token has expired. Start the password reset process again.", 400);
     }
 
-    // Verify reset token hash (bcrypt-hashed in verify-reset-otp)
     if (!verifyOtp(resetToken, user.resetOtpHash)) {
       return err("Invalid reset token", 400);
     }
 
-    // Validate new password against policy
     const validation = validatePassword(newPassword);
     if (!validation.valid) {
       return err(validation.errors.join("; "), 422);
     }
 
-    // Hash new password + clear reset fields
     await db.user.update({
       where: { id: user.id },
       data: {
@@ -59,7 +50,6 @@ export async function POST(req: Request) {
       },
     });
 
-    // PRD: Invalidate ALL existing sessions after password reset
     await db.userSession.updateMany({
       where: { userId: user.id, revokedAt: null },
       data: { revokedAt: new Date() },
