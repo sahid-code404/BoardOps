@@ -1,113 +1,34 @@
-// File-based persistent rate limiter.
-//
-// Tracks requests per IP + action and persists state to a JSON file so that
-// rate-limit counters survive server restarts (the previous in-memory
-// implementation reset on every restart, allowing an attacker to bypass the
-// limit by simply waiting for the dev server to reload).
-//
-// Behaviour:
-//   - Read the file on every check (cheap; the file is tiny).
-//   - Mutate the in-memory copy.
-//   - Write back, throttled to once every 5s to keep disk I/O bounded.
-//   - Clean up expired entries on every write.
-//
-// Same API as the previous implementation:
-//   checkRateLimit(ip, action): { allowed, remaining, resetAt }
+import "server-only";
 
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { env } from "cloudflare:workers";
 
-const WINDOW_MS = 60 * 1000; // 1 minute
-const MAX_ATTEMPTS = 5; // 5 attempts per minute per IP per action
-const STORE_PATH = "/tmp/boardops-rate-limit.json";
-const WRITE_THROTTLE_MS = 5_000; // only flush to disk at most once every 5s
+const WINDOW_MS = 60_000;
 
-type RateRecord = { count: number; resetAt: number };
-type RateStore = Record<string, RateRecord>;
+type RateLimitResult = {
+  allowed: boolean;
+  remaining: number;
+  resetAt: number;
+};
 
 /**
- * Most recently mutated store. Captured by deferred-write closures so that
- * when a throttled write eventually fires, it persists the latest state
- * rather than a stale snapshot.
+ * Distributed authentication rate limiting backed by Cloudflare's native
+ * Rate Limiting binding. Unlike the old /tmp JSON store, this works across
+ * Worker isolates and regions and does not depend on an ephemeral filesystem.
+ *
+ * The current callers only consume `allowed`. `remaining` and `resetAt` are
+ * retained for source compatibility; the Workers binding deliberately does
+ * not expose an exact distributed counter/reset timestamp.
  */
-let latestStore: RateStore | null = null;
-let lastWriteAt = 0;
-let writePending = false;
-
-function readStore(): RateStore {
-  try {
-    if (existsSync(STORE_PATH)) {
-      const raw = readFileSync(STORE_PATH, "utf-8");
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        return parsed as RateStore;
-      }
-    }
-  } catch (e) {
-    console.error("[rate-limit] Failed to read store:", e);
-  }
-  return {};
-}
-
-function writeStore(store: RateStore) {
-  latestStore = store;
-  const now = Date.now();
-
-  // Clean up expired entries on every write attempt.
-  for (const key of Object.keys(store)) {
-    if (store[key].resetAt < now) delete store[key];
-  }
-
-  if (now - lastWriteAt < WRITE_THROTTLE_MS) {
-    // Throttled — schedule a deferred write so the latest state still lands on disk.
-    if (!writePending) {
-      writePending = true;
-      const delay = WRITE_THROTTLE_MS - (now - lastWriteAt);
-      const timer = setTimeout(() => {
-        writePending = false;
-        if (!latestStore) return;
-        try {
-          writeFileSync(STORE_PATH, JSON.stringify(latestStore));
-          lastWriteAt = Date.now();
-        } catch (e) {
-          console.error("[rate-limit] Failed to persist store:", e);
-        }
-      }, delay);
-      // Don't keep the event loop alive just for this write.
-      if (typeof timer.unref === "function") timer.unref();
-    }
-    return;
-  }
-
-  try {
-    writeFileSync(STORE_PATH, JSON.stringify(store));
-    lastWriteAt = now;
-  } catch (e) {
-    console.error("[rate-limit] Failed to persist store:", e);
-  }
-}
-
-export function checkRateLimit(
+export async function checkRateLimit(
   ip: string,
   action: string
-): { allowed: boolean; remaining: number; resetAt: number } {
-  const key = `${ip}:${action}`;
-  const now = Date.now();
-  const store = readStore();
-  const existing = store[key];
+): Promise<RateLimitResult> {
+  const key = `${action}:${ip || "unknown"}`;
+  const result = await env.AUTH_RATE_LIMITER.limit({ key });
 
-  if (!existing || existing.resetAt < now) {
-    store[key] = { count: 1, resetAt: now + WINDOW_MS };
-    writeStore(store);
-    return { allowed: true, remaining: MAX_ATTEMPTS - 1, resetAt: now + WINDOW_MS };
-  }
-
-  if (existing.count >= MAX_ATTEMPTS) {
-    // Even on a denied request we persist so other instances see the same state.
-    writeStore(store);
-    return { allowed: false, remaining: 0, resetAt: existing.resetAt };
-  }
-
-  existing.count++;
-  writeStore(store);
-  return { allowed: true, remaining: MAX_ATTEMPTS - existing.count, resetAt: existing.resetAt };
+  return {
+    allowed: result.success,
+    remaining: result.success ? 1 : 0,
+    resetAt: Date.now() + WINDOW_MS,
+  };
 }
