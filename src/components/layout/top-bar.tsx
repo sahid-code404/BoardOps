@@ -61,7 +61,7 @@ export function TopBar() {
   };
 
   // Fetch unread notification count — refreshes every 30s
-  const { data: unreadCount = 0 } = useQuery({
+  const { data: unreadCount } = useQuery({
     queryKey: ["notifications", "unread-count"],
     queryFn: async () => {
       const res = await api.get<{ success: boolean; data: { unreadCount: number; notifications: Array<{ id: string; title: string; description: string | null; type: string; priority: string; route: string | null; readAt: string | null; createdAt: string }> } }>(

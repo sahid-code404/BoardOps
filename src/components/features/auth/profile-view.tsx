@@ -87,7 +87,9 @@ const STATUS_META: Record<string, { label: string; className: string }> = {
 };
 
 const ROLE_META: Record<Role, { label: string; className: string }> = {
+  SUPER_ADMIN: { label: "Super Admin", className: "bg-primary/20 text-primary" },
   ADMIN: { label: "Admin", className: "bg-primary/15 text-primary" },
+  MANAGER: { label: "Manager", className: "bg-secondary/20 text-secondary-foreground" },
   USER: { label: "Resident", className: "bg-muted text-muted-foreground" },
 };
 
@@ -117,7 +119,7 @@ function initials(name: string) {
 async function unwrap<T>(promise: Promise<unknown>): Promise<T> {
   const res = await promise;
   if (res && typeof res === "object" && "success" in res && "data" in (res as Record<string, unknown>)) {
-    return (res as { data: T }).data;
+    return (res as unknown as { data: T }).data;
   }
   return res as T;
 }
@@ -207,9 +209,10 @@ export function ProfileView() {
         },
         body: formData,
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Upload failed");
-      return json.data as { avatarUrl: string };
+      const json = (await res.json()) as { error?: string; data?: { avatarUrl: string } };
+      if (!res.ok) throw new Error(json.error || "Upload failed");
+      if (!json.data) throw new Error("Upload response was missing avatar data");
+      return json.data;
     },
     onSuccess: (data) => {
       if (me) {
@@ -251,7 +254,7 @@ export function ProfileView() {
           </div>
           <div className="flex flex-col gap-5">
             <AvatarUpload
-              avatarUrl={me.avatarUrl}
+              avatarUrl={me.avatarUrl ?? undefined}
               name={me.name}
               onUpload={(file) => avatarMutation.mutate(file)}
               loading={avatarMutation.isPending}

@@ -29,7 +29,7 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const user = await requireAuth();
-    const body = await req.json();
+    const body = (await req.json()) as { markAllRead?: boolean; id?: string };
     if (body.markAllRead) {
       await db.notification.updateMany({
         where: { userId: user.id, readAt: null },

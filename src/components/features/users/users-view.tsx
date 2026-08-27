@@ -124,7 +124,9 @@ const STATUS_META: Record<UserStatus, { label: string; className: string }> = {
 };
 
 const ROLE_META: Record<Role, { label: string; className: string }> = {
+  SUPER_ADMIN: { label: "Super Admin", className: "bg-primary/20 text-primary" },
   ADMIN: { label: "Admin", className: "bg-primary/15 text-primary" },
+  MANAGER: { label: "Manager", className: "bg-secondary/20 text-secondary-foreground" },
   USER: { label: "Resident", className: "bg-muted text-muted-foreground" },
 };
 
@@ -150,7 +152,7 @@ const REQUEST_CHANGES_FIELDS = [
 async function unwrap<T>(promise: Promise<unknown>): Promise<T> {
   const res = await promise;
   if (res && typeof res === "object" && "success" in res && "data" in (res as Record<string, unknown>)) {
-    return (res as { data: T }).data;
+    return (res as unknown as { data: T }).data;
   }
   return res as T;
 }

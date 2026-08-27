@@ -54,7 +54,7 @@ const TYPE_META: Record<NotificationType, { icon: typeof Info; bg: string; fg: s
 async function unwrap<T>(promise: Promise<unknown>): Promise<T> {
   const res = await promise;
   if (res && typeof res === "object" && "success" in res && "data" in (res as Record<string, unknown>)) {
-    return (res as { data: T }).data;
+    return (res as unknown as { data: T }).data;
   }
   return res as T;
 }

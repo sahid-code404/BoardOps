@@ -21,7 +21,7 @@ export async function PATCH(
   try {
     const user = await requireRole("ADMIN");
     const { id } = await ctx.params;
-    const body = await req.json().catch(() => ({}));
+    const body = (await req.json().catch(() => ({}))) as { action?: "APPROVE" | "REJECT" };
     const action = body.action || "APPROVE";
 
     const payment = await db.payment.findUnique({ where: { id }, include: { user: true } });

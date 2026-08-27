@@ -27,7 +27,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const admin = await requireRole("ADMIN");
-    const body = await req.json().catch(() => ({}));
+    const body = (await req.json().catch(() => ({}))) as { month?: number | string; year?: number | string; dueDate?: string };
     const month = Number(body.month ?? new Date().getMonth());
     const year = Number(body.year ?? new Date().getFullYear());
     const dueDate = body.dueDate ? new Date(body.dueDate) : undefined;

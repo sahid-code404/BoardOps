@@ -32,8 +32,8 @@ export async function POST(
   try {
     const admin = await requireRole("ADMIN");
     const { id } = await ctx.params;
-    const body = await req.json().catch(() => ({}));
-    const reason = body.reason as string | undefined;
+    const body = (await req.json().catch(() => ({}))) as { reason?: string };
+    const reason = body.reason;
 
     const existing = await db.billingCycle.findUnique({ where: { id } });
     if (!existing) return err("Billing cycle not found", 404);
