@@ -1,10 +1,17 @@
 import { PrismaClient } from "@prisma/client";
 import { hashPassword, generateToken, getTokenExpiry } from "../src/lib/auth";
 
+const allowDemoSeed = process.env.ALLOW_DEMO_SEED === "true";
+if (process.env.NODE_ENV === "production" || !allowDemoSeed) {
+  throw new Error(
+    "Demo seeding is disabled. Set ALLOW_DEMO_SEED=true only in a non-production local environment."
+  );
+}
+
 const db = new PrismaClient();
 
 async function main() {
-  console.log("🌱 Seeding BoardOps...");
+  console.log("🌱 Seeding BoardOps demo data...");
 
   // ── Settings (public + admin) ──
   const settings = [
@@ -71,7 +78,7 @@ async function main() {
       userAgent: "seed",
     },
   });
-  console.log(`  ✅ Admin: ${adminEmail} / Admin@123  (token: ${token.slice(0, 12)}…)`);
+  console.log(`  ✅ Demo admin created: ${adminEmail}`);
 
   // ── Demo residents ──
   const residents = [
