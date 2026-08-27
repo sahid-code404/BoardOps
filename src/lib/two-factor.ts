@@ -52,7 +52,7 @@ export function verifyTotp(token: string, secret: string): boolean {
       digits: TOTP_CONFIG.digits,
       algorithm: TOTP_CONFIG.algorithm,
       epochTolerance: TOTP_CONFIG.epochTolerance,
-    });
+    }).valid;
   } catch {
     return false;
   }
