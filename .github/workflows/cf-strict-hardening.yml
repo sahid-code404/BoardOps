@@ -63,6 +63,7 @@ jobs:
           )
           replace(meals, 'value={watch("startTime") || "08:00"}', 'value={watchedStartTime || "08:00"}')
           replace(meals, 'value={watch("endTime") || "10:00"}', 'value={watchedEndTime || "10:00"}')
+          replace(meals, 'value={watch("cutoffTime") || "16:00"}', 'value={watchedCutoffTime || "16:00"}')
 
           variables = 'src/components/features/variables/variables-view.tsx'
           replace(variables, 'import { Controller, useForm } from "react-hook-form";', 'import { Controller, useForm, useWatch } from "react-hook-form";')
