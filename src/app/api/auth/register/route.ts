@@ -6,6 +6,7 @@ import { ok, err, handleApiError } from "@/lib/api-response";
 import { logAudit } from "@/lib/audit";
 import { z } from "zod";
 import { hashOtp, generateOtp } from "@/lib/otp";
+import { sendOtpEmail } from "@/lib/email";
 
 const schema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -94,9 +95,7 @@ export async function POST(req: Request) {
       },
     });
 
-    // Dev-only: log the OTP so we can grab it from the dev server log.
-    // In production this would be sent via an email service.
-    console.log(`[EMAIL OTP for ${user.email}]: ${otp}`);
+    await sendOtpEmail(user.email, otp, "email-verification");
 
     await logAudit({
       actorId: user.id,
@@ -113,7 +112,6 @@ export async function POST(req: Request) {
     });
 
     // SECURITY: Never expose the OTP in the API response.
-    // The OTP is sent via email only. The console.log is for sandbox debugging.
     return ok({
       userId: user.id,
       email: user.email,
