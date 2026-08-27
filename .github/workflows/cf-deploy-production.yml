@@ -1,0 +1,91 @@
+name: Deploy BoardOps to Cloudflare
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: boardops-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/phase/cf-01-runtime-foundation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: bunx prisma generate
+
+      - name: Regression tests
+        run: bun run test
+
+      - name: Production TypeScript gate
+        run: bun run typecheck
+
+      - name: Zero-warning ESLint gate
+        run: bun run lint:strict
+
+      - name: Check vinext compatibility
+        run: bunx vinext check
+
+      - name: Build Cloudflare production bundle
+        run: bun run build
+
+      - name: Inject production D1 database ID
+        env:
+          D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
+        run: |
+          test -n "$D1_DATABASE_ID" || { echo "CLOUDFLARE_D1_DATABASE_ID is missing"; exit 1; }
+          bun -e '
+            const path = "wrangler.jsonc";
+            const config = JSON.parse(await Bun.file(path).text());
+            const db = config.d1_databases?.find((entry) => entry.binding === "DB");
+            if (!db) throw new Error("DB binding not found");
+            db.database_id = process.env.D1_DATABASE_ID;
+            await Bun.write(path, JSON.stringify(config, null, 2) + "\n");
+          '
+
+      - name: Cloudflare deployment preflight
+        run: bun run cf:preflight
+
+      - name: Apply D1 migrations
+        run: bun run db:migrate:remote
+
+      - name: Deploy Worker
+        run: bun run deploy
+
+      - name: Production smoke test
+        if: ${{ vars.BOARDOPS_PRODUCTION_URL != '' }}
+        env:
+          PRODUCTION_URL: ${{ vars.BOARDOPS_PRODUCTION_URL }}
+        run: |
+          set -euo pipefail
+          base="${PRODUCTION_URL%/}"
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --show-error --max-time 20 "$base/api" | grep -q 'Hello, world!'; then
+              echo "Production smoke test passed: $base/api"
+              exit 0
+            fi
+            echo "Smoke test attempt $attempt failed; retrying..."
+            sleep 5
+          done
+          echo "Production smoke test failed after 5 attempts"
+          exit 1
