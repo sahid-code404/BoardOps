@@ -14,7 +14,7 @@ const schema = z.object({
 export async function POST(req: Request) {
   try {
     const ip = await getClientIp();
-    const rateLimit = checkRateLimit(ip, "login");
+    const rateLimit = await checkRateLimit(ip, "login");
     if (!rateLimit.allowed) {
       return err("Too many login attempts. Please try again later.", 429);
     }
@@ -45,10 +45,6 @@ export async function POST(req: Request) {
       return err("Your account is no longer active", 403);
     if (user.status !== "ACTIVE") return err("Account access denied", 403);
 
-    // PRD Module 03 — require email verification before login. Pending users
-    // who haven't verified their email get a clear message pointing them back
-    // to the verification flow (the registration-status screen handles
-    // resend / status polling without auth).
     if (!user.emailVerified) {
       return err("Please verify your email address first. Use the verification link sent to your inbox, or check your registration status page.", 403);
     }
