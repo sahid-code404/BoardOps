@@ -29,7 +29,7 @@ import { api } from "@/lib/api-client";
 import { cn, toLocalDateKey } from "@/lib/utils";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { useAppStore } from "@/stores/use-app-store";
-import { formatDeletionCountdown } from "@/lib/user-cleanup";
+import { formatDeletionCountdown } from "@/lib/deletion-utils";
 
 import { GlassCard } from "@/components/glass/glass-card";
 import { GlassButton } from "@/components/glass/glass-button";
