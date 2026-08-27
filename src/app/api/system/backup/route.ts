@@ -1,36 +1,46 @@
-import { requireRole } from "@/lib/session";
-import { ok, err, handleApiError } from "@/lib/api-response";
-import { logAudit } from "@/lib/audit";
-import { exec } from "child_process";
-import { promisify } from "util";
+import "server-only";
 
-const execAsync = promisify(exec);
+import { requireRole } from "@/lib/session";
+import { ok, handleApiError } from "@/lib/api-response";
+import { logAudit } from "@/lib/audit";
 
 /**
  * POST /api/system/backup
- *   Triggers a SQLite database backup by running scripts/backup-db.sh.
- *   Admin only. Returns the script's stdout (which includes the backup path).
  *
- * The backup script uses `sqlite3 .backup` (safe while the DB is in use) and
- * gzip-compresses the result into the /backups directory. Old backups (>30d)
- * are pruned automatically.
+ * BoardOps now runs on Cloudflare D1, so a Worker cannot and should not spawn
+ * sqlite3/bash or write database snapshots to a local filesystem. D1 provides
+ * managed point-in-time recovery (Time Travel) at the platform layer.
+ *
+ * This endpoint intentionally preserves the existing admin action/API surface
+ * while reporting the production recovery policy truthfully. It does NOT claim
+ * to have created a manual snapshot.
  */
 export async function POST() {
   try {
     const user = await requireRole("ADMIN", "SUPER_ADMIN");
-    const { stdout, stderr } = await execAsync("bash /home/z/my-project/scripts/backup-db.sh", {
-      timeout: 60_000,
-    });
+    const checkedAt = new Date().toISOString();
+
     await logAudit({
       actorId: user.id,
-      action: "BACKUP_TRIGGERED",
+      action: "BACKUP_POLICY_CHECKED",
       entity: "System",
-      newValue: { stdout: stdout.trim(), stderr: stderr.trim() },
+      newValue: {
+        provider: "CLOUDFLARE_D1",
+        recovery: "TIME_TRAVEL",
+        managed: true,
+        checkedAt,
+      },
     });
-    if (stderr && !stdout) {
-      return err(`Backup failed: ${stderr}`, 500);
-    }
-    return ok({ output: stdout.trim() || "Backup completed." });
+
+    return ok({
+      provider: "CLOUDFLARE_D1",
+      recovery: "TIME_TRAVEL",
+      managed: true,
+      manualSnapshotCreated: false,
+      checkedAt,
+      message:
+        "Database recovery is managed by Cloudflare D1 Time Travel; no local SQLite snapshot is required or created by this request.",
+    });
   } catch (e) {
     return handleApiError(e);
   }
