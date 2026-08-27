@@ -38,19 +38,19 @@ jobs:
               p.write_text(s.replace(old, new, count))
 
           # Formula versioning: make the already-validated change note explicitly non-null.
+          formula_path = 'src/app/api/formulas/[id]/route.ts'
           replace(
-              'src/app/api/formulas/[id]/route.ts',
+              formula_path,
               '      const newVersion = existing.version + 1;\n      const slugs = extractVarSlugs(data.expression);',
               '      const changeNote = data.changeNote.trim();\n      const newVersion = existing.version + 1;\n      const slugs = extractVarSlugs(data.expression);'
           )
-          p = Path('src/app/api/formulas/[id]/route.ts')
-          s = p.read_text()
-          start = s.index('      const changeNote = data.changeNote.trim();')
-          end = s.index('      return ok(updated);', start)
-          segment = s[start:end]
-          segment = segment.replace('changeNote: data.changeNote', 'changeNote')
-          segment = segment.replace('reason: data.changeNote', 'reason: changeNote')
-          p.write_text(s[:start] + segment + s[end:])
+          replace(formula_path, '            changeNote: data.changeNote,', '            changeNote,')
+          replace(
+              formula_path,
+              'newValue: { version: newVersion, expression: data.expression, changeNote: data.changeNote, slugs, missingVars },',
+              'newValue: { version: newVersion, expression: data.expression, changeNote, slugs, missingVars },'
+          )
+          replace(formula_path, '        reason: data.changeNote,', '        reason: changeNote,')
 
           # Request body typing in kitchen delete route.
           replace(
@@ -100,27 +100,31 @@ jobs:
           # Normalize string-backed Prisma restriction fields once at the DB boundary.
           path = Path('src/lib/restriction-engine.ts')
           s = path.read_text()
-          s = s.replace(
-              'import { getResidentFundAccount } from "@/lib/resident-fund";\n',
-              'import { getResidentFundAccount } from "@/lib/resident-fund";\nimport type { Restriction as DbRestriction } from "@prisma/client";\n',
-              1,
-          )
-          s = s.replace(
-              'export type RestrictionStatus = "ACTIVE" | "LIFTED" | "EXEMPTED" | "EXPIRED";\n\nexport type Restriction = {',
-              'export type RestrictionStatus = "ACTIVE" | "LIFTED" | "EXEMPTED" | "EXPIRED";\nexport type RestrictionSource = "AUTOMATIC" | "MANUAL";\n\nexport type Restriction = {',
-              1,
-          )
+          if 'import type { Restriction as DbRestriction } from "@prisma/client";' not in s:
+              s = s.replace(
+                  'import { getResidentFundAccount } from "@/lib/resident-fund";\n',
+                  'import { getResidentFundAccount } from "@/lib/resident-fund";\nimport type { Restriction as DbRestriction } from "@prisma/client";\n',
+                  1,
+              )
+          if 'export type RestrictionSource = "AUTOMATIC" | "MANUAL";' not in s:
+              s = s.replace(
+                  'export type RestrictionStatus = "ACTIVE" | "LIFTED" | "EXEMPTED" | "EXPIRED";\n\nexport type Restriction = {',
+                  'export type RestrictionStatus = "ACTIVE" | "LIFTED" | "EXEMPTED" | "EXPIRED";\nexport type RestrictionSource = "AUTOMATIC" | "MANUAL";\n\nexport type Restriction = {',
+                  1,
+              )
           s = s.replace('  source: "AUTOMATIC" | "MANUAL";\n', '  source: RestrictionSource;\n', 1)
           marker = '''};\n\n// ─────────────────────────────────────────────────────────────\n// Policy configuration'''
           helper = '''};\n\nconst RESTRICTION_TYPES: readonly RestrictionType[] = ["FINANCIAL", "ADMINISTRATIVE"];\nconst RESTRICTION_STATUSES: readonly RestrictionStatus[] = ["ACTIVE", "LIFTED", "EXEMPTED", "EXPIRED"];\nconst RESTRICTION_SOURCES: readonly RestrictionSource[] = ["AUTOMATIC", "MANUAL"];\n\nfunction toRestriction(row: DbRestriction): Restriction {\n  if (!RESTRICTION_TYPES.includes(row.type as RestrictionType)) {\n    throw new Error(`Invalid restriction type in database: ${row.type}`);\n  }\n  if (!RESTRICTION_STATUSES.includes(row.status as RestrictionStatus)) {\n    throw new Error(`Invalid restriction status in database: ${row.status}`);\n  }\n  if (!RESTRICTION_SOURCES.includes(row.source as RestrictionSource)) {\n    throw new Error(`Invalid restriction source in database: ${row.source}`);\n  }\n\n  return {\n    id: row.id,\n    userId: row.userId,\n    type: row.type as RestrictionType,\n    reason: row.reason,\n    source: row.source as RestrictionSource,\n    status: row.status as RestrictionStatus,\n    appliedBy: row.appliedBy,\n    appliedAt: row.appliedAt,\n    expiresAt: row.expiresAt,\n    liftedBy: row.liftedBy,\n    liftedAt: row.liftedAt,\n    liftReason: row.liftReason,\n  };\n}\n\n// ─────────────────────────────────────────────────────────────\n// Policy configuration'''
-          if marker not in s:
-              raise SystemExit('restriction helper insertion marker not found')
-          s = s.replace(marker, helper, 1)
+          if 'function toRestriction(row: DbRestriction): Restriction {' not in s:
+              if marker not in s:
+                  raise SystemExit('restriction helper insertion marker not found')
+              s = s.replace(marker, helper, 1)
           s = s.replace('const [account, policy, activeRestrictions] = await Promise.all([', 'const [account, policy, rawRestrictions] = await Promise.all([', 1)
           promise_end = '''  ]);\n\n  const availableBalance = account?.availableBalance ?? 0;'''
-          if promise_end not in s:
-              raise SystemExit('restriction Promise.all end marker not found')
-          s = s.replace(promise_end, '''  ]);\n\n  const activeRestrictions = rawRestrictions.map(toRestriction);\n  const availableBalance = account?.availableBalance ?? 0;''', 1)
+          if 'const activeRestrictions = rawRestrictions.map(toRestriction);' not in s:
+              if promise_end not in s:
+                  raise SystemExit('restriction Promise.all end marker not found')
+              s = s.replace(promise_end, '''  ]);\n\n  const activeRestrictions = rawRestrictions.map(toRestriction);\n  const availableBalance = account?.availableBalance ?? 0;''', 1)
           s = s.replace('    return { applied: true, restriction };', '    return { applied: true, restriction: toRestriction(restriction) };', 1)
           s = s.replace('      return { lifted: true, restriction: updated };', '      return { lifted: true, restriction: toRestriction(updated) };', 1)
           s = s.replace(
