@@ -1,30 +1,32 @@
-import { PrismaClient } from '@prisma/client'
+import { PrismaD1 } from "@prisma/adapter-d1";
+import { PrismaClient } from "@prisma/client";
+import { env } from "cloudflare:workers";
 
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
-  __prismaSchemaVersion: string | undefined
-}
+  prisma: PrismaClient | undefined;
+  __prismaSchemaVersion: string | undefined;
+};
 
-// Force a fresh PrismaClient if the schema version has changed since the
-// singleton was cached (e.g. after `prisma db push` + `prisma generate`
-// during dev). Without this, hot-reload keeps the OLD PrismaClient instance
-// (with the OLD schema) in memory even though the @prisma/client library
-// has been regenerated, which leads to new fields returning `undefined`.
-const SCHEMA_VERSION = '2026-07-03-auth-otp'
+// Increment whenever the Prisma schema changes in a way that must invalidate
+// a hot-reload singleton during local vinext development.
+const SCHEMA_VERSION = "2026-08-27-cloudflare-d1";
 
 const needsFresh =
-  !globalForPrisma.prisma || globalForPrisma.__prismaSchemaVersion !== SCHEMA_VERSION
+  !globalForPrisma.prisma ||
+  globalForPrisma.__prismaSchemaVersion !== SCHEMA_VERSION;
 
 if (needsFresh) {
+  const adapter = new PrismaD1(env.DB);
   globalForPrisma.prisma = new PrismaClient({
-    log: ['warn', 'error'],
-  })
-  globalForPrisma.__prismaSchemaVersion = SCHEMA_VERSION
+    adapter,
+    log: ["warn", "error"],
+  });
+  globalForPrisma.__prismaSchemaVersion = SCHEMA_VERSION;
 }
 
-export const db = globalForPrisma.prisma
-
-if (process.env.NODE_ENV !== 'production') {
-  // keep reference alive so we can re-use on hot reload
-  globalForPrisma.prisma = db
-}
+/**
+ * Application-wide Prisma client backed by the Cloudflare D1 `DB` binding.
+ * All existing repositories/routes continue importing `db` from this module,
+ * keeping the D1 migration centralized instead of rewriting every query.
+ */
+export const db = globalForPrisma.prisma!;
