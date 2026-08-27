@@ -121,11 +121,13 @@ export async function requireRole(...roles: string[]): Promise<SessionUser> {
 
 export async function getClientIp(): Promise<string> {
   const h = await headers();
-  return (
-    h.get("x-forwarded-for")?.split(",")[0] ||
-    h.get("x-real-ip") ||
-    "127.0.0.1"
-  );
+  const cloudflareIp = h.get("cf-connecting-ip")?.trim();
+  if (cloudflareIp) return cloudflareIp;
+
+  const forwardedIp = h.get("x-forwarded-for")?.split(",", 1)[0]?.trim();
+  if (forwardedIp) return forwardedIp;
+
+  return h.get("x-real-ip")?.trim() || "127.0.0.1";
 }
 
 export async function getUserAgent(): Promise<string | null> {
