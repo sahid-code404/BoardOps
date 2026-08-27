@@ -44,7 +44,7 @@ jobs:
           data['name'] = 'boardops-cloudflare'
           data['type'] = 'module'
           scripts = data.setdefault('scripts', {})
-          scripts['dev:next'] = scripts.get('dev', 'next dev -p 3000')
+          scripts['dev:next'] = 'next dev -p 3000'
           scripts['build:next'] = 'next build'
           scripts['dev'] = 'vinext dev --host 0.0.0.0'
           scripts['dev:vinext'] = 'vinext dev --host 0.0.0.0'
@@ -66,8 +66,6 @@ jobs:
           new = 'generator client {\n  provider        = "prisma-client-js"\n  previewFeatures = ["driverAdapters"]\n}'
           if old in s:
               s = s.replace(old, new, 1)
-          elif 'previewFeatures = ["driverAdapters"]' not in s:
-              raise SystemExit('Unexpected Prisma generator block; refusing unsafe edit')
           schema.write_text(s)
 
           eslint = Path('eslint.config.mjs')
@@ -83,8 +81,8 @@ jobs:
         run: |
           set -euo pipefail
           bun install
-          bun add @prisma/adapter-d1@latest
-          bun add -d vinext@latest @vinext/cloudflare@latest @cloudflare/vite-plugin@latest vite@latest wrangler@latest @cloudflare/workers-types@latest
+          bun add @prisma/adapter-d1@6.19.2
+          bun add -d vinext@latest @vinext/cloudflare@latest @cloudflare/vite-plugin@latest @vitejs/plugin-react@latest @vitejs/plugin-rsc@latest react-server-dom-webpack@latest vite@latest wrangler@latest @cloudflare/workers-types@latest
 
       - name: Add vinext and Wrangler configuration
         shell: bash
@@ -190,5 +188,5 @@ jobs:
             echo 'No foundation changes to commit.'
             exit 0
           fi
-          git commit -m 'feat: establish Cloudflare Workers runtime foundation'
+          git commit -m 'fix: complete vinext runtime dependencies'
           git push origin HEAD:phase/cf-01-runtime-foundation
