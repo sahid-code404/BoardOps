@@ -32,6 +32,16 @@ jobs:
       - name: Generate Prisma client
         run: bunx prisma generate
 
+      - name: Apply D1 migrations locally
+        run: bun run db:migrate:local
+
+      - name: D1 schema smoke test
+        run: |
+          bunx wrangler d1 execute boardops --local --command 'SELECT COUNT(*) AS users FROM "User";'
+          bunx wrangler d1 execute boardops --local --command 'SELECT COUNT(*) AS settings FROM "Setting";'
+          bunx wrangler d1 execute boardops --local --command 'SELECT COUNT(*) AS meals FROM "MealConfiguration";'
+          bunx wrangler d1 execute boardops --local --command 'SELECT COUNT(*) AS bills FROM "Bill";'
+
       - name: Regression tests
         run: bun run test
 
