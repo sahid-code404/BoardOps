@@ -7,6 +7,7 @@
     "build": "vinext build",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "preview": "bun run build && wrangler dev --config dist/server/wrangler.json",
+    "test": "bun test src/lib/__tests__",
     "lint": "eslint .",
     "lint:strict": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit -p tsconfig.production.json",
