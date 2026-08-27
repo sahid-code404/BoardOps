@@ -3,23 +3,24 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type Role = "ADMIN" | "USER";
+export type Role = "SUPER_ADMIN" | "ADMIN" | "MANAGER" | "USER";
 
 export type CurrentUser = {
   id: string;
   name: string;
   email: string;
-  phone?: string;
+  phone?: string | null;
   role: Role;
   status: "ACTIVE" | "PENDING" | "SUSPENDED" | "ARCHIVED" | "INACTIVE";
-  avatarUrl?: string;
-  room?: string;
+  avatarUrl?: string | null;
+  room?: string | null;
   gender?: string | null;
   emergencyContact?: string | null;
   theme?: string;
   language?: string;
   timezone?: string;
   twoFactorEnabled?: boolean;
+  twoFactorMethod?: string | null;
   createdAt?: string;
   lastLoginAt?: string | null;
 };
