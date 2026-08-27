@@ -1,6 +1,6 @@
 {
   "name": "boardops-cloudflare",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "scripts": {
     "dev": "vinext dev --host 0.0.0.0",
@@ -19,7 +19,13 @@
     "db:migration:initial": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script",
     "db:migrate:local": "wrangler d1 migrations apply boardops --local",
     "db:migrate:remote": "wrangler d1 migrations apply boardops --remote",
-    "seed:demo:local": "prisma db seed"
+    "seed:demo:local": "prisma db seed",
+    "modern:dev": "vite --config vite.modern.config.ts",
+    "modern:build": "vite build --config vite.modern.config.ts",
+    "modern:preview": "vite preview --config vite.modern.config.ts",
+    "modern:typecheck": "tsc --noEmit -p tsconfig.modern.json",
+    "modern:cf:types": "wrangler types --config wrangler.modern.jsonc --env-interface ModernCloudflareBindings",
+    "modern:deploy": "bun run cf:preflight && bun run modern:build && wrangler deploy --config dist-modern/boardops-modern/wrangler.json"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -65,8 +71,10 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
+    "drizzle-orm": "^0.45.2",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.23.2",
+    "hono": "^4.13.5",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.525.0",
     "next": "^16.1.1",
@@ -81,6 +89,7 @@
     "react-hook-form": "^7.60.0",
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^3.0.3",
+    "react-router": "^7.18.2",
     "react-syntax-highlighter": "^15.6.1",
     "recharts": "^2.15.4",
     "sharp": "^0.34.3",
@@ -103,6 +112,7 @@
     "@vitejs/plugin-react": "^6.1.0",
     "@vitejs/plugin-rsc": "^0.5.34",
     "bun-types": "^1.3.4",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "^16.1.1",
     "react-server-dom-webpack": "^19.2.8",
