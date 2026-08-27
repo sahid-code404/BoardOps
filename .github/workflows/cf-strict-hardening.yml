@@ -77,6 +77,8 @@ jobs:
           scripts['lint:strict'] = 'eslint . --max-warnings=0'
           pkg.write_text(json.dumps(data, indent=2) + '\n')
 
+          # Exercise the exact validation workflow shape locally without staging
+          # the workflow file itself; GitHub Actions tokens cannot update workflow files.
           validate = Path('.github/workflows/cf-validate.yml')
           s = validate.read_text()
           marker = '''      - name: Generate Prisma client\n        run: bunx prisma generate\n\n      - name: Check vinext compatibility'''
@@ -94,12 +96,12 @@ jobs:
           bun run build
           git diff --check
 
-      - name: Commit strict gates
+      - name: Commit strict source gates
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add next.config.ts eslint.config.mjs package.json .github/workflows/cf-validate.yml src/components/features/meals/meals-config-view.tsx src/components/features/variables/variables-view.tsx
+          git add next.config.ts eslint.config.mjs package.json src/components/features/meals/meals-config-view.tsx src/components/features/variables/variables-view.tsx
           git commit -m 'ci: enforce strict Cloudflare production gates'
           git push origin HEAD:phase/cf-01-runtime-foundation
