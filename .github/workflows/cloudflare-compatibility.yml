@@ -1,0 +1,58 @@
+name: Cloudflare compatibility audit
+
+on:
+  push:
+    paths:
+      - '.github/workflows/cloudflare-compatibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run vinext compatibility check
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          bunx vinext@latest check 2>&1 | tee vinext-check.txt
+
+      - name: Audit server-runtime assumptions
+        shell: bash
+        run: |
+          {
+            echo '# Node/server runtime usage audit'
+            echo
+            echo '## fs/path/process-local persistence candidates'
+            grep -RInE "from ['\"](fs|fs/promises|path)['\"]|require\(['\"](fs|fs/promises|path)['\"]\)|/tmp/|/home/|writeFile|appendFile" src prisma scripts 2>/dev/null || true
+            echo
+            echo '## SMTP / sockets / server-only packages'
+            grep -RInE "nodemailer|net|tls|child_process|createServer|WebSocketServer" src prisma scripts examples 2>/dev/null || true
+            echo
+            echo '## Prisma usage'
+            grep -RInE "PrismaClient|@prisma/client|from ['\"]@/lib/db['\"]" src prisma 2>/dev/null || true
+          } | tee runtime-audit.txt
+
+      - name: Upload audit reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-compatibility-audit
+          path: |
+            vinext-check.txt
+            runtime-audit.txt
+          if-no-files-found: error
