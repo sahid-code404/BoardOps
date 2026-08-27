@@ -19,10 +19,11 @@ Every push to `phase/cf-01-runtime-foundation` runs the permanent Cloudflare val
 
 1. locked Bun dependency installation;
 2. Prisma client generation;
-3. production TypeScript with zero errors;
-4. ESLint with zero warnings;
-5. vinext compatibility checking;
-6. the full Cloudflare production bundle build.
+3. Bun regression tests;
+4. production TypeScript with zero errors;
+5. ESLint with zero warnings;
+6. vinext compatibility checking;
+7. the full Cloudflare production bundle build.
 
 `next.config.ts` does not suppress TypeScript build failures.
 
@@ -44,6 +45,7 @@ bun run dev
 Run the production quality gates locally:
 
 ```bash
+bun run test
 bun run typecheck
 bun run lint:strict
 bun run cf:check
@@ -60,7 +62,7 @@ bun run preview
 
 ## Cloudflare resource provisioning
 
-The repository intentionally does **not** contain real Cloudflare resource IDs or credentials. Before the first remote deployment, provision the account resources and replace/configure the placeholders.
+The repository intentionally does **not** contain real Cloudflare account credentials. Before the first remote deployment, provision the required account resources.
 
 ### 1. D1
 
@@ -70,7 +72,7 @@ Create the production database:
 wrangler d1 create boardops
 ```
 
-Cloudflare will return a database ID. Replace the all-zero `database_id` currently present in `wrangler.jsonc` with that real ID. Do not commit account secrets.
+Cloudflare returns a database ID. For local/manual deployment you may replace the all-zero `database_id` in `wrangler.jsonc` with that real ID. The production GitHub workflow instead injects `CLOUDFLARE_D1_DATABASE_ID` into its checked-out copy at deployment time, so the repository can safely retain the placeholder.
 
 Apply the checked-in D1 migration locally when testing:
 
@@ -127,13 +129,30 @@ Creating the D1 schema is **not** the same as migrating existing production data
 
 Never use the demo seed as a production migration mechanism. `bun run seed:demo:local` exists only for disposable local/demo databases and creates known demo accounts/data.
 
-## Build and deployment
+## Deployment safety
+
+`bun run deploy` first runs `bun run cf:preflight`. The preflight refuses deployment if the D1 binding is missing or still contains the all-zero placeholder database ID, or if the required `UPLOADS`, `AUTH_RATE_LIMITER`, `EMAIL`, or vinext Worker entry bindings are missing.
+
+For production, use the manual **Deploy BoardOps to Cloudflare** GitHub Actions workflow. It uses the GitHub `production` environment and reruns tests, typecheck, zero-warning lint, vinext compatibility, and the production build before any remote mutation.
+
+The production workflow expects these GitHub secrets:
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_D1_DATABASE_ID`
+
+Optionally set the GitHub environment/repository variable `BOARDOPS_PRODUCTION_URL`; when present, the workflow performs a post-deployment `/api` smoke test and fails the deployment run if the endpoint does not become healthy.
+
+After validation, the workflow injects the production D1 ID into the checkout, runs the Cloudflare configuration preflight, applies checked-in D1 migrations, deploys the Worker, and performs the optional smoke test.
+
+## Manual build and deployment
 
 Once the real Cloudflare resources and email sender are configured:
 
 ```bash
 bun install --frozen-lockfile
 bun run db:generate
+bun run test
 bun run typecheck
 bun run lint:strict
 bun run cf:check
@@ -154,4 +173,4 @@ The exact ordering of the final D1 migration and Worker traffic cutover should f
 
 ## Deployment status
 
-The repository runtime is Cloudflare-compatible and protected by strict build/type/lint compatibility gates. **Cloudflare account resources are not provisioned by this repository itself.** A real D1 database ID, R2 bucket, Email Worker sender/domain configuration, production data migration, deployment, and post-deploy smoke testing remain required before declaring a live production cutover complete.
+The repository runtime is Cloudflare-compatible and protected by regression tests plus strict build/type/lint/compatibility gates. The production deployment workflow is fail-closed on missing Cloudflare configuration. **Cloudflare account resources are not provisioned by this repository itself.** A real D1 database, R2 bucket, Email Worker sender/domain configuration, production data migration, deployment, and post-deploy smoke testing remain required before declaring a live production cutover complete.
