@@ -1,3 +1,5 @@
+import "server-only";
+
 import { PrismaD1 } from "@prisma/adapter-d1";
 import { PrismaClient } from "@prisma/client";
 import { env } from "cloudflare:workers";
