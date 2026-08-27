@@ -162,7 +162,7 @@ export async function GET(req: Request) {
         } else {
           // refresh lock state in DB if needed
           const locked = isLocked(entry.editableUntil);
-          if (entry.locked !== locked || (entry.status === "ON" && locked && entry.status !== "LOCKED")) {
+          if (entry.locked !== locked || (entry.status === "ON" && locked)) {
             const updated = await db.mealEntry.update({
               where: { id: entry.id },
               data: {

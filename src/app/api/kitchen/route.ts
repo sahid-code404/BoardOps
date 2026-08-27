@@ -259,8 +259,8 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   try {
     await requireRole("ADMIN", "SUPER_ADMIN");
-    const body = await req.json().catch(() => ({}));
-    const guestMealId = typeof body?.guestMealId === "string" ? body.guestMealId : null;
+    const body = (await req.json().catch(() => ({}))) as { guestMealId?: unknown };
+    const guestMealId = typeof body.guestMealId === "string" ? body.guestMealId : null;
     if (!guestMealId) return err("guestMealId is required", 400);
 
     await db.guestMeal.delete({ where: { id: guestMealId } });

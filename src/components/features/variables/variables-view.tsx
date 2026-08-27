@@ -156,8 +156,7 @@ const createSchema = z.object({
   unit: z.string().optional(),
   category: z
     .string()
-    .min(1, "Category required")
-    .default("GENERAL"),
+    .min(1, "Category required"),
   description: z.string().optional(),
 });
 

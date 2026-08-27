@@ -44,7 +44,15 @@ export async function GET() {
       orderBy: { name: "asc" },
     });
 
-    const refundUsers = [];
+    const refundUsers: Array<{
+      userId: string;
+      name: string;
+      email: string;
+      avatarUrl: string | null;
+      room: string | null;
+      creditAmount: number;
+      breakdown: { totalApproved: number; totalBilled: number; totalRefunded: number };
+    }> = [];
     for (const u of residents) {
       const { credit, totalApproved, totalBilled, totalRefunded } = await getUserCredit(u.id);
       if (credit > 0) {

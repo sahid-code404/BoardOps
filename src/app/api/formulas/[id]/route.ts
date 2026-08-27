@@ -31,7 +31,8 @@ export async function PATCH(
 
     // If the expression is changing, validate + version it
     if (data.expression && data.expression !== existing.expression) {
-      const validation = validateFormula(data.expression);
+      const expression = data.expression;
+      const validation = validateFormula(expression);
       if (!validation.valid) {
         return err(`Invalid formula: ${validation.error}`, 422);
       }
@@ -39,8 +40,9 @@ export async function PATCH(
         return err("A change note is required when updating the expression (creates a new version)", 400);
       }
 
+      const changeNote = data.changeNote.trim();
       const newVersion = existing.version + 1;
-      const slugs = extractVarSlugs(data.expression);
+      const slugs = extractVarSlugs(expression);
       const missingVars: string[] = [];
       for (const slug of slugs) {
         const v = await db.variable.findUnique({ where: { key: slug } });
@@ -54,7 +56,7 @@ export async function PATCH(
           data: {
             name: data.name ?? existing.name,
             description: data.description ?? existing.description,
-            expression: data.expression,
+            expression,
             returnType: data.returnType ?? existing.returnType,
             category: data.category ?? existing.category,
             version: newVersion,
@@ -64,9 +66,9 @@ export async function PATCH(
           data: {
             formulaId: id,
             version: newVersion,
-            expression: data.expression,
+            expression,
             changedBy: admin.id,
-            changeNote: data.changeNote,
+            changeNote,
           },
         });
         return f;
@@ -78,8 +80,8 @@ export async function PATCH(
         entity: "Formula",
         entityId: id,
         oldValue: { version: existing.version, expression: existing.expression },
-        newValue: { version: newVersion, expression: data.expression, changeNote: data.changeNote, slugs, missingVars },
-        reason: data.changeNote,
+        newValue: { version: newVersion, expression, changeNote, slugs, missingVars },
+        reason: changeNote,
         ipAddress: await getClientIp(),
         userAgent: await getUserAgent(),
       });

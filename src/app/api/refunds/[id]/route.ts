@@ -18,7 +18,6 @@ export async function GET(
         bill: { select: { id: true, billNumber: true, periodMonth: true, periodYear: true } },
         transactions: {
           orderBy: { createdAt: "desc" },
-          include: { processedBy: { select: { name: true } } },
         },
       },
     });

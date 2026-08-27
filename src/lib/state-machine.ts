@@ -91,8 +91,8 @@ export const BillStateMachine = createStateMachine({
   initial: "DRAFT",
   states: {
     DRAFT: { on: { GENERATE: "GENERATED" } },
-    GENERATED: { on: { PARTIAL_PAY: "PARTIALLY_PAID", FULL_PAY: "PAID", VOID: "VOIDED" } },
-    PARTIALLY_PAID: { on: { FULL_PAY: "PAID", VOID: "VOIDED" } },
+    GENERATED: { on: { PARTIAL_PAY: "PARTIALLY_PAID", FULL_PAY: "PAID", MARK_OVERDUE: "OVERDUE", VOID: "VOIDED" } },
+    PARTIALLY_PAID: { on: { FULL_PAY: "PAID", MARK_OVERDUE: "OVERDUE", VOID: "VOIDED" } },
     PAID: { on: { VOID: "VOIDED" } },
     OVERDUE: { on: { PARTIAL_PAY: "PARTIALLY_PAID", FULL_PAY: "PAID" } },
     VOIDED: { final: true },

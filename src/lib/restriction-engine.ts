@@ -24,17 +24,19 @@
 
 import { db } from "@/lib/db";
 import { getResidentFundAccount } from "@/lib/resident-fund";
+import type { Restriction as DbRestriction } from "@prisma/client";
 
 export type RestrictionType = "FINANCIAL" | "ADMINISTRATIVE";
 
 export type RestrictionStatus = "ACTIVE" | "LIFTED" | "EXEMPTED" | "EXPIRED";
+export type RestrictionSource = "AUTOMATIC" | "MANUAL";
 
 export type Restriction = {
   id: string;
   userId: string;
   type: RestrictionType;
   reason: string;
-  source: "AUTOMATIC" | "MANUAL";
+  source: RestrictionSource;
   status: RestrictionStatus;
   appliedBy: string | null;
   appliedAt: Date;
@@ -43,6 +45,37 @@ export type Restriction = {
   liftedAt: Date | null;
   liftReason: string | null;
 };
+
+const RESTRICTION_TYPES: readonly RestrictionType[] = ["FINANCIAL", "ADMINISTRATIVE"];
+const RESTRICTION_STATUSES: readonly RestrictionStatus[] = ["ACTIVE", "LIFTED", "EXEMPTED", "EXPIRED"];
+const RESTRICTION_SOURCES: readonly RestrictionSource[] = ["AUTOMATIC", "MANUAL"];
+
+function toRestriction(row: DbRestriction): Restriction {
+  if (!RESTRICTION_TYPES.includes(row.type as RestrictionType)) {
+    throw new Error(`Invalid restriction type in database: ${row.type}`);
+  }
+  if (!RESTRICTION_STATUSES.includes(row.status as RestrictionStatus)) {
+    throw new Error(`Invalid restriction status in database: ${row.status}`);
+  }
+  if (!RESTRICTION_SOURCES.includes(row.source as RestrictionSource)) {
+    throw new Error(`Invalid restriction source in database: ${row.source}`);
+  }
+
+  return {
+    id: row.id,
+    userId: row.userId,
+    type: row.type as RestrictionType,
+    reason: row.reason,
+    source: row.source as RestrictionSource,
+    status: row.status as RestrictionStatus,
+    appliedBy: row.appliedBy,
+    appliedAt: row.appliedAt,
+    expiresAt: row.expiresAt,
+    liftedBy: row.liftedBy,
+    liftedAt: row.liftedAt,
+    liftReason: row.liftReason,
+  };
+}
 
 // ─────────────────────────────────────────────────────────────
 // Policy configuration (from Variables, with sensible defaults)
@@ -83,7 +116,7 @@ export type RestrictionEvaluation = {
 };
 
 export async function evaluateRestrictions(userId: string): Promise<RestrictionEvaluation> {
-  const [account, policy, activeRestrictions] = await Promise.all([
+  const [account, policy, rawRestrictions] = await Promise.all([
     getResidentFundAccount(userId),
     getPolicyConfig(),
     db.restriction.findMany({
@@ -92,6 +125,7 @@ export async function evaluateRestrictions(userId: string): Promise<RestrictionE
     }),
   ]);
 
+  const activeRestrictions = rawRestrictions.map(toRestriction);
   const availableBalance = account?.availableBalance ?? 0;
   const outstandingDue = account?.outstandingDue ?? 0;
 
@@ -224,7 +258,7 @@ export async function checkAndApplyFinancialRestriction(userId: string): Promise
       },
     });
 
-    return { applied: true, restriction };
+    return { applied: true, restriction: toRestriction(restriction) };
   }
 
   // If in low-balance state but grace period still active, send a warning notification
@@ -291,7 +325,7 @@ export async function checkAndLiftFinancialRestriction(userId: string): Promise<
         },
       });
 
-      return { lifted: true, restriction: updated };
+      return { lifted: true, restriction: toRestriction(updated) };
     }
   }
 
@@ -308,7 +342,7 @@ export async function applyAdminRestriction(
   reason: string,
   expiresAt?: Date
 ): Promise<Restriction> {
-  return db.restriction.create({
+  const restriction = await db.restriction.create({
     data: {
       userId,
       type: "ADMINISTRATIVE",
@@ -319,6 +353,7 @@ export async function applyAdminRestriction(
       expiresAt: expiresAt ?? null,
     },
   });
+  return toRestriction(restriction);
 }
 
 export async function applyFinancialExemption(
@@ -339,7 +374,7 @@ export async function applyFinancialExemption(
   });
 
   // Create the exemption
-  return db.restriction.create({
+  const restriction = await db.restriction.create({
     data: {
       userId,
       type: "FINANCIAL",
@@ -350,6 +385,7 @@ export async function applyFinancialExemption(
       expiresAt: expiresAt ?? null,
     },
   });
+  return toRestriction(restriction);
 }
 
 export async function liftRestriction(
@@ -360,7 +396,7 @@ export async function liftRestriction(
   const existing = await db.restriction.findUnique({ where: { id: restrictionId } });
   if (!existing) return null;
 
-  return db.restriction.update({
+  const updated = await db.restriction.update({
     where: { id: restrictionId },
     data: {
       status: "LIFTED",
@@ -369,4 +405,5 @@ export async function liftRestriction(
       liftReason: reason,
     },
   });
+  return toRestriction(updated);
 }
