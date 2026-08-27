@@ -14,21 +14,18 @@ const schema = z.object({
   code: z.string().regex(/^\d{6}$/, "Code must be 6 digits"),
 });
 
-/** POST /api/auth/verify-otp — complete login after 2FA OTP verification.
- *  Exchanges a pendingToken + 6-digit OTP code for a full session token. */
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { pendingToken, code } = schema.parse(body);
     const ip = await getClientIp();
-    const rateLimit = checkRateLimit(ip, "verify-otp");
+    const rateLimit = await checkRateLimit(ip, "verify-otp");
     if (!rateLimit.allowed) {
       return err("Too many attempts. Please try again later.", 429);
     }
     const ua = await getUserAgent();
     const now = new Date();
 
-    // Find user by pending token
     const user = await db.user.findFirst({
       where: {
         otpPendingToken: pendingToken,
@@ -40,19 +37,15 @@ export async function POST(req: Request) {
       return err("Session expired or invalid. Please log in again.", 401);
     }
 
-    // Check if OTP has expired
     if (!user.emailOtpExpiresAt || user.emailOtpExpiresAt < now) {
       return err("Verification code has expired. Please request a new one.", 401);
     }
 
-    // Check max attempts
     if (user.emailOtpAttempts >= OTP_CONFIG.maxAttempts) {
       return err("Too many failed attempts. Please log in again.", 429);
     }
 
-    // Verify the OTP
     if (!user.emailOtpCode || !verifyOtp(code, user.emailOtpCode)) {
-      // Increment failed attempts
       await db.user.update({
         where: { id: user.id },
         data: { emailOtpAttempts: { increment: 1 } },
@@ -69,14 +62,12 @@ export async function POST(req: Request) {
       return err(`Invalid verification code. ${remaining} attempt(s) remaining.`, 401);
     }
 
-    // OTP verified — create session
     const token = generateToken();
     const expiresAt = getTokenExpiry(30);
     await db.userSession.create({
       data: { userId: user.id, token, expiresAt, ipAddress: ip, userAgent: ua },
     });
 
-    // ── Trust this device — set a cookie so OTP is skipped on future logins ──
     const deviceToken = await trustDevice(user.id, ua, ip);
     const cookieStore = await cookies();
     cookieStore.set(DEVICE_COOKIE_NAME, deviceToken, {
@@ -87,7 +78,6 @@ export async function POST(req: Request) {
       path: "/",
     });
 
-    // Clear OTP fields + update last login
     await db.user.update({
       where: { id: user.id },
       data: {
