@@ -1,9 +1,11 @@
 import { db } from "@/lib/db";
-import { ok, handleApiError } from "@/lib/api-response";
+import { ok, err, handleApiError } from "@/lib/api-response";
 import { logAudit } from "@/lib/audit";
 import { getClientIp, getUserAgent } from "@/lib/session";
 import { z } from "zod";
-import { generateOtp, hashOtp } from "../register/route";
+import { generateOtp, hashOtp } from "@/lib/otp";
+import { sendOtpEmail } from "@/lib/email";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const schema = z.object({
   email: z.string().email("Enter a valid email"),
@@ -11,6 +13,12 @@ const schema = z.object({
 
 export async function POST(req: Request) {
   try {
+    const ip = await getClientIp();
+    const rateLimit = await checkRateLimit(ip, "send-verification");
+    if (!rateLimit.allowed) {
+      return err("Too many requests. Please try again later.", 429);
+    }
+
     const body = await req.json();
     const { email } = schema.parse(body);
     const normalizedEmail = email.toLowerCase();
@@ -33,15 +41,14 @@ export async function POST(req: Request) {
       },
     });
 
-    // Dev-only: log the OTP so we can grab it from the dev server log.
-    console.log(`[EMAIL OTP for ${user.email}]: ${otp}`);
+    await sendOtpEmail(user.email, otp, "email-verification");
 
     await logAudit({
       actorId: user.id,
       action: "VERIFICATION_RESENT",
       entity: "User",
       entityId: user.id,
-      ipAddress: await getClientIp(),
+      ipAddress: ip,
       userAgent: await getUserAgent(),
     });
 
