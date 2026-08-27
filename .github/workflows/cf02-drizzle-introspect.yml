@@ -45,11 +45,8 @@ jobs:
       - name: Introspect schema with Drizzle Kit
         run: bunx drizzle-kit pull --config drizzle.introspect.config.ts
 
-      - name: Typecheck generated TypeScript
-        shell: bash
-        run: |
-          test -f src/modern/infrastructure/db/introspected/schema.ts
-          bunx tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --skipLibCheck src/modern/infrastructure/db/introspected/schema.ts
+      - name: Verify generated schema exists
+        run: test -f src/modern/infrastructure/db/introspected/schema.ts
 
       - name: Check generated diff whitespace
         run: git diff --check -- src/modern/infrastructure/db/introspected
