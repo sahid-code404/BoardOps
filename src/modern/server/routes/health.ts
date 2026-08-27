@@ -14,7 +14,7 @@ healthRoutes.get("/health", async (c) => {
   const data = await getHealth(repository, c.env.APP_VERSION ?? "development");
 
   return c.json<ApiSuccess<HealthData>>({
-    ok: true,
+    success: true,
     data,
     requestId: c.get("requestId"),
   });
