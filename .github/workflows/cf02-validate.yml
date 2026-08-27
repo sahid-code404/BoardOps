@@ -1,0 +1,59 @@
+name: Validate CF02 modular monolith
+
+on:
+  push:
+    branches:
+      - phase/cf-02-modular-monolith
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cf02-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Apply checked-in schema to local D1
+        run: bunx wrangler d1 migrations apply boardops --local --config wrangler.modern.jsonc
+
+      - name: Smoke-check core D1 tables
+        shell: bash
+        run: |
+          bunx wrangler d1 execute boardops --local --config wrangler.modern.jsonc --command 'SELECT COUNT(*) AS users FROM "User"; SELECT COUNT(*) AS meals FROM "MealConfiguration"; SELECT COUNT(*) AS bills FROM "Bill";'
+
+      - name: Modern unit tests
+        run: bun run modern:test
+
+      - name: Modern TypeScript gate
+        run: bun run modern:typecheck
+
+      - name: Modern zero-warning ESLint gate
+        run: bun run modern:lint
+
+      - name: Build direct Vite + Cloudflare Worker application
+        run: bun run modern:build
+
+      - name: Preserve legacy reference tests
+        run: bun run test
+
+      - name: Preserve legacy reference typecheck
+        run: bun run typecheck
+
+      - name: Check diff whitespace
+        run: git diff --check
