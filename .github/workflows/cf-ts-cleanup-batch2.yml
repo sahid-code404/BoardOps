@@ -1,0 +1,156 @@
+name: Cloudflare TypeScript cleanup batch 2
+
+on:
+  push:
+    branches:
+      - phase/cf-01-runtime-foundation
+    paths:
+      - '.github/workflows/cf-ts-cleanup-batch2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase/cf-01-runtime-foundation
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Resolve remaining production typing defects
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              s = p.read_text()
+              found = s.count(old)
+              if found < count:
+                  raise SystemExit(f'{path}: expected at least {count} occurrence(s), found {found}: {old!r}')
+              p.write_text(s.replace(old, new, count))
+
+          # Formula versioning: make the already-validated change note explicitly non-null.
+          replace(
+              'src/app/api/formulas/[id]/route.ts',
+              '      const newVersion = existing.version + 1;\n      const slugs = extractVarSlugs(data.expression);',
+              '      const changeNote = data.changeNote.trim();\n      const newVersion = existing.version + 1;\n      const slugs = extractVarSlugs(data.expression);'
+          )
+          p = Path('src/app/api/formulas/[id]/route.ts')
+          s = p.read_text()
+          start = s.index('      const changeNote = data.changeNote.trim();')
+          end = s.index('      return ok(updated);', start)
+          segment = s[start:end]
+          segment = segment.replace('changeNote: data.changeNote', 'changeNote')
+          segment = segment.replace('reason: data.changeNote', 'reason: changeNote')
+          p.write_text(s[:start] + segment + s[end:])
+
+          # Request body typing in kitchen delete route.
+          replace(
+              'src/app/api/kitchen/route.ts',
+              '    const body = await req.json().catch(() => ({}));\n    const guestMealId = typeof body?.guestMealId === "string" ? body.guestMealId : null;',
+              '    const body = (await req.json().catch(() => ({}))) as { guestMealId?: unknown };\n    const guestMealId = typeof body.guestMealId === "string" ? body.guestMealId : null;'
+          )
+
+          # The status!==LOCKED branch was impossible after status===ON narrowing.
+          replace(
+              'src/app/api/meals/entries/route.ts',
+              'entry.locked !== locked || (entry.status === "ON" && locked && entry.status !== "LOCKED")',
+              'entry.locked !== locked || (entry.status === "ON" && locked)'
+          )
+
+          # Give the refundable-user accumulator its real shape instead of never[].
+          replace(
+              'src/app/api/payments/refund/route.ts',
+              '    const refundUsers = [];',
+              '''    const refundUsers: Array<{\n      userId: string;\n      name: string;\n      email: string;\n      avatarUrl: string | null;\n      room: string | null;\n      creditAmount: number;\n      breakdown: { totalApproved: number; totalBilled: number; totalRefunded: number };\n    }> = [];'''
+          )
+
+          # RefundTransaction.processedBy is a scalar user id in the current schema,
+          # not a Prisma relation. Keep the scalar in the returned transaction history.
+          replace(
+              'src/app/api/refunds/[id]/route.ts',
+              '''        transactions: {\n          orderBy: { createdAt: "desc" },\n          include: { processedBy: { select: { name: true } } },\n        },''',
+              '''        transactions: {\n          orderBy: { createdAt: "desc" },\n        },'''
+          )
+
+          # zodResolver input/output must agree with the RHF generic; category is
+          # already supplied in defaultValues, so it should be required by the schema.
+          replace(
+              'src/components/features/variables/variables-view.tsx',
+              '''  category: z\n    .string()\n    .min(1, "Category required")\n    .default("GENERAL"),''',
+              '''  category: z\n    .string()\n    .min(1, "Category required"),'''
+          )
+
+          # OVERDUE is a real bill lifecycle state. Add transitions that make it
+          # reachable rather than leaving an orphan state that inference rejects.
+          replace(
+              'src/lib/state-machine.ts',
+              '    GENERATED: { on: { PARTIAL_PAY: "PARTIALLY_PAID", FULL_PAY: "PAID", VOID: "VOIDED" } },\n    PARTIALLY_PAID: { on: { FULL_PAY: "PAID", VOID: "VOIDED" } },',
+              '    GENERATED: { on: { PARTIAL_PAY: "PARTIALLY_PAID", FULL_PAY: "PAID", MARK_OVERDUE: "OVERDUE", VOID: "VOIDED" } },\n    PARTIALLY_PAID: { on: { FULL_PAY: "PAID", MARK_OVERDUE: "OVERDUE", VOID: "VOIDED" } },'
+          )
+
+          # Normalize string-backed Prisma restriction fields once at the DB boundary.
+          path = Path('src/lib/restriction-engine.ts')
+          s = path.read_text()
+          s = s.replace(
+              'import { getResidentFundAccount } from "@/lib/resident-fund";\n',
+              'import { getResidentFundAccount } from "@/lib/resident-fund";\nimport type { Restriction as DbRestriction } from "@prisma/client";\n',
+              1,
+          )
+          s = s.replace(
+              'export type RestrictionStatus = "ACTIVE" | "LIFTED" | "EXEMPTED" | "EXPIRED";\n\nexport type Restriction = {',
+              'export type RestrictionStatus = "ACTIVE" | "LIFTED" | "EXEMPTED" | "EXPIRED";\nexport type RestrictionSource = "AUTOMATIC" | "MANUAL";\n\nexport type Restriction = {',
+              1,
+          )
+          s = s.replace('  source: "AUTOMATIC" | "MANUAL";\n', '  source: RestrictionSource;\n', 1)
+          marker = '''};\n\n// ─────────────────────────────────────────────────────────────\n// Policy configuration'''
+          helper = '''};\n\nconst RESTRICTION_TYPES: readonly RestrictionType[] = ["FINANCIAL", "ADMINISTRATIVE"];\nconst RESTRICTION_STATUSES: readonly RestrictionStatus[] = ["ACTIVE", "LIFTED", "EXEMPTED", "EXPIRED"];\nconst RESTRICTION_SOURCES: readonly RestrictionSource[] = ["AUTOMATIC", "MANUAL"];\n\nfunction toRestriction(row: DbRestriction): Restriction {\n  if (!RESTRICTION_TYPES.includes(row.type as RestrictionType)) {\n    throw new Error(`Invalid restriction type in database: ${row.type}`);\n  }\n  if (!RESTRICTION_STATUSES.includes(row.status as RestrictionStatus)) {\n    throw new Error(`Invalid restriction status in database: ${row.status}`);\n  }\n  if (!RESTRICTION_SOURCES.includes(row.source as RestrictionSource)) {\n    throw new Error(`Invalid restriction source in database: ${row.source}`);\n  }\n\n  return {\n    id: row.id,\n    userId: row.userId,\n    type: row.type as RestrictionType,\n    reason: row.reason,\n    source: row.source as RestrictionSource,\n    status: row.status as RestrictionStatus,\n    appliedBy: row.appliedBy,\n    appliedAt: row.appliedAt,\n    expiresAt: row.expiresAt,\n    liftedBy: row.liftedBy,\n    liftedAt: row.liftedAt,\n    liftReason: row.liftReason,\n  };\n}\n\n// ─────────────────────────────────────────────────────────────\n// Policy configuration'''
+          if marker not in s:
+              raise SystemExit('restriction helper insertion marker not found')
+          s = s.replace(marker, helper, 1)
+          s = s.replace('const [account, policy, activeRestrictions] = await Promise.all([', 'const [account, policy, rawRestrictions] = await Promise.all([', 1)
+          promise_end = '''  ]);\n\n  const availableBalance = account?.availableBalance ?? 0;'''
+          if promise_end not in s:
+              raise SystemExit('restriction Promise.all end marker not found')
+          s = s.replace(promise_end, '''  ]);\n\n  const activeRestrictions = rawRestrictions.map(toRestriction);\n  const availableBalance = account?.availableBalance ?? 0;''', 1)
+          s = s.replace('    return { applied: true, restriction };', '    return { applied: true, restriction: toRestriction(restriction) };', 1)
+          s = s.replace('      return { lifted: true, restriction: updated };', '      return { lifted: true, restriction: toRestriction(updated) };', 1)
+          s = s.replace(
+              '''  return db.restriction.create({\n    data: {\n      userId,\n      type: "ADMINISTRATIVE",\n      reason,\n      source: "MANUAL",\n      status: "ACTIVE",\n      appliedBy: adminId,\n      expiresAt: expiresAt ?? null,\n    },\n  });''',
+              '''  const restriction = await db.restriction.create({\n    data: {\n      userId,\n      type: "ADMINISTRATIVE",\n      reason,\n      source: "MANUAL",\n      status: "ACTIVE",\n      appliedBy: adminId,\n      expiresAt: expiresAt ?? null,\n    },\n  });\n  return toRestriction(restriction);''',
+              1,
+          )
+          s = s.replace(
+              '''  return db.restriction.create({\n    data: {\n      userId,\n      type: "FINANCIAL",\n      reason: `EXEMPTION: ${reason}`,\n      source: "MANUAL",\n      status: "ACTIVE",\n      appliedBy: adminId,\n      expiresAt: expiresAt ?? null,\n    },\n  });''',
+              '''  const restriction = await db.restriction.create({\n    data: {\n      userId,\n      type: "FINANCIAL",\n      reason: `EXEMPTION: ${reason}`,\n      source: "MANUAL",\n      status: "ACTIVE",\n      appliedBy: adminId,\n      expiresAt: expiresAt ?? null,\n    },\n  });\n  return toRestriction(restriction);''',
+              1,
+          )
+          s = s.replace(
+              '''  return db.restriction.update({\n    where: { id: restrictionId },\n    data: {\n      status: "LIFTED",\n      liftedBy: adminId,\n      liftedAt: new Date(),\n      liftReason: reason,\n    },\n  });''',
+              '''  const updated = await db.restriction.update({\n    where: { id: restrictionId },\n    data: {\n      status: "LIFTED",\n      liftedBy: adminId,\n      liftedAt: new Date(),\n      liftReason: reason,\n    },\n  });\n  return toRestriction(updated);''',
+              1,
+          )
+          path.write_text(s)
+          PY
+
+          bun install --frozen-lockfile
+          bunx prisma generate
+          bunx tsc --noEmit -p tsconfig.production.json
+          git diff --check
+      - name: Commit fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src
+          git commit -m 'fix: clear remaining production TypeScript defects'
+          git push origin HEAD:phase/cf-01-runtime-foundation
