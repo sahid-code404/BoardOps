@@ -32,6 +32,12 @@ jobs:
       - name: Generate Prisma client
         run: bunx prisma generate
 
+      - name: Production TypeScript gate
+        run: bun run typecheck
+
+      - name: Zero-warning ESLint gate
+        run: bun run lint:strict
+
       - name: Check vinext compatibility
         run: bunx vinext check
 
