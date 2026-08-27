@@ -10,4 +10,11 @@ export const healthDataSchema = z.object({
   }),
 });
 
+export const healthResponseSchema = z.object({
+  ok: z.literal(true),
+  data: healthDataSchema,
+  requestId: z.string().min(1),
+});
+
 export type HealthData = z.infer<typeof healthDataSchema>;
+export type HealthResponse = z.infer<typeof healthResponseSchema>;
