@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.production.json",
     "cf:check": "vinext check",
     "cf:types": "wrangler types",
-    "cf:preflight": "bun scripts/check-cloudflare-config.ts",
+    "cf:preflight": "bun scripts/check-cloudflare-config.ts wrangler.jsonc",
     "deploy": "bun run cf:preflight && bunx @vinext/cloudflare deploy",
     "db:generate": "prisma generate",
     "db:migration:initial": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script",
@@ -24,8 +24,11 @@
     "modern:build": "vite build --config vite.modern.config.ts",
     "modern:preview": "vite preview --config vite.modern.config.ts",
     "modern:typecheck": "tsc --noEmit -p tsconfig.modern.json",
+    "modern:lint": "eslint src/modern vite.modern.config.ts --max-warnings=0",
+    "modern:test": "bun test src/modern",
     "modern:cf:types": "wrangler types --config wrangler.modern.jsonc --env-interface ModernCloudflareBindings",
-    "modern:deploy": "bun run cf:preflight && bun run modern:build && wrangler deploy --config dist-modern/boardops-modern/wrangler.json"
+    "modern:cf:preflight": "bun scripts/check-cloudflare-config.ts wrangler.modern.jsonc",
+    "modern:deploy": "bun run modern:cf:preflight && bun run modern:build && wrangler deploy --config dist-modern/boardops_modern/wrangler.json"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
