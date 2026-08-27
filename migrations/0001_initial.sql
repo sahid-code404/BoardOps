@@ -19,6 +19,12 @@ CREATE TABLE "User" (
     "twoFactorEnabled" BOOLEAN NOT NULL DEFAULT false,
     "twoFactorSecret" TEXT,
     "twoFactorBackupCodes" TEXT,
+    "twoFactorMethod" TEXT DEFAULT 'EMAIL',
+    "emailOtpCode" TEXT,
+    "emailOtpExpiresAt" DATETIME,
+    "emailOtpAttempts" INTEGER NOT NULL DEFAULT 0,
+    "otpPendingToken" TEXT,
+    "otpPendingExpiresAt" DATETIME,
     "resetOtpHash" TEXT,
     "resetOtpExpires" DATETIME,
     "institutionName" TEXT,
@@ -64,6 +70,18 @@ CREATE TABLE "UserSession" (
     "revokedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "UserSession_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+-- CreateTable
+CREATE TABLE "TrustedDevice" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "token" TEXT NOT NULL,
+    "userAgent" TEXT,
+    "ipAddress" TEXT,
+    "expiresAt" DATETIME NOT NULL,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "TrustedDevice_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -676,6 +694,9 @@ CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 CREATE UNIQUE INDEX "User_phone_key" ON "User"("phone");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "User_otpPendingToken_key" ON "User"("otpPendingToken");
+
+-- CreateIndex
 CREATE INDEX "RegistrationRequest_userId_idx" ON "RegistrationRequest"("userId");
 
 -- CreateIndex
@@ -683,6 +704,15 @@ CREATE UNIQUE INDEX "UserSession_token_key" ON "UserSession"("token");
 
 -- CreateIndex
 CREATE INDEX "UserSession_userId_idx" ON "UserSession"("userId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TrustedDevice_token_key" ON "TrustedDevice"("token");
+
+-- CreateIndex
+CREATE INDEX "TrustedDevice_userId_idx" ON "TrustedDevice"("userId");
+
+-- CreateIndex
+CREATE INDEX "TrustedDevice_expiresAt_idx" ON "TrustedDevice"("expiresAt");
 
 -- CreateIndex
 CREATE INDEX "LoginHistory_userId_idx" ON "LoginHistory"("userId");

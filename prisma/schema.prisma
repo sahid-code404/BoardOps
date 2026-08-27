@@ -1,9 +1,8 @@
 // BoardOps — Configurable Operational Management Platform
-// Database schema (SQLite via Prisma)
+// Database schema (Cloudflare D1 / SQLite semantics via Prisma)
 
 generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["driverAdapters"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -16,67 +15,74 @@ datasource db {
 // ─────────────────────────────────────────────────────────────
 
 model User {
-  id              String         @id @default(cuid())
-  name            String
-  email           String         @unique
-  phone           String?        @unique
-  passwordHash    String
-  role            String         @default("USER") // SUPER_ADMIN | ADMIN | MANAGER | USER
-  status          String         @default("PENDING") // PENDING | ACTIVE | INACTIVE | SUSPENDED | ARCHIVED
-  avatarUrl       String?
-  room            String?
-  gender          String?
-  emergencyContact String?
-  theme           String         @default("system")
-  language        String         @default("en")
-  timezone        String         @default("UTC")
-  adminNotes      String?
-  rejectionReason String?
-  twoFactorEnabled Boolean       @default(false)
-  twoFactorSecret String?
-  twoFactorBackupCodes String?  // JSON array of hashed backup codes
+  id                   String    @id @default(cuid())
+  name                 String
+  email                String    @unique
+  phone                String?   @unique
+  passwordHash         String
+  role                 String    @default("USER") // SUPER_ADMIN | ADMIN | MANAGER | USER
+  status               String    @default("PENDING") // PENDING | ACTIVE | INACTIVE | SUSPENDED | ARCHIVED
+  avatarUrl            String?
+  room                 String?
+  gender               String?
+  emergencyContact     String?
+  theme                String    @default("system")
+  language             String    @default("en")
+  timezone             String    @default("UTC")
+  adminNotes           String?
+  rejectionReason      String?
+  twoFactorEnabled     Boolean   @default(false)
+  twoFactorSecret      String?
+  twoFactorBackupCodes String? // JSON array of hashed backup codes
+  twoFactorMethod      String?   @default("EMAIL")
+  emailOtpCode         String?
+  emailOtpExpiresAt    DateTime?
+  emailOtpAttempts     Int       @default(0)
+  otpPendingToken      String?   @unique
+  otpPendingExpiresAt  DateTime?
   // Password reset (PRD 03.12 — Forgot Password flow)
-  resetOtpHash     String?     // SHA-256 hash of the reset OTP
-  resetOtpExpires  DateTime?   // OTP expiry time
+  resetOtpHash         String? // SHA-256 hash of the reset OTP
+  resetOtpExpires      DateTime? // OTP expiry time
   // Email verification + Institution fields (PRD Module 03 — DEC-015/016/017)
-  institutionName     String?   // configurable; pre-filled for single-institution deployments
-  institutionUserId   String?   // roll no / employee id / etc. Unique per institution (for v1, just unique)
-  emailVerified       Boolean   @default(false)
-  emailVerifyToken    String?   // hashed OTP token (sha256 hex)
-  emailVerifyExpires  DateTime?
-  changesRequested    String?   // JSON array of fields requiring correction, set by admin
-  changesRequestReason String?  // admin's reason for requesting changes
-  changesRequestedAt  DateTime?
-  changesRequestedBy  String?
-  lastLoginAt     DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  deletedAt       DateTime?
-  deletedBy       String?
-  deletionReason  String?
+  institutionName      String? // configurable; pre-filled for single-institution deployments
+  institutionUserId    String? // roll no / employee id / etc. Unique per institution (for v1, just unique)
+  emailVerified        Boolean   @default(false)
+  emailVerifyToken     String? // hashed OTP token (sha256 hex)
+  emailVerifyExpires   DateTime?
+  changesRequested     String? // JSON array of fields requiring correction, set by admin
+  changesRequestReason String? // admin's reason for requesting changes
+  changesRequestedAt   DateTime?
+  changesRequestedBy   String?
+  lastLoginAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  deletedAt            DateTime?
+  deletedBy            String?
+  deletionReason       String?
 
-  sessions         UserSession[]
-  mealEntries      MealEntry[]
-  mealOverrides    MealOverride[]
-  bills            Bill[]
-  payments         Payment[]
-  expenses         Expense[]
-  purchases        Purchase[]
-  refunds          Refund[]
-  adjustments      Adjustment[]
-  adjustmentsMade  Adjustment[] @relation("AdjustmentCreator")
-  ledgerEntries    LedgerEntry[]
-  restrictions     Restriction[]
-  announcements    Announcement[]
-  notifications    Notification[]
-  backgroundTasks  BackgroundTask[]
-  auditLogs        AuditLog[]      @relation("AuditActor")
-  leaveApplications LeaveApplication[]
-  guestMeals       GuestMeal[]
-  staffRecords     StaffRecord[]
-  formulaVersions  FormulaVersion[]
-  loginHistory     LoginHistory[]
+  sessions             UserSession[]
+  mealEntries          MealEntry[]
+  mealOverrides        MealOverride[]
+  bills                Bill[]
+  payments             Payment[]
+  expenses             Expense[]
+  purchases            Purchase[]
+  refunds              Refund[]
+  adjustments          Adjustment[]
+  adjustmentsMade      Adjustment[]          @relation("AdjustmentCreator")
+  ledgerEntries        LedgerEntry[]
+  restrictions         Restriction[]
+  announcements        Announcement[]
+  notifications        Notification[]
+  backgroundTasks      BackgroundTask[]
+  auditLogs            AuditLog[]            @relation("AuditActor")
+  leaveApplications    LeaveApplication[]
+  guestMeals           GuestMeal[]
+  staffRecords         StaffRecord[]
+  formulaVersions      FormulaVersion[]
+  loginHistory         LoginHistory[]
   registrationRequests RegistrationRequest[]
+  trustedDevices       TrustedDevice[]
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -85,33 +91,47 @@ model User {
 // ─────────────────────────────────────────────────────────────
 
 model RegistrationRequest {
-  id          String   @id @default(cuid())
-  userId      String
-  cycle       Int      @default(1)  // 1 = first submission, 2 = after resubmit, etc.
-  status      String   // PENDING_REVIEW | APPROVED | REJECTED | CHANGES_REQUESTED | RESUBMITTED
-  fields      String?  // JSON: snapshot of submitted fields for this cycle
-  reason      String?  // admin reason (for reject / request changes)
+  id                      String    @id @default(cuid())
+  userId                  String
+  cycle                   Int       @default(1) // 1 = first submission, 2 = after resubmit, etc.
+  status                  String // PENDING_REVIEW | APPROVED | REJECTED | CHANGES_REQUESTED | RESUBMITTED
+  fields                  String? // JSON: snapshot of submitted fields for this cycle
+  reason                  String? // admin reason (for reject / request changes)
   fieldsNeedingCorrection String? // JSON array of field keys the admin wants corrected
-  reviewedBy  String?
-  reviewedAt  DateTime?
-  createdAt   DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy              String?
+  reviewedAt              DateTime?
+  createdAt               DateTime  @default(now())
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
 
 model UserSession {
-  id           String   @id @default(cuid())
-  userId       String
-  token        String   @unique
-  userAgent    String?
-  ipAddress    String?
-  expiresAt    DateTime
-  revokedAt    DateTime?
-  createdAt    DateTime @default(now())
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String    @id @default(cuid())
+  userId    String
+  token     String    @unique
+  userAgent String?
+  ipAddress String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model TrustedDevice {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  userAgent String?
+  ipAddress String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model LoginHistory {
@@ -140,12 +160,12 @@ model Role {
 
 model Permission {
   id          String   @id @default(cuid())
-  feature     String   // e.g. "meals", "billing"
-  action      String   // create | read | update | delete | approve | export | configure | override
+  feature     String // e.g. "meals", "billing"
+  action      String // create | read | update | delete | approve | export | configure | override
   description String?
   createdAt   DateTime @default(now())
 
-  roles       RolePermission[]
+  roles RolePermission[]
 }
 
 model RolePermission {
@@ -162,52 +182,52 @@ model RolePermission {
 // ─────────────────────────────────────────────────────────────
 
 model MealConfiguration {
-  id             String   @id @default(cuid())
-  name           String
-  displayName    String
-  description    String?
-  icon           String   @default("🍽️")
-  color          String   @default("#8b5cf6")
-  mealType       String   @default("REGULAR") // REGULAR | SPECIAL | GUEST_ONLY | FESTIVAL | CUSTOM
-  status         String   @default("ACTIVE") // ACTIVE | INACTIVE | ARCHIVED
-  displayOrder   Int      @default(0)
-  defaultState   String   @default("OFF") // ON | OFF
-  defaultVisibility String @default("VISIBLE") // VISIBLE | HIDDEN
-  cutoffStrategy String   @default("SAME_DAY") // PREVIOUS_DAY | SAME_DAY | CUSTOM_OFFSET
-  cutoffOffsetMinutes Int @default(0)
-  cutoffTime     String   @default("16:00") // HH:mm
-  startTime      String   @default("08:00")
-  endTime        String   @default("10:00")
-  notes          String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                  String   @id @default(cuid())
+  name                String
+  displayName         String
+  description         String?
+  icon                String   @default("🍽️")
+  color               String   @default("#8b5cf6")
+  mealType            String   @default("REGULAR") // REGULAR | SPECIAL | GUEST_ONLY | FESTIVAL | CUSTOM
+  status              String   @default("ACTIVE") // ACTIVE | INACTIVE | ARCHIVED
+  displayOrder        Int      @default(0)
+  defaultState        String   @default("OFF") // ON | OFF
+  defaultVisibility   String   @default("VISIBLE") // VISIBLE | HIDDEN
+  cutoffStrategy      String   @default("SAME_DAY") // PREVIOUS_DAY | SAME_DAY | CUSTOM_OFFSET
+  cutoffOffsetMinutes Int      @default(0)
+  cutoffTime          String   @default("16:00") // HH:mm
+  startTime           String   @default("08:00")
+  endTime             String   @default("10:00")
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  entries     MealEntry[]
-  history     MealHistory[]
-  overrides   MealOverride[]
-  guestMeals  GuestMeal[]
-  presets     MealPresetItem[]
+  entries    MealEntry[]
+  history    MealHistory[]
+  overrides  MealOverride[]
+  guestMeals GuestMeal[]
+  presets    MealPresetItem[]
 
   @@index([status, displayOrder])
 }
 
 model MealEntry {
-  id              String   @id @default(cuid())
-  userId          String
-  mealId          String
-  serviceDate     DateTime
-  status          String   @default("OFF") // ON | OFF | LOCKED — Current State (system value)
-  originalState   String   @default("OFF") // ON | OFF — Original State (user's final selection; never modified by admin)
-  editableUntil   DateTime
-  locked          Boolean  @default(false)
-  notes           String?
-  updatedBy       String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String   @id @default(cuid())
+  userId        String
+  mealId        String
+  serviceDate   DateTime
+  status        String   @default("OFF") // ON | OFF | LOCKED — Current State (system value)
+  originalState String   @default("OFF") // ON | OFF — Original State (user's final selection; never modified by admin)
+  editableUntil DateTime
+  locked        Boolean  @default(false)
+  notes         String?
+  updatedBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  meal            MealConfiguration @relation(fields: [mealId], references: [id], onDelete: Cascade)
-  history         MealHistory[]
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  meal    MealConfiguration @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  history MealHistory[]
 
   @@unique([userId, mealId, serviceDate])
   @@index([userId, serviceDate])
@@ -216,89 +236,89 @@ model MealEntry {
 }
 
 model MealHistory {
-  id          String   @id @default(cuid())
-  mealEntryId String
-  mealId      String?
-  oldStatus   String?
-  newStatus   String?
-  changedBy   String?
-  reason      String?
-  triggerSource String @default("MANUAL") // MANUAL | AUTO | PRESET | LEAVE | OVERRIDE
-  createdAt   DateTime @default(now())
-  mealEntry   MealEntry         @relation(fields: [mealEntryId], references: [id], onDelete: Cascade)
-  meal        MealConfiguration? @relation(fields: [mealId], references: [id], onDelete: SetNull)
+  id            String             @id @default(cuid())
+  mealEntryId   String
+  mealId        String?
+  oldStatus     String?
+  newStatus     String?
+  changedBy     String?
+  reason        String?
+  triggerSource String             @default("MANUAL") // MANUAL | AUTO | PRESET | LEAVE | OVERRIDE
+  createdAt     DateTime           @default(now())
+  mealEntry     MealEntry          @relation(fields: [mealEntryId], references: [id], onDelete: Cascade)
+  meal          MealConfiguration? @relation(fields: [mealId], references: [id], onDelete: SetNull)
 
   @@index([mealEntryId])
 }
 
 model MealOverride {
-  id          String   @id @default(cuid())
+  id          String            @id @default(cuid())
   mealId      String
   userId      String?
   serviceDate DateTime
-  action      String   // TURN_ON | TURN_OFF | LOCK | UNLOCK | FORCE_STATUS
+  action      String // TURN_ON | TURN_OFF | LOCK | UNLOCK | FORCE_STATUS
   reason      String
   adminId     String
-  createdAt   DateTime @default(now())
+  createdAt   DateTime          @default(now())
   meal        MealConfiguration @relation(fields: [mealId], references: [id], onDelete: Cascade)
-  user        User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user        User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([mealId, serviceDate])
 }
 
 model MealPreset {
-  id          String   @id @default(cuid())
+  id          String           @id @default(cuid())
   name        String
   description String?
-  isSystem    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isSystem    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
   items       MealPresetItem[]
 }
 
 model MealPresetItem {
-  id          String   @id @default(cuid())
-  presetId    String
-  mealId      String
-  state       String   @default("ON")
-  preset      MealPreset        @relation(fields: [presetId], references: [id], onDelete: Cascade)
-  meal        MealConfiguration @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  id       String            @id @default(cuid())
+  presetId String
+  mealId   String
+  state    String            @default("ON")
+  preset   MealPreset        @relation(fields: [presetId], references: [id], onDelete: Cascade)
+  meal     MealConfiguration @relation(fields: [mealId], references: [id], onDelete: Cascade)
 }
 
 model LeaveApplication {
-  id          String   @id @default(cuid())
-  userId      String
-  startDate   DateTime
-  endDate     DateTime
-  reason      String
-  status      String   @default("PENDING") // PENDING | APPROVED | REJECTED
-  approvedBy  String?
+  id         String   @id @default(cuid())
+  userId     String
+  startDate  DateTime
+  endDate    DateTime
+  reason     String
+  status     String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  approvedBy String?
   // Meal targeting — which meals the leave applies to.
   // mealType: ALL (every meal) | SPECIFIC (only mealIds listed)
   // mealIds: JSON-encoded string array of MealConfiguration ids (empty when mealType=ALL)
-  mealType    String   @default("ALL") // ALL | SPECIFIC
-  mealIds     String?  // JSON array of meal ids
+  mealType   String   @default("ALL") // ALL | SPECIFIC
+  mealIds    String? // JSON array of meal ids
   // Admin notes — set when an admin approves/rejects the application
-  adminNotes  String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  adminNotes String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status])
   @@index([status, startDate])
 }
 
 model GuestMeal {
-  id          String   @id @default(cuid())
+  id          String            @id @default(cuid())
   mealId      String
-  userId      String?  // host user
+  userId      String? // host user
   guestName   String
-  guestCount  Int      @default(1)
+  guestCount  Int               @default(1)
   serviceDate DateTime
   notes       String?
-  createdAt   DateTime @default(now())
+  createdAt   DateTime          @default(now())
   meal        MealConfiguration @relation(fields: [mealId], references: [id], onDelete: Cascade)
-  user        User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user        User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([mealId, serviceDate])
 }
@@ -324,30 +344,30 @@ model Variable {
 }
 
 model Formula {
-  id          String   @id @default(cuid())
+  id          String           @id @default(cuid())
   name        String
-  key         String   @unique
+  key         String           @unique
   description String?
   expression  String
-  returnType  String   @default("CURRENCY")
-  category    String   @default("BILLING")
-  status      String   @default("ACTIVE")
-  version     Int      @default(1)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  returnType  String           @default("CURRENCY")
+  category    String           @default("BILLING")
+  status      String           @default("ACTIVE")
+  version     Int              @default(1)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
   versions    FormulaVersion[]
 }
 
 model FormulaVersion {
-  id          String   @id @default(cuid())
-  formulaId   String
-  version     Int
-  expression  String
-  changedBy   String?
-  changeNote  String?
-  createdAt   DateTime @default(now())
-  formula     Formula  @relation(fields: [formulaId], references: [id], onDelete: Cascade)
-  user        User?    @relation(fields: [changedBy], references: [id], onDelete: SetNull)
+  id         String   @id @default(cuid())
+  formulaId  String
+  version    Int
+  expression String
+  changedBy  String?
+  changeNote String?
+  createdAt  DateTime @default(now())
+  formula    Formula  @relation(fields: [formulaId], references: [id], onDelete: Cascade)
+  user       User?    @relation(fields: [changedBy], references: [id], onDelete: SetNull)
 
   @@index([formulaId, version])
 }
@@ -357,55 +377,55 @@ model FormulaVersion {
 // ─────────────────────────────────────────────────────────────
 
 model BillingCycle {
-  id              String    @id @default(cuid())
-  periodMonth     Int       // 0-indexed (0 = January)
-  periodYear      Int
-  status          String    @default("OPEN") // OPEN | PREPARING | SNAPSHOT_CREATED | BILLS_GENERATED | SETTLED | CLOSED | FAILED
+  id               String    @id @default(cuid())
+  periodMonth      Int // 0-indexed (0 = January)
+  periodYear       Int
+  status           String    @default("OPEN") // OPEN | PREPARING | SNAPSHOT_CREATED | BILLS_GENERATED | SETTLED | CLOSED | FAILED
   // Readiness checklist results (stored when the admin runs the pre-closing review)
-  readiness       String?   // JSON: { meals: "ready"|"warning"|"error", expenses, variables, formula, payments, ... }
+  readiness        String? // JSON: { meals: "ready"|"warning"|"error", expenses, variables, formula, payments, ... }
   // Snapshot reference
-  snapshotId      String?   @unique
+  snapshotId       String?   @unique
   // Closing metadata
-  startedBy       String?
-  startedAt       DateTime?
-  closedBy        String?
-  closedAt        DateTime?
+  startedBy        String?
+  startedAt        DateTime?
+  closedBy         String?
+  closedAt         DateTime?
   // Summary stats (populated after closing)
-  totalExpenses   Float     @default(0)
-  totalMeals      Int       @default(0)
-  totalGuestMeals Int       @default(0)
-  mealCharge      Float     @default(0)
-  billsGenerated  Int       @default(0)
-  refundQueueTotal Float    @default(0)
-  outstandingDue  Float     @default(0)
+  totalExpenses    Float     @default(0)
+  totalMeals       Int       @default(0)
+  totalGuestMeals  Int       @default(0)
+  mealCharge       Float     @default(0)
+  billsGenerated   Int       @default(0)
+  refundQueueTotal Float     @default(0)
+  outstandingDue   Float     @default(0)
   // Error info (if status=FAILED)
-  errorMessage    String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  errorMessage     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  snapshot        MonthlySnapshot?
-  bills           Bill[]
+  snapshot MonthlySnapshot?
+  bills    Bill[]
 
   @@unique([periodMonth, periodYear])
   @@index([status])
 }
 
 model MonthlySnapshot {
-  id              String    @id @default(cuid())
-  billingCycleId  String    @unique
+  id                 String       @id @default(cuid())
+  billingCycleId     String       @unique
   // Frozen JSON blobs — immutable after creation
-  mealsData       String    // JSON: per-resident meal counts, guest meals, overrides
-  expensesData    String    // JSON: all approved expenses + purchases with items
-  variablesData   String    // JSON: all active variable key→value pairs
-  formulaData     String    // JSON: formula key→{expression, version} for every active formula
+  mealsData          String // JSON: per-resident meal counts, guest meals, overrides
+  expensesData       String // JSON: all approved expenses + purchases with items
+  variablesData      String // JSON: all active variable key→value pairs
+  formulaData        String // JSON: formula key→{expression, version} for every active formula
   // Computed totals (denormalized for quick access)
-  totalExpenses   Float
+  totalExpenses      Float
   totalResidentMeals Int
-  totalGuestMeals Int
-  guestRevenue    Float
-  mealCharge      Float     // the calculated per-meal charge
-  createdAt       DateTime  @default(now())
-  billingCycle    BillingCycle @relation(fields: [billingCycleId], references: [id], onDelete: Cascade)
+  totalGuestMeals    Int
+  guestRevenue       Float
+  mealCharge         Float // the calculated per-meal charge
+  createdAt          DateTime     @default(now())
+  billingCycle       BillingCycle @relation(fields: [billingCycleId], references: [id], onDelete: Cascade)
 
   @@index([billingCycleId])
 }
@@ -415,36 +435,36 @@ model MonthlySnapshot {
 // ─────────────────────────────────────────────────────────────
 
 model Bill {
-  id           String   @id @default(cuid())
-  billNumber   String?  // Human-readable reference (e.g. BILL-2026-0001). Configurable format (DEC-031).
-  userId       String
-  periodMonth  Int
-  periodYear   Int
-  mealCharges  Float    @default(0)
-  otherCharges Float    @default(0)
-  adjustments  Float    @default(0)
-  totalAmount  Float    @default(0)
-  paidAmount   Float    @default(0)
-  dueAmount    Float    @default(0)
-  previousDue  Float    @default(0) // PRD DEC-027: previous outstanding carried separately (not added to totalAmount)
-  status       String   @default("DRAFT") // DRAFT | GENERATED | PARTIALLY_PAID | PAID | OVERDUE | VOID | DELETED
-  generatedAt  DateTime?
-  dueDate      DateTime?
-  snapshot     String?  // JSON snapshot of calculation
-  billingCycleId String? // links to the BillingCycle that generated this bill (null for legacy bills)
+  id                String        @id @default(cuid())
+  billNumber        String? // Human-readable reference (e.g. BILL-2026-0001). Configurable format (DEC-031).
+  userId            String
+  periodMonth       Int
+  periodYear        Int
+  mealCharges       Float         @default(0)
+  otherCharges      Float         @default(0)
+  adjustments       Float         @default(0)
+  totalAmount       Float         @default(0)
+  paidAmount        Float         @default(0)
+  dueAmount         Float         @default(0)
+  previousDue       Float         @default(0) // PRD DEC-027: previous outstanding carried separately (not added to totalAmount)
+  status            String        @default("DRAFT") // DRAFT | GENERATED | PARTIALLY_PAID | PAID | OVERDUE | VOID | DELETED
+  generatedAt       DateTime?
+  dueDate           DateTime?
+  snapshot          String? // JSON snapshot of calculation
+  billingCycleId    String? // links to the BillingCycle that generated this bill (null for legacy bills)
   // Formula snapshot — the exact formula version + expression used to generate this bill (PRD DEC-012)
-  formulaKey       String?  // e.g. "formula.mealCharges"
-  formulaVersion   Int?     // version number at generation time
+  formulaKey        String? // e.g. "formula.mealCharges"
+  formulaVersion    Int? // version number at generation time
   formulaExpression String? // the expression text (fully reproducible)
-  deletedAt    DateTime? // Soft-delete: scheduled for permanent deletion after 7 days
-  deletedBy    String?
-  deletionReason String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  billingCycle BillingCycle? @relation(fields: [billingCycleId], references: [id], onDelete: SetNull)
-  payments     Payment[]
-  refunds      Refund[]
+  deletedAt         DateTime? // Soft-delete: scheduled for permanent deletion after 7 days
+  deletedBy         String?
+  deletionReason    String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  billingCycle      BillingCycle? @relation(fields: [billingCycleId], references: [id], onDelete: SetNull)
+  payments          Payment[]
+  refunds           Refund[]
 
   @@unique([userId, periodMonth, periodYear])
   @@index([status])
@@ -453,28 +473,28 @@ model Bill {
 }
 
 model Payment {
-  id              String   @id @default(cuid())
-  userId          String
-  billId          String?
-  amount          Float
-  method          String   @default("CASH") // CASH | UPI | CARD | BANK_TRANSFER | WALLET
-  status          String   @default("PENDING") // PENDING | APPROVED | REJECTED | REFUNDED | VOID | DELETED
-  reference       String?
-  notes           String?
-  approvedBy      String?
+  id             String        @id @default(cuid())
+  userId         String
+  billId         String?
+  amount         Float
+  method         String        @default("CASH") // CASH | UPI | CARD | BANK_TRANSFER | WALLET
+  status         String        @default("PENDING") // PENDING | APPROVED | REJECTED | REFUNDED | VOID | DELETED
+  reference      String?
+  notes          String?
+  approvedBy     String?
   // PRD: Effective billing cycle — auto-determined when the payment is approved.
   // If the current period's billing cycle is already CLOSED, the payment applies
   // to the NEXT cycle. Otherwise it applies to the current cycle.
-  effectiveMonth  Int?     // 0-indexed
-  effectiveYear   Int?
-  deletedAt       DateTime? // Soft-delete: scheduled for permanent deletion after 7 days
-  deletedBy       String?
-  deletionReason  String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bill            Bill?    @relation(fields: [billId], references: [id], onDelete: SetNull)
-  ledgerEntries   LedgerEntry[]
+  effectiveMonth Int? // 0-indexed
+  effectiveYear  Int?
+  deletedAt      DateTime? // Soft-delete: scheduled for permanent deletion after 7 days
+  deletedBy      String?
+  deletionReason String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bill           Bill?         @relation(fields: [billId], references: [id], onDelete: SetNull)
+  ledgerEntries  LedgerEntry[]
 
   @@index([userId, status])
   @@index([deletedAt])
@@ -482,27 +502,27 @@ model Payment {
 }
 
 model Expense {
-  id              String   @id @default(cuid())
-  title           String   // Item name
-  description     String?  // Notes (optional)
-  category        String   @default("GENERAL")
-  quantity        Float    @default(1)
-  unit            String   @default("piece") // kg | gm | piece | litre | custom
-  amount          Float    // total cost
-  currency        String   @default("INR")
+  id              String    @id @default(cuid())
+  title           String // Item name
+  description     String? // Notes (optional)
+  category        String    @default("GENERAL")
+  quantity        Float     @default(1)
+  unit            String    @default("piece") // kg | gm | piece | litre | custom
+  amount          Float // total cost
+  currency        String    @default("INR")
   expenseDate     DateTime
   paidTo          String?
   receiptUrl      String?
-  status          String   @default("APPROVED") // APPROVED | LOCKED | DELETED
+  status          String    @default("APPROVED") // APPROVED | LOCKED | DELETED
   createdBy       String?
   lockedAt        DateTime? // PRD DEC-030: set when the monthly snapshot freezes this expense. Locked expenses are immutable.
-  lockedByCycleId String?  // links to the BillingCycle that locked this expense
+  lockedByCycleId String? // links to the BillingCycle that locked this expense
   deletedAt       DateTime? // Soft-delete: scheduled for permanent deletion after 7 days
   deletedBy       String?
   deletionReason  String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  user            User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull)
   purchase        Purchase?
 
   @@index([category, expenseDate])
@@ -515,26 +535,26 @@ model Expense {
 
 model Unit {
   id        String   @id @default(cuid())
-  name      String   @unique  // kg, gm, litre, ml, piece, packet, bottle, sack, bundle, dozen
-  category  String   @default("QUANTITY")  // WEIGHT | VOLUME | QUANTITY | OTHER
+  name      String   @unique // kg, gm, litre, ml, piece, packet, bottle, sack, bundle, dozen
+  category  String   @default("QUANTITY") // WEIGHT | VOLUME | QUANTITY | OTHER
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  products      Product[]
+  products Product[]
 }
 
 model Product {
-  id            String   @id @default(cuid())
-  name          String   @unique
-  slug          String   @unique
-  category      String   @default("GENERAL")  // Non-Veg | Veg | Grains | Oil | Dairy | etc.
+  id            String    @id @default(cuid())
+  name          String    @unique
+  slug          String    @unique
+  category      String    @default("GENERAL") // Non-Veg | Veg | Grains | Oil | Dairy | etc.
   defaultUnitId String?
-  defaultUnit   Unit?    @relation(fields: [defaultUnitId], references: [id])
-  isActive      Boolean  @default(true)
+  defaultUnit   Unit?     @relation(fields: [defaultUnitId], references: [id])
+  isActive      Boolean   @default(true)
   archivedAt    DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   purchaseItems PurchaseItem[]
 
@@ -543,23 +563,23 @@ model Product {
 }
 
 model Purchase {
-  id              String   @id @default(cuid())
-  vendor          String
-  purchaseDate    DateTime
-  totalAmount     Float
-  receiptUrl      String?
-  notes           String?
-  expenseId       String?  @unique // links to the Expense record (so existing totals/reports still work)
-  expense         Expense? @relation(fields: [expenseId], references: [id], onDelete: SetNull)
-  createdBy       String?
-  user            User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
-  status          String   @default("APPROVED")  // APPROVED | LOCKED | DELETED (mirrors Expense)
-  deletedAt       DateTime?
-  deletedBy       String?
-  deletionReason  String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  items           PurchaseItem[]
+  id             String         @id @default(cuid())
+  vendor         String
+  purchaseDate   DateTime
+  totalAmount    Float
+  receiptUrl     String?
+  notes          String?
+  expenseId      String?        @unique // links to the Expense record (so existing totals/reports still work)
+  expense        Expense?       @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+  createdBy      String?
+  user           User?          @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  status         String         @default("APPROVED") // APPROVED | LOCKED | DELETED (mirrors Expense)
+  deletedAt      DateTime?
+  deletedBy      String?
+  deletionReason String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  items          PurchaseItem[]
 
   @@index([purchaseDate])
   @@index([deletedAt])
@@ -571,12 +591,12 @@ model PurchaseItem {
   purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
   productId   String?
   product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
-  productName String   // snapshot of product name at purchase time
-  category    String   @default("GENERAL")  // snapshot
+  productName String // snapshot of product name at purchase time
+  category    String   @default("GENERAL") // snapshot
   quantity    Float
-  unit        String   // snapshot (kg, gm, piece, etc.) — not a FK so historical purchases don't break if unit is renamed
-  rate        Float    @default(0)  // unit price
-  total       Float    // quantity * rate
+  unit        String // snapshot (kg, gm, piece, etc.) — not a FK so historical purchases don't break if unit is renamed
+  rate        Float    @default(0) // unit price
+  total       Float // quantity * rate
   notes       String?
   createdAt   DateTime @default(now())
 
@@ -592,28 +612,28 @@ model PurchaseItem {
 // how much has been paid so far, and the remaining amount. Multiple partial
 // payments can be recorded until the refund is fully completed.
 model Refund {
-  id              String   @id @default(cuid())
-  refundNumber    String?  // Human-readable reference (e.g. REF-2026-0001)
+  id              String              @id @default(cuid())
+  refundNumber    String? // Human-readable reference (e.g. REF-2026-0001)
   userId          String
-  billId          String?  // the bill that triggered this refund (null for direct/unlinked)
-  billingCycleId  String?  // the cycle that generated this refund
+  billId          String? // the bill that triggered this refund (null for direct/unlinked)
+  billingCycleId  String? // the cycle that generated this refund
   // Full refund amount (the total the resident is owed)
   amount          Float
   // How much has been paid out so far (sum of all partial refund payments)
-  paidAmount      Float    @default(0)
+  paidAmount      Float               @default(0)
   // Remaining = amount - paidAmount (computed, but stored for query convenience)
-  remainingAmount Float    @default(0)
-  status          String   @default("PENDING") // PENDING | PARTIALLY_PAID | COMPLETED | CANCELLED
-  method          String?  // UPI | CASH | BANK_TRANSFER | CHEQUE
-  reference       String?  // transaction reference number
+  remainingAmount Float               @default(0)
+  status          String              @default("PENDING") // PENDING | PARTIALLY_PAID | COMPLETED | CANCELLED
+  method          String? // UPI | CASH | BANK_TRANSFER | CHEQUE
+  reference       String? // transaction reference number
   notes           String?
   processedBy     String?
   processedAt     DateTime?
   completedAt     DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bill            Bill?    @relation(fields: [billId], references: [id], onDelete: SetNull)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bill            Bill?               @relation(fields: [billId], references: [id], onDelete: SetNull)
   transactions    RefundTransaction[]
 
   @@index([userId, status])
@@ -625,9 +645,9 @@ model Refund {
 model RefundTransaction {
   id          String   @id @default(cuid())
   refundId    String
-  amount      Float    // this partial payment amount
-  method      String?  // UPI | CASH | BANK_TRANSFER | CHEQUE
-  reference   String?  // transaction reference
+  amount      Float // this partial payment amount
+  method      String? // UPI | CASH | BANK_TRANSFER | CHEQUE
+  reference   String? // transaction reference
   notes       String?
   processedBy String?
   createdAt   DateTime @default(now())
@@ -641,21 +661,21 @@ model RefundTransaction {
 // references the original entity and records the correction amount + reason.
 // Approved financial transactions are immutable; corrections use adjustments.
 model Adjustment {
-  id              String   @id @default(cuid())
+  id               String   @id @default(cuid())
   adjustmentNumber String? // Human-readable reference (e.g. ADJ-2026-0001)
-  userId          String?  // affected resident (null for institution-level adjustments)
+  userId           String? // affected resident (null for institution-level adjustments)
   // What entity is being adjusted
-  entityType      String   // Payment | Refund | Bill | Expense
-  entityId        String
+  entityType       String // Payment | Refund | Bill | Expense
+  entityId         String
   // The correction
-  amount          Float    // positive = adds to balance, negative = subtracts
-  reason          String   // mandatory
-  notes           String?
+  amount           Float // positive = adds to balance, negative = subtracts
+  reason           String // mandatory
+  notes            String?
   // Who and when
-  createdBy       String?
-  createdAt       DateTime @default(now())
-  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  creator         User?    @relation("AdjustmentCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  createdBy        String?
+  createdAt        DateTime @default(now())
+  user             User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  creator          User?    @relation("AdjustmentCreator", fields: [createdBy], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([entityType, entityId])
@@ -669,31 +689,31 @@ model Adjustment {
 // ─────────────────────────────────────────────────────────────
 
 model LedgerEntry {
-  id              String   @id @default(cuid())
-  userId          String
+  id             String   @id @default(cuid())
+  userId         String
   // What type of event
-  type            String   // DEPOSIT | BILL_SETTLEMENT | REFUND | ADJUSTMENT | PURCHASE | EXPENSE
+  type           String // DEPOSIT | BILL_SETTLEMENT | REFUND | ADJUSTMENT | PURCHASE | EXPENSE
   // Credit/debit (from the resident's perspective)
   // DEPOSIT: credit (+) — money in
   // BILL_SETTLEMENT: debit (-) — money out (bill deducted)
   // REFUND: debit (-) — money returned to resident
   // ADJUSTMENT: credit or debit depending on sign
-  amount          Float    // positive = credit (adds to balance), negative = debit
+  amount         Float // positive = credit (adds to balance), negative = debit
   // Running balance after this entry (for quick display — the authoritative
   // balance is always the sum of all entries, but storing the running balance
   // avoids re-summing on every query)
-  runningBalance  Float    @default(0)
+  runningBalance Float    @default(0)
   // Reference to the source entity
-  entityType      String   // Payment | Bill | Refund | Adjustment | Expense | Purchase
-  entityId        String?
+  entityType     String // Payment | Bill | Refund | Adjustment | Expense | Purchase
+  entityId       String?
   // Description for the human-readable ledger
-  description     String
+  description    String
   // Billing cycle this entry applies to
-  billingMonth    Int?
-  billingYear     Int?
-  createdAt       DateTime @default(now())
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  payment         Payment? @relation(fields: [entityId], references: [id], onDelete: SetNull)
+  billingMonth   Int?
+  billingYear    Int?
+  createdAt      DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payment        Payment? @relation(fields: [entityId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
   @@index([entityType, entityId])
@@ -708,21 +728,21 @@ model LedgerEntry {
 // ─────────────────────────────────────────────────────────────
 
 model Restriction {
-  id              String    @id @default(cuid())
-  userId          String
-  type            String    // FINANCIAL | ADMINISTRATIVE
-  reason          String    // mandatory
-  source          String    @default("AUTOMATIC") // AUTOMATIC | MANUAL
-  status          String    @default("ACTIVE") // ACTIVE | LIFTED | EXEMPTED | EXPIRED
-  appliedBy       String?   // null for automatic
-  appliedAt       DateTime  @default(now())
-  expiresAt       DateTime? // null = indefinite
-  liftedBy        String?
-  liftedAt        DateTime?
-  liftReason      String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String    @id @default(cuid())
+  userId     String
+  type       String // FINANCIAL | ADMINISTRATIVE
+  reason     String // mandatory
+  source     String    @default("AUTOMATIC") // AUTOMATIC | MANUAL
+  status     String    @default("ACTIVE") // ACTIVE | LIFTED | EXEMPTED | EXPIRED
+  appliedBy  String? // null for automatic
+  appliedAt  DateTime  @default(now())
+  expiresAt  DateTime? // null = indefinite
+  liftedBy   String?
+  liftedAt   DateTime?
+  liftReason String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status])
   @@index([type, status])
@@ -736,17 +756,17 @@ model Restriction {
 // ─────────────────────────────────────────────────────────────
 
 model Holiday {
-  id              String   @id @default(cuid())
-  name            String   // e.g. "Durga Puja", "Independence Day"
-  description     String?
-  type            String   @default("HOLIDAY") // HOLIDAY | FESTIVAL | SPECIAL_MEAL | BILLING_DAY | REFUND_DAY | MAINTENANCE
-  startDate       DateTime
-  endDate         DateTime
-  mealsDisabled   Boolean  @default(true) // PRD DEC-024: holidays automatically make meals unavailable
-  status          String   @default("ACTIVE") // ACTIVE | ARCHIVED
-  createdBy       String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id            String   @id @default(cuid())
+  name          String // e.g. "Durga Puja", "Independence Day"
+  description   String?
+  type          String   @default("HOLIDAY") // HOLIDAY | FESTIVAL | SPECIAL_MEAL | BILLING_DAY | REFUND_DAY | MAINTENANCE
+  startDate     DateTime
+  endDate       DateTime
+  mealsDisabled Boolean  @default(true) // PRD DEC-024: holidays automatically make meals unavailable
+  status        String   @default("ACTIVE") // ACTIVE | ARCHIVED
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@index([startDate, endDate])
   @@index([type, status])
@@ -757,16 +777,16 @@ model Holiday {
 // ─────────────────────────────────────────────────────────────
 
 model Notification {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   userId      String
   title       String
   description String?
-  type        String   @default("INFO") // INFO | SUCCESS | WARNING | DANGER
-  priority    String   @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
+  type        String    @default("INFO") // INFO | SUCCESS | WARNING | DANGER
+  priority    String    @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
   route       String?
   readAt      DateTime?
-  createdAt   DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt])
 }
@@ -778,42 +798,42 @@ model Notification {
 // ─────────────────────────────────────────────────────────────
 
 model Announcement {
-  id              String    @id @default(cuid())
-  title           String
-  body            String
-  type            String    @default("INFO") // INFO | WARNING | MAINTENANCE | EVENT
-  priority        String    @default("NORMAL") // NORMAL | HIGH | URGENT
+  id             String    @id @default(cuid())
+  title          String
+  body           String
+  type           String    @default("INFO") // INFO | WARNING | MAINTENANCE | EVENT
+  priority       String    @default("NORMAL") // NORMAL | HIGH | URGENT
   // Targeting: ALL | RESIDENTS | ADMINS
-  targetAudience  String    @default("ALL")
+  targetAudience String    @default("ALL")
   // Pinned on dashboards until expiry
-  isPinned        Boolean   @default(true)
+  isPinned       Boolean   @default(true)
   // Lifecycle
-  status          String    @default("PUBLISHED") // DRAFT | SCHEDULED | PUBLISHED | EXPIRED | ARCHIVED
-  publishedAt     DateTime?
-  expiresAt       DateTime? // null = indefinite
+  status         String    @default("PUBLISHED") // DRAFT | SCHEDULED | PUBLISHED | EXPIRED | ARCHIVED
+  publishedAt    DateTime?
+  expiresAt      DateTime? // null = indefinite
   // Author
-  createdBy       String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  user            User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  createdBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User?     @relation(fields: [createdBy], references: [id], onDelete: SetNull)
 
   @@index([status, publishedAt])
   @@index([targetAudience, status])
 }
 
 model AuditLog {
-  id           String   @id @default(cuid())
-  actorId      String?
-  action       String
-  entity       String
-  entityId     String?
-  oldValue     String?
-  newValue     String?
-  ipAddress    String?
-  userAgent    String?
-  reason       String?
-  createdAt    DateTime @default(now())
-  actor        User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String
+  entity    String
+  entityId  String?
+  oldValue  String?
+  newValue  String?
+  ipAddress String?
+  userAgent String?
+  reason    String?
+  createdAt DateTime @default(now())
+  actor     User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([entity, entityId])
   @@index([actorId])
@@ -828,7 +848,7 @@ model AuditLog {
 
 model BackgroundTask {
   id           String    @id @default(cuid())
-  type         String    // MONTHLY_CLOSING | REPORT_EXPORT | SESSION_CLEANUP | ANNOUNCEMENT_SCHEDULE | BILL_GENERATION
+  type         String // MONTHLY_CLOSING | REPORT_EXPORT | SESSION_CLEANUP | ANNOUNCEMENT_SCHEDULE | BILL_GENERATION
   status       String    @default("QUEUED") // QUEUED | RUNNING | COMPLETED | FAILED | CANCELLED
   progress     Int       @default(0) // 0-100
   // Payload (JSON) — the task parameters
@@ -890,16 +910,16 @@ model Setting {
 }
 
 model Institution {
-  id          String   @id @default(cuid())
-  name        String
-  type        String   @default("HOSTEL") // HOSTEL | PG | COLLEGE | COMPANY_ACCOMMODATION | NGO | TRAINING_INSTITUTE | RESIDENTIAL_SCHOOL | BOARDING_HOUSE | UNIVERSITY
-  address     String?
+  id           String   @id @default(cuid())
+  name         String
+  type         String   @default("HOSTEL") // HOSTEL | PG | COLLEGE | COMPANY_ACCOMMODATION | NGO | TRAINING_INSTITUTE | RESIDENTIAL_SCHOOL | BOARDING_HOUSE | UNIVERSITY
+  address      String?
   contactEmail String?
   contactPhone String?
-  currency    String   @default("INR")
-  timezone    String   @default("UTC")
-  logoUrl     String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  currency     String   @default("INR")
+  timezone     String   @default("UTC")
+  logoUrl      String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
