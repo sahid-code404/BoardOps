@@ -1,0 +1,109 @@
+name: Cloudflare TypeScript cleanup batch 1
+
+on:
+  push:
+    branches:
+      - phase/cf-01-runtime-foundation
+    paths:
+      - '.github/workflows/cf-ts-cleanup-batch1.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase/cf-01-runtime-foundation
+          fetch-depth: 0
+      - name: Apply safe typing repairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, expected_min=1):
+              p = Path(path)
+              s = p.read_text()
+              count = s.count(old)
+              if count < expected_min:
+                  raise SystemExit(f'{path}: expected at least {expected_min} occurrence(s) of {old!r}, found {count}')
+              p.write_text(s.replace(old, new))
+
+          replace('src/app/api/billing-cycles/[id]/rollback/route.ts',
+                  'const body = await req.json().catch(() => ({}));\n    const reason = (body.reason as string | undefined)?.trim();',
+                  'const body = (await req.json().catch(() => ({}))) as { reason?: string };\n    const reason = body.reason?.trim();')
+
+          replace('src/app/api/billing-cycles/[id]/route.ts',
+                  'const body = await req.json().catch(() => ({}));\n    const reason = body.reason as string | undefined;',
+                  'const body = (await req.json().catch(() => ({}))) as { reason?: string };\n    const reason = body.reason;')
+
+          replace('src/app/api/billing-cycles/route.ts',
+                  'const body = await req.json().catch(() => ({}));\n    const month = Number(body.month ?? new Date().getMonth());\n    const year = Number(body.year ?? new Date().getFullYear());\n    const dueDate = body.dueDate ? new Date(body.dueDate) : undefined;',
+                  'const body = (await req.json().catch(() => ({}))) as { month?: number | string; year?: number | string; dueDate?: string };\n    const month = Number(body.month ?? new Date().getMonth());\n    const year = Number(body.year ?? new Date().getFullYear());\n    const dueDate = body.dueDate ? new Date(body.dueDate) : undefined;')
+
+          replace('src/app/api/bills/route.ts',
+                  'const body = await req.json().catch(() => ({}));\n    const month = Number(body.month ?? new Date().getMonth());\n    const year = Number(body.year ?? new Date().getFullYear());',
+                  'const body = (await req.json().catch(() => ({}))) as { month?: number | string; year?: number | string; dueDate?: string };\n    const month = Number(body.month ?? new Date().getMonth());\n    const year = Number(body.year ?? new Date().getFullYear());')
+
+          replace('src/app/api/notifications/route.ts',
+                  'const body = await req.json();\n    if (body.markAllRead) {',
+                  'const body = (await req.json()) as { markAllRead?: boolean; id?: string };\n    if (body.markAllRead) {')
+
+          replace('src/app/api/payments/[id]/route.ts',
+                  'const body = await req.json().catch(() => ({}));\n    const action = body.action || "APPROVE";',
+                  'const body = (await req.json().catch(() => ({}))) as { action?: "APPROVE" | "REJECT" };\n    const action = body.action || "APPROVE";',
+                  expected_min=1)
+
+          for path in [
+              'src/components/features/auth/profile-view.tsx',
+              'src/components/features/notifications/notifications-sheet.tsx',
+              'src/components/features/notifications/notifications-view.tsx',
+              'src/components/features/settings/settings-view.tsx',
+              'src/components/features/users/users-view.tsx',
+          ]:
+              replace(path, 'return (res as { data: T }).data;', 'return (res as unknown as { data: T }).data;')
+
+          role_old = '''const ROLE_META: Record<Role, { label: string; className: string }> = {\n  ADMIN: { label: "Admin", className: "bg-primary/15 text-primary" },\n  USER: { label: "Resident", className: "bg-muted text-muted-foreground" },\n};'''
+          role_new = '''const ROLE_META: Record<Role, { label: string; className: string }> = {\n  SUPER_ADMIN: { label: "Super Admin", className: "bg-primary/20 text-primary" },\n  ADMIN: { label: "Admin", className: "bg-primary/15 text-primary" },\n  MANAGER: { label: "Manager", className: "bg-secondary/20 text-secondary-foreground" },\n  USER: { label: "Resident", className: "bg-muted text-muted-foreground" },\n};'''
+          replace('src/components/features/auth/profile-view.tsx', role_old, role_new)
+          replace('src/components/features/users/users-view.tsx', role_old, role_new)
+
+          replace('src/components/features/auth/profile-view.tsx',
+                  'const json = await res.json();\n      if (!res.ok) throw new Error(json?.error || "Upload failed");\n      return json.data as { avatarUrl: string };',
+                  'const json = (await res.json()) as { error?: string; data?: { avatarUrl: string } };\n      if (!res.ok) throw new Error(json.error || "Upload failed");\n      if (!json.data) throw new Error("Upload response was missing avatar data");\n      return json.data;')
+          replace('src/components/features/auth/profile-view.tsx', 'avatarUrl={me.avatarUrl}', 'avatarUrl={me.avatarUrl ?? undefined}')
+
+          replace('src/components/layout/top-bar.tsx', 'const { data: unreadCount = 0 } = useQuery({', 'const { data: unreadCount } = useQuery({')
+
+          for path in [
+              'src/app/api/billing-cycles/[id]/rollback/route.ts',
+              'src/app/api/billing-cycles/[id]/route.ts',
+              'src/app/api/billing-cycles/route.ts',
+              'src/app/api/bills/route.ts',
+              'src/app/api/notifications/route.ts',
+              'src/app/api/payments/[id]/route.ts',
+              'src/components/features/auth/profile-view.tsx',
+              'src/components/features/notifications/notifications-sheet.tsx',
+              'src/components/features/notifications/notifications-view.tsx',
+              'src/components/features/settings/settings-view.tsx',
+              'src/components/features/users/users-view.tsx',
+              'src/components/layout/top-bar.tsx',
+          ]:
+              if not Path(path).exists():
+                  raise SystemExit(f'missing expected path {path}')
+          PY
+          git diff --check
+      - name: Commit cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src
+          git commit -m 'fix: resolve first production TypeScript batch'
+          git push origin HEAD:phase/cf-01-runtime-foundation
