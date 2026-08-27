@@ -32,6 +32,9 @@ jobs:
       - name: Install locked dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install introspection-only SQLite driver
+        run: bun add --dev better-sqlite3
+
       - name: Build temporary SQLite database from authoritative migration
         shell: bash
         run: |
@@ -48,10 +51,10 @@ jobs:
           test -f src/modern/infrastructure/db/introspected/schema.ts
           bunx tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --skipLibCheck src/modern/infrastructure/db/introspected/schema.ts
 
-      - name: Check diff whitespace
-        run: git diff --check
+      - name: Check generated diff whitespace
+        run: git diff --check -- src/modern/infrastructure/db/introspected
 
-      - name: Commit generated schema
+      - name: Commit generated schema only
         shell: bash
         run: |
           if git diff --quiet -- src/modern/infrastructure/db/introspected; then
