@@ -4,6 +4,7 @@ import { logAudit } from "@/lib/audit";
 import { getClientIp, getUserAgent } from "@/lib/session";
 import { hashOtp, generateOtp } from "@/lib/otp";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { sendOtpEmail } from "@/lib/email";
 import { z } from "zod";
 
 const schema = z.object({
@@ -23,6 +24,7 @@ export async function POST(req: Request) {
 
     const user = await db.user.findUnique({ where: { email } });
 
+    // Do not disclose whether an email exists in the system.
     if (!user) {
       return ok({ sent: true });
     }
@@ -39,9 +41,7 @@ export async function POST(req: Request) {
       },
     });
 
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`[PASSWORD RESET OTP for ${email}]: ${otp}`);
-    }
+    await sendOtpEmail(user.email, otp, "password-reset");
 
     await logAudit({
       actorId: user.id,
