@@ -4,11 +4,14 @@ on:
   push:
     branches:
       - phase/cf-01-runtime-foundation
-    paths:
-      - '.github/workflows/cf-production-audit.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: cf-production-audit-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   audit:
@@ -25,21 +28,21 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Generate Prisma client
         run: bunx prisma generate
-      - name: Audit Node filesystem and process assumptions
+      - name: Audit Worker-incompatible local runtime assumptions
         shell: bash
         run: |
           echo '=== node/filesystem/process imports ==='
-          grep -RInE 'from ["'\'' ]*(fs|fs/promises|child_process)["'\'']|require\(["'\''](fs|fs/promises|child_process)["'\'']\)' src || true
+          grep -RInE 'from ["'\'' ]*(fs|fs/promises|child_process)["'\'']|require\(["'\''](fs|fs/promises|child_process)["'\'']\)' src --exclude='*.test.ts' --exclude='*.test.tsx' || true
           echo '=== hard-coded local paths / temp / cwd ==='
-          grep -RInE '/home/z|/tmp/|process\.cwd\(\)|public/uploads|backup-db\.sh|sqlite3' src || true
+          grep -RInE '/home/z|/tmp/|process\.cwd\(\)|public/uploads|backup-db\.sh|sqlite3' src --exclude='*.test.ts' --exclude='*.test.tsx' || true
           echo '=== nodemailer references ==='
           grep -RIn 'nodemailer' src || true
-      - name: TypeScript audit
+      - name: Production TypeScript audit
         shell: bash
         run: |
           set -o pipefail
-          bunx tsc --noEmit 2>&1 | tee /tmp/tsc.txt || true
-          echo '=== TypeScript error count ==='
+          bunx tsc --noEmit -p tsconfig.production.json 2>&1 | tee /tmp/tsc.txt || true
+          echo '=== Production TypeScript error count ==='
           grep -c 'error TS' /tmp/tsc.txt || true
       - name: ESLint audit
         shell: bash
