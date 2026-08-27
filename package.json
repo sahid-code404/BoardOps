@@ -11,7 +11,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
-    "dev:next": "next dev -p 3000 2>&1 | tee dev.log",
+    "dev:next": "vinext dev --host 0.0.0.0",
     "build:next": "next build",
     "dev:vinext": "vinext dev --host 0.0.0.0",
     "build:vinext": "vinext build",
