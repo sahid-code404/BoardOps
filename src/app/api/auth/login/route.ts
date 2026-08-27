@@ -5,6 +5,10 @@ import { ok, err, handleApiError } from "@/lib/api-response";
 import { z } from "zod";
 import { logAudit } from "@/lib/audit";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { generateOtp, generatePendingToken, hashOtp, OTP_CONFIG } from "@/lib/otp";
+import { sendOtpEmail } from "@/lib/email";
+import { DEVICE_COOKIE_NAME, isDeviceTrusted } from "@/lib/device-trust";
+import { cookies } from "next/headers";
 
 const schema = z.object({
   email: z.string().email(),
@@ -14,6 +18,7 @@ const schema = z.object({
 export async function POST(req: Request) {
   try {
     const ip = await getClientIp();
+    const userAgent = await getUserAgent();
     const rateLimit = await checkRateLimit(ip, "login");
     if (!rateLimit.allowed) {
       return err("Too many login attempts. Please try again later.", 429);
@@ -21,8 +26,9 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const { email, password } = schema.parse(body);
+    const normalizedEmail = email.trim().toLowerCase();
 
-    const user = await db.user.findUnique({ where: { email } });
+    const user = await db.user.findUnique({ where: { email: normalizedEmail } });
     if (!user) return err("Incorrect email or password", 401);
 
     const valid = verifyPassword(password, user.passwordHash);
@@ -31,8 +37,8 @@ export async function POST(req: Request) {
         data: {
           userId: user.id,
           success: false,
-          ipAddress: await getClientIp(),
-          userAgent: await getUserAgent(),
+          ipAddress: ip,
+          userAgent,
           reason: "WRONG_PASSWORD",
         },
       });
@@ -49,6 +55,48 @@ export async function POST(req: Request) {
       return err("Please verify your email address first. Use the verification link sent to your inbox, or check your registration status page.", 403);
     }
 
+    if (user.twoFactorEnabled) {
+      const cookieStore = await cookies();
+      const deviceToken = cookieStore.get(DEVICE_COOKIE_NAME)?.value ?? null;
+      const trustedDevice = await isDeviceTrusted(user.id, deviceToken);
+
+      if (!trustedDevice) {
+        const otp = generateOtp();
+        const pendingToken = generatePendingToken();
+        const expiresAt = new Date(Date.now() + OTP_CONFIG.ttlMs);
+
+        await db.user.update({
+          where: { id: user.id },
+          data: {
+            twoFactorMethod: "EMAIL",
+            emailOtpCode: hashOtp(otp),
+            emailOtpExpiresAt: expiresAt,
+            emailOtpAttempts: 0,
+            otpPendingToken: pendingToken,
+            otpPendingExpiresAt: expiresAt,
+          },
+        });
+
+        await sendOtpEmail(user.email, otp, "two-factor");
+        await logAudit({
+          actorId: user.id,
+          action: "LOGIN_2FA_CHALLENGE",
+          entity: "User",
+          entityId: user.id,
+          ipAddress: ip,
+          userAgent,
+          newValue: { method: "EMAIL" },
+        });
+
+        return ok({
+          requiresTwoFactor: true,
+          pendingToken,
+          method: "EMAIL",
+          expiresAt,
+        });
+      }
+    }
+
     const token = generateToken();
     const expiresAt = getTokenExpiry(30);
     await db.userSession.create({
@@ -56,8 +104,8 @@ export async function POST(req: Request) {
         userId: user.id,
         token,
         expiresAt,
-        ipAddress: await getClientIp(),
-        userAgent: await getUserAgent(),
+        ipAddress: ip,
+        userAgent,
       },
     });
     await db.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
@@ -65,8 +113,8 @@ export async function POST(req: Request) {
       data: {
         userId: user.id,
         success: true,
-        ipAddress: await getClientIp(),
-        userAgent: await getUserAgent(),
+        ipAddress: ip,
+        userAgent,
       },
     });
     await logAudit({
@@ -74,8 +122,8 @@ export async function POST(req: Request) {
       action: "LOGIN",
       entity: "User",
       entityId: user.id,
-      ipAddress: await getClientIp(),
-      userAgent: await getUserAgent(),
+      ipAddress: ip,
+      userAgent,
     });
 
     return setAuthCookie(
