@@ -1,0 +1,104 @@
+name: Strict Cloudflare hardening
+
+on:
+  push:
+    branches:
+      - phase/cf-01-runtime-foundation
+    paths:
+      - '.github/workflows/cf-strict-hardening.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase/cf-01-runtime-foundation
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Remove build escapes and lint warnings
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              s = p.read_text()
+              found = s.count(old)
+              if found < count:
+                  raise SystemExit(f'{path}: expected at least {count} occurrence(s), found {found}: {old!r}')
+              p.write_text(s.replace(old, new, count))
+
+          # Next must no longer suppress compiler failures.
+          Path('next.config.ts').write_text('''import type { NextConfig } from "next";\n\nconst nextConfig: NextConfig = {\n  reactStrictMode: true,\n};\n\nexport default nextConfig;\n''')
+
+          # Generated Wrangler declarations are not application source and can
+          # contain generator-owned eslint directives.
+          eslint = Path('eslint.config.mjs')
+          s = eslint.read_text()
+          s = s.replace(
+              '"next-env.d.ts", "examples/**", "skills"]',
+              '"next-env.d.ts", "worker-configuration.d.ts", "examples/**", "skills"]',
+              1,
+          )
+          eslint.write_text(s)
+
+          # Replace the remaining React Hook Form watch() calls with useWatch,
+          # which is compatible with the React compiler.
+          meals = 'src/components/features/meals/meals-config-view.tsx'
+          replace(meals, '    setValue,\n    watch,\n    formState:', '    setValue,\n    formState:')
+          replace(
+              meals,
+              '  const watchedIcon = useWatch({ control, name: "icon" });',
+              '  const watchedIcon = useWatch({ control, name: "icon" });\n  const watchedStartTime = useWatch({ control, name: "startTime" });\n  const watchedEndTime = useWatch({ control, name: "endTime" });'
+          )
+          replace(meals, 'value={watch("startTime") || "08:00"}', 'value={watchedStartTime || "08:00"}')
+          replace(meals, 'value={watch("endTime") || "10:00"}', 'value={watchedEndTime || "10:00"}')
+
+          variables = 'src/components/features/variables/variables-view.tsx'
+          replace(variables, 'import { Controller, useForm } from "react-hook-form";', 'import { Controller, useForm, useWatch } from "react-hook-form";')
+          replace(variables, '  const type = form.watch("type");', '  const type = useWatch({ control: form.control, name: "type" });')
+
+          # Give CI explicit reusable strict gates.
+          pkg = Path('package.json')
+          data = json.loads(pkg.read_text())
+          scripts = data.setdefault('scripts', {})
+          scripts['typecheck'] = 'tsc --noEmit -p tsconfig.production.json'
+          scripts['lint:strict'] = 'eslint . --max-warnings=0'
+          pkg.write_text(json.dumps(data, indent=2) + '\n')
+
+          validate = Path('.github/workflows/cf-validate.yml')
+          s = validate.read_text()
+          marker = '''      - name: Generate Prisma client\n        run: bunx prisma generate\n\n      - name: Check vinext compatibility'''
+          replacement = '''      - name: Generate Prisma client\n        run: bunx prisma generate\n\n      - name: Production TypeScript gate\n        run: bun run typecheck\n\n      - name: Zero-warning ESLint gate\n        run: bun run lint:strict\n\n      - name: Check vinext compatibility'''
+          if marker not in s:
+              raise SystemExit('cf-validate insertion marker not found')
+          validate.write_text(s.replace(marker, replacement, 1))
+          PY
+
+          bun install --frozen-lockfile
+          bunx prisma generate
+          bun run typecheck
+          bun run lint:strict
+          bunx vinext check
+          bun run build
+          git diff --check
+
+      - name: Commit strict gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add next.config.ts eslint.config.mjs package.json .github/workflows/cf-validate.yml src/components/features/meals/meals-config-view.tsx src/components/features/variables/variables-view.tsx
+          git commit -m 'ci: enforce strict Cloudflare production gates'
+          git push origin HEAD:phase/cf-01-runtime-foundation
