@@ -11,7 +11,7 @@ export const healthDataSchema = z.object({
 });
 
 export const healthResponseSchema = z.object({
-  ok: z.literal(true),
+  success: z.literal(true),
   data: healthDataSchema,
   requestId: z.string().min(1),
 });
