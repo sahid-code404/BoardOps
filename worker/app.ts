@@ -11,6 +11,7 @@ import { registerAuditLogRoutes } from "./routes/audit-logs";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerAvatarRoutes } from "./routes/avatar";
 import { registerBillLifecycleRoutes } from "./routes/bill-lifecycle";
+import { registerBillMarkPaidRoutes } from "./routes/bill-mark-paid";
 import { registerBillRoutes } from "./routes/bills";
 import { registerBillingCycleRoutes } from "./routes/billing-cycles";
 import { registerExpenseRoutes } from "./routes/expenses";
@@ -111,6 +112,7 @@ export function createWorkerApp() {
   registerBillingCycleRoutes(app);
   registerBillRoutes(app);
   registerBillLifecycleRoutes(app);
+  registerBillMarkPaidRoutes(app);
   registerPaymentRoutes(app);
   registerPaymentEditRoutes(app);
   registerRefundRoutes(app);
