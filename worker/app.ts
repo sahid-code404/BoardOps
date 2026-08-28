@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
 
@@ -30,12 +31,12 @@ export function createWorkerApp() {
 
   app.get("/api/health", async (c) => {
     const db = createDatabase(c.env.DB);
-    const result = await db.all<{ ok: number }>("select 1 as ok");
+    const result = await db.get<{ ok: number }>(sql`select 1 as ok`);
 
     return c.json<ApiSuccess<{ status: "ok"; database: "d1" }>>({
       success: true,
       data: {
-        status: result[0]?.ok === 1 ? "ok" : "ok",
+        status: result?.ok === 1 ? "ok" : "ok",
         database: "d1",
       },
       requestId: c.get("requestId"),
