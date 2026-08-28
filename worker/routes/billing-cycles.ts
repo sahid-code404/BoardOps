@@ -1,11 +1,14 @@
 import { desc, eq } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 
+import { logAudit } from "../auth/audit";
 import { databaseDateToIso, getAuthUser } from "../auth/session";
-import { getBillingReadiness, normalizeBillingPeriod } from "../billing-cycle-engine";
+import { getBillingReadiness, normalizeBillingPeriod, periodLabel } from "../billing-cycle-engine";
 import { createDatabase } from "../db/client";
 import { BillingCycle, MonthlySnapshot } from "../db/schema";
 import type { ApiFailure, ApiSuccess } from "../http";
+import { executeClosing } from "../monthly-closing";
+import { createNotification } from "../notifications";
 import type { BoardOpsEnv } from "../types";
 
 type BillingErrorStatus = 400 | 401 | 403 | 404;
@@ -45,6 +48,18 @@ function serializeSnapshot(record: typeof MonthlySnapshot.$inferSelect) {
   };
 }
 
+function formatDueDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      });
+}
+
 export function registerBillingCycleRoutes(app: Hono<BoardOpsEnv>): void {
   app.get("/api/billing-cycles", async (c) => {
     const access = await requireAdmin(c);
@@ -63,6 +78,89 @@ export function registerBillingCycleRoutes(app: Hono<BoardOpsEnv>): void {
       data: response,
       requestId: c.get("requestId"),
     });
+  });
+
+  app.post("/api/billing-cycles", async (c) => {
+    const access = await requireAdmin(c);
+    if (access.response) return access.response;
+    const admin = access.user!;
+
+    const body = (await c.req.json().catch(() => ({}))) as {
+      month?: number | string;
+      year?: number | string;
+      dueDate?: string;
+    };
+    const now = new Date();
+    const month = Number(body.month ?? now.getUTCMonth());
+    const year = Number(body.year ?? now.getUTCFullYear());
+    const dueDate = body.dueDate ? new Date(body.dueDate) : undefined;
+    const result = await executeClosing(c.env.DB, month, year, admin.id, dueDate, now);
+
+    if (result.success) {
+      for (const event of result.billEvents) {
+        if (event.kind === "created") {
+          await createNotification(c, {
+            userId: event.userId,
+            title: "Bill generated",
+            description: `Your ${periodLabel(month, year)} bill of ₹${Math.round(event.totalAmount)} is now available. Due ${formatDueDate(event.dueDate)}.`,
+            type: "INFO",
+            priority: "HIGH",
+            route: "billing",
+          });
+        } else {
+          await createNotification(c, {
+            userId: event.userId,
+            title: "Bill updated",
+            description: `Your ${periodLabel(month, year)} bill increased by ₹${Math.round(event.delta)} — new total ₹${Math.round(event.totalAmount)}.`,
+            type: "WARNING",
+            priority: "HIGH",
+            route: "billing",
+          });
+        }
+      }
+
+      await logAudit(c, {
+        actorId: admin.id,
+        action: "MONTHLY_SETTLEMENT",
+        entity: "BillingCycle",
+        entityId: result.cycleId,
+        newValue: {
+          month,
+          year,
+          periodLabel: periodLabel(month, year),
+          billsGenerated: result.summary.billsGenerated,
+          refundsQueued: result.refundsQueued,
+          refundQueueTotal: result.summary.refundQueueTotal,
+          outstandingDue: result.summary.outstandingDue,
+        },
+      });
+      await logAudit(c, {
+        actorId: admin.id,
+        action: "MONTHLY_CLOSING_COMPLETED",
+        entity: "BillingCycle",
+        entityId: result.cycleId,
+        newValue: result,
+      });
+
+      return c.json<ApiSuccess<typeof result>>({
+        success: true,
+        data: result,
+        requestId: c.get("requestId"),
+      });
+    }
+
+    await logAudit(c, {
+      actorId: admin.id,
+      action: "MONTHLY_CLOSING_FAILED",
+      entity: "BillingCycle",
+      entityId: result.cycleId || null,
+      newValue: { month, year, status: result.status, error: result.error },
+      reason: result.error ?? null,
+    });
+    return c.json<ApiSuccess<typeof result>>(
+      { success: true, data: result, requestId: c.get("requestId") },
+      422,
+    );
   });
 
   app.get("/api/billing-cycles/readiness", async (c) => {
