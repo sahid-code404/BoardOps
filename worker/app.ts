@@ -6,6 +6,7 @@ import { createDatabase } from "./db/client";
 import type { ApiFailure, ApiSuccess } from "./http";
 import { registerAccountRoutes } from "./routes/account";
 import { registerAuthRoutes } from "./routes/auth";
+import { registerTwoFactorRoutes } from "./routes/two-factor";
 import type { BoardOpsEnv } from "./types";
 
 export function createWorkerApp() {
@@ -47,6 +48,7 @@ export function createWorkerApp() {
 
   registerAuthRoutes(app);
   registerAccountRoutes(app);
+  registerTwoFactorRoutes(app);
 
   app.notFound((c) =>
     c.json<ApiFailure>(
