@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 
 import {
   generateSecret as otplibGenerateSecret,
@@ -62,12 +62,20 @@ export function hashBackupCode(code: string): string {
   return createHash("sha256").update(code.toUpperCase()).digest("hex");
 }
 
+function generateBackupCode(): string {
+  const bytes = new Uint8Array(5);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+}
+
 export function generateBackupCodes(): { plain: string[]; hashes: string[] } {
   const plain: string[] = [];
   const hashes: string[] = [];
 
   for (let index = 0; index < 8; index += 1) {
-    const code = randomBytes(5).toString("hex").toUpperCase().slice(0, 10);
+    const code = generateBackupCode();
     plain.push(code);
     hashes.push(hashBackupCode(code));
   }
