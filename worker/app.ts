@@ -13,6 +13,7 @@ import { registerFundsRoutes } from "./routes/funds";
 import { registerHolidayRoutes } from "./routes/holidays";
 import { registerInstitutionRoutes } from "./routes/institution";
 import { registerMealConfigurationRoutes } from "./routes/meals-config";
+import { registerMealPresetRoutes } from "./routes/meal-presets";
 import { registerNotificationRoutes } from "./routes/notifications";
 import { registerPasswordRecoveryRoutes } from "./routes/password-recovery";
 import { registerProductRoutes } from "./routes/products";
@@ -81,6 +82,7 @@ export function createWorkerApp() {
   registerSettingRoutes(app);
   registerFundsRoutes(app);
   registerMealConfigurationRoutes(app);
+  registerMealPresetRoutes(app);
 
   app.notFound((c) =>
     c.json<ApiFailure>(
