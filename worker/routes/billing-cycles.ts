@@ -3,6 +3,7 @@ import type { Context, Hono } from "hono";
 
 import { logAudit } from "../auth/audit";
 import { databaseDateToIso, getAuthUser } from "../auth/session";
+import { rollbackBillingCycle } from "../billing-cycle-rollback";
 import { getBillingReadiness, normalizeBillingPeriod, periodLabel } from "../billing-cycle-engine";
 import { createDatabase } from "../db/client";
 import { BillingCycle, MonthlySnapshot } from "../db/schema";
@@ -161,6 +162,44 @@ export function registerBillingCycleRoutes(app: Hono<BoardOpsEnv>): void {
       { success: true, data: result, requestId: c.get("requestId") },
       422,
     );
+  });
+
+  app.post("/api/billing-cycles/:id/rollback", async (c) => {
+    const access = await requireAdmin(c);
+    if (access.response) return access.response;
+    const admin = access.user!;
+
+    const id = c.req.param("id");
+    const body = (await c.req.json().catch(() => ({}))) as { reason?: string };
+    const reason = body.reason?.trim();
+    if (!reason) return failure(c, "A reason is required for rollback", 400);
+
+    const db = createDatabase(c.env.DB);
+    const [existing] = await db
+      .select()
+      .from(BillingCycle)
+      .where(eq(BillingCycle.id, id))
+      .limit(1);
+    if (!existing) return failure(c, "Billing cycle not found", 404);
+
+    const result = await rollbackBillingCycle(c.env.DB, id);
+    await logAudit(c, {
+      actorId: admin.id,
+      action: result.success ? "MONTHLY_CLOSING_ROLLBACK" : "MONTHLY_CLOSING_ROLLBACK_FAILED",
+      entity: "BillingCycle",
+      entityId: id,
+      oldValue: serializeCycle(existing),
+      newValue: result.success ? { status: "OPEN" } : { error: result.error },
+      reason,
+    });
+
+    if (!result.success) return failure(c, result.error || "Rollback failed", 400);
+    const response = { rolledBack: true };
+    return c.json<ApiSuccess<typeof response>>({
+      success: true,
+      data: response,
+      requestId: c.get("requestId"),
+    });
   });
 
   app.get("/api/billing-cycles/readiness", async (c) => {
