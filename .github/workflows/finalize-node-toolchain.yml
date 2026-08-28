@@ -1,4 +1,4 @@
-name: Export finalized Node npm toolchain
+name: Commit finalized Node npm source
 
 on:
   push:
@@ -6,15 +6,18 @@ on:
       - phase/cf-01-runtime-foundation
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export:
+  commit-source:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -26,39 +29,6 @@ jobs:
           node scripts/finalize-node-toolchain.mjs
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from "node:fs/promises";
-
-          async function replaceExact(path, before, after) {
-            const source = await readFile(path, "utf8");
-            if (!source.includes(before)) throw new Error(`Expected source fragment missing in ${path}`);
-            await writeFile(path, source.replace(before, after), "utf8");
-          }
-
-          for (const path of [
-            ".github/workflows/cf-validate.yml",
-            ".github/workflows/cf-deploy-production.yml",
-          ]) {
-            let source = await readFile(path, "utf8");
-            source = source
-              .replaceAll("actions/checkout@v4", "actions/checkout@v5")
-              .replaceAll("actions/setup-node@v4", "actions/setup-node@v5")
-              .replace(
-                '          node-version: "22"\n',
-                '          node-version: "22"\n          cache: "npm"\n'
-              );
-            await writeFile(path, source, "utf8");
-          }
-
-          await replaceExact(
-            ".github/workflows/cf-validate.yml",
-            `      - name: Install dependencies and generate npm lockfile\n        run: npm install --no-audit --no-fund\n\n      - name: Upload generated npm lockfile\n        uses: actions/upload-artifact@v4\n        with:\n          name: npm-lockfile\n          path: package-lock.json\n          if-no-files-found: error\n`,
-            `      - name: Install dependencies\n        run: npm ci --no-audit --no-fund\n`
-          );
-
-          await replaceExact(
-            ".github/workflows/cf-deploy-production.yml",
-            `      - name: Install dependencies\n        run: npm install --no-audit --no-fund`,
-            `      - name: Install dependencies\n        run: npm ci --no-audit --no-fund`
-          );
 
           let readme = await readFile("README.md", "utf8");
           readme = readme
@@ -79,22 +49,18 @@ jobs:
       - name: Generate deterministic npm lockfile
         run: npm install --save-dev ajv@^8.20.0 --no-audit --no-fund
 
-      - name: Prepare final source snapshot
+      - name: Prove clean npm install
         run: |
-          git rm scripts/finalize-node-toolchain.mjs .github/workflows/finalize-node-toolchain.yml
-          rm -rf .vinext dist .wrangler
-          git add -A
-          git diff --cached --check
-          git diff --cached --name-status > finalization-manifest.txt
-          git diff --cached --name-only --diff-filter=ACMRT > finalization-files.txt
-          tar -czf finalization-source.tar.gz -T finalization-files.txt
-          cat finalization-manifest.txt
+          rm -rf node_modules
+          npm ci --no-audit --no-fund
 
-      - name: Upload final source snapshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: node-toolchain-final-source
-          path: |
-            finalization-source.tar.gz
-            finalization-manifest.txt
-          if-no-files-found: error
+      - name: Commit non-workflow source finalization
+        run: |
+          rm -rf .vinext dist .wrangler
+          git rm scripts/finalize-node-toolchain.mjs
+          git add .gitignore README.md package.json package-lock.json src
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: finalize Node npm source toolchain"
+          git push origin HEAD:phase/cf-01-runtime-foundation
