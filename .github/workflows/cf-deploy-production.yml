@@ -23,54 +23,55 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          bun-version: latest
+          node-version: "22"
 
-      - name: Install locked dependencies
-        run: bun install --frozen-lockfile
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
 
       - name: Generate Prisma client
-        run: bunx prisma generate
+        run: npm run db:generate
 
       - name: Regression tests
-        run: bun run test
+        run: npm test
 
       - name: Production TypeScript gate
-        run: bun run typecheck
+        run: npm run typecheck
 
       - name: Zero-warning ESLint gate
-        run: bun run lint:strict
+        run: npm run lint:strict
 
       - name: Check vinext compatibility
-        run: bunx vinext check
+        run: npm run cf:check
 
       - name: Build Cloudflare production bundle
-        run: bun run build
+        run: npm run build
 
       - name: Inject production D1 database ID
         env:
           D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
         run: |
           test -n "$D1_DATABASE_ID" || { echo "CLOUDFLARE_D1_DATABASE_ID is missing"; exit 1; }
-          bun -e '
+          node --input-type=module -e '
+            import { readFile, writeFile } from "node:fs/promises";
             const path = "wrangler.jsonc";
-            const config = JSON.parse(await Bun.file(path).text());
+            const config = JSON.parse(await readFile(path, "utf8"));
             const db = config.d1_databases?.find((entry) => entry.binding === "DB");
             if (!db) throw new Error("DB binding not found");
             db.database_id = process.env.D1_DATABASE_ID;
-            await Bun.write(path, JSON.stringify(config, null, 2) + "\n");
+            await writeFile(path, JSON.stringify(config, null, 2) + "\n", "utf8");
           '
 
       - name: Cloudflare deployment preflight
-        run: bun run cf:preflight
+        run: npm run cf:preflight
 
       - name: Apply D1 migrations
-        run: bun run db:migrate:remote
+        run: npm run db:migrate:remote
 
       - name: Deploy Worker
-        run: bun run deploy
+        run: npm run deploy
 
       - name: Production smoke test
         if: ${{ vars.BOARDOPS_PRODUCTION_URL != '' }}
