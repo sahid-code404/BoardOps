@@ -15,6 +15,7 @@ import { registerFormulaRoutes } from "./routes/formulas";
 import { registerFundsRoutes } from "./routes/funds";
 import { registerHolidayRoutes } from "./routes/holidays";
 import { registerInstitutionRoutes } from "./routes/institution";
+import { registerLeaveRoutes } from "./routes/leave";
 import { registerMealConfigurationRoutes } from "./routes/meals-config";
 import { registerMealPresetRoutes } from "./routes/meal-presets";
 import { registerNotificationRoutes } from "./routes/notifications";
@@ -89,6 +90,7 @@ export function createWorkerApp() {
   registerFundsRoutes(app);
   registerMealConfigurationRoutes(app);
   registerMealPresetRoutes(app);
+  registerLeaveRoutes(app);
   registerAdjustmentRoutes(app);
   registerFormulaRoutes(app);
   registerPaymentRoutes(app);
