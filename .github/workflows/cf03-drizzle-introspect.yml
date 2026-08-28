@@ -63,6 +63,11 @@ jobs:
           test -s .cf03-drizzle/schema.ts
           test -s .cf03-drizzle/relations.ts
           node scripts/cf03-normalize-drizzle-schema.mjs .cf03-drizzle/schema.ts
+          # SQLite table rebuilds change sqlite_master catalog order. Declaration order is
+          # semantically irrelevant, so compare generated artifacts in the committed order
+          # while retaining every generated declaration for the subsequent drift check.
+          node scripts/cf03-normalize-drizzle-order.mjs .cf03-drizzle/schema.ts worker/db/schema.ts
+          node scripts/cf03-normalize-drizzle-order.mjs .cf03-drizzle/relations.ts worker/db/relations.ts
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from "node:fs/promises";
           for (const path of [".cf03-drizzle/schema.ts", ".cf03-drizzle/relations.ts"]) {
@@ -116,4 +121,5 @@ jobs:
           name: cf03-drizzle-drift-${{ github.sha }}
           path: .cf03-drift-diagnostics/
           if-no-files-found: warn
+          include-hidden-files: true
           retention-days: 7
