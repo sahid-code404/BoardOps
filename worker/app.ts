@@ -30,6 +30,7 @@ import { registerPaymentRoutes } from "./routes/payments";
 import { registerProductRoutes } from "./routes/products";
 import { registerRegistrationRoutes } from "./routes/registration";
 import { registerRefundRoutes } from "./routes/refunds";
+import { registerRestrictionRoutes } from "./routes/restrictions";
 import { registerResubmissionRoutes } from "./routes/resubmission";
 import { registerSettingRoutes } from "./routes/settings";
 import { registerTwoFactorRoutes } from "./routes/two-factor";
@@ -101,6 +102,7 @@ export function createWorkerApp() {
   registerLeaveRoutes(app);
   registerKitchenRoutes(app);
   registerKitchenGuestRoutes(app);
+  registerRestrictionRoutes(app);
   registerAdjustmentRoutes(app);
   registerFormulaRoutes(app);
   registerPaymentRoutes(app);
