@@ -15,11 +15,27 @@ import { z } from "zod";
 import { logAudit } from "../auth/audit";
 import { databaseDateToIso, getAuthUser } from "../auth/session";
 import { createDatabase } from "../db/client";
-import { Notification, Payment, User } from "../db/schema";
+import {
+  Bill,
+  BillingCycle,
+  LedgerEntry,
+  Notification,
+  Payment,
+  Restriction,
+  User,
+  Variable,
+} from "../db/schema";
 import type { ApiFailure, ApiSuccess } from "../http";
+import { createNotification } from "../notifications";
+import {
+  getEffectiveBillingPeriod,
+  getPaymentLedgerIntent,
+  resolvePaymentTarget,
+  type PaymentTargetStatus,
+} from "../payment-state";
 import type { BoardOpsEnv } from "../types";
 
-type PaymentErrorStatus = 400 | 401;
+type PaymentErrorStatus = 400 | 401 | 403 | 404 | 422;
 
 const createSchema = z.object({
   amount: z.number().positive(),
@@ -95,6 +111,222 @@ async function purgeExpiredPayments(c: Context<BoardOpsEnv>): Promise<void> {
   } catch (error) {
     console.error("Failed to purge expired payments", error);
   }
+}
+
+async function requirePaymentAdmin(c: Context<BoardOpsEnv>) {
+  const user = await getAuthUser(c);
+  if (!user || user.status !== "ACTIVE") {
+    return { user: null, response: failure(c, "Not authenticated", 401) } as const;
+  }
+  if (user.role !== "ADMIN") {
+    return { user: null, response: failure(c, "Forbidden", 403) } as const;
+  }
+  return { user, response: null } as const;
+}
+
+async function getApprovalPeriod(c: Context<BoardOpsEnv>) {
+  const now = new Date();
+  const currentMonth = now.getUTCMonth();
+  const currentYear = now.getUTCFullYear();
+  const db = createDatabase(c.env.DB);
+  const [cycle] = await db
+    .select({ status: BillingCycle.status })
+    .from(BillingCycle)
+    .where(
+      and(
+        eq(BillingCycle.periodMonth, currentMonth),
+        eq(BillingCycle.periodYear, currentYear),
+      ),
+    )
+    .limit(1);
+
+  return getEffectiveBillingPeriod(now, cycle?.status);
+}
+
+function createLedgerTransitionStatement(
+  c: Context<BoardOpsEnv>,
+  payment: typeof Payment.$inferSelect,
+  targetStatus: PaymentTargetStatus,
+  period: { month: number; year: number } | null,
+  now: string,
+) {
+  const intent = getPaymentLedgerIntent(targetStatus, payment.amount, payment.method);
+  const transitionCondition = targetStatus === "APPROVED"
+    ? `p."status" <> 'APPROVED'`
+    : `p."status" = 'APPROVED'`;
+
+  return c.env.DB.prepare(`
+    INSERT INTO "LedgerEntry" (
+      "id", "userId", "type", "amount", "runningBalance", "entityType", "entityId",
+      "description", "billingMonth", "billingYear", "createdAt"
+    )
+    SELECT
+      ?1,
+      p."userId",
+      ?2,
+      ?3,
+      COALESCE((
+        SELECT le."runningBalance"
+        FROM "LedgerEntry" le
+        WHERE le."userId" = p."userId"
+        ORDER BY le."createdAt" DESC, le.rowid DESC
+        LIMIT 1
+      ), 0) + ?3,
+      'Payment',
+      p."id",
+      ?4,
+      ?5,
+      ?6,
+      ?7
+    FROM "Payment" p
+    WHERE p."id" = ?8
+      AND p."deletedAt" IS NULL
+      AND ${transitionCondition}
+  `).bind(
+    crypto.randomUUID(),
+    intent.type,
+    intent.amount,
+    intent.description,
+    period?.month ?? null,
+    period?.year ?? null,
+    now,
+    payment.id,
+  );
+}
+
+function createPaymentStatusStatement(
+  c: Context<BoardOpsEnv>,
+  paymentId: string,
+  adminId: string,
+  targetStatus: PaymentTargetStatus,
+  period: { month: number; year: number } | null,
+  now: string,
+) {
+  if (targetStatus === "APPROVED" && period) {
+    return c.env.DB.prepare(`
+      UPDATE "Payment"
+      SET "status" = 'APPROVED',
+          "approvedBy" = ?1,
+          "effectiveMonth" = ?2,
+          "effectiveYear" = ?3,
+          "updatedAt" = ?4
+      WHERE "id" = ?5
+        AND "deletedAt" IS NULL
+        AND "status" <> 'APPROVED'
+    `).bind(adminId, period.month, period.year, now, paymentId);
+  }
+
+  return c.env.DB.prepare(`
+    UPDATE "Payment"
+    SET "status" = 'REJECTED',
+        "approvedBy" = ?1,
+        "updatedAt" = ?2
+    WHERE "id" = ?3
+      AND "deletedAt" IS NULL
+      AND "status" <> 'REJECTED'
+  `).bind(adminId, now, paymentId);
+}
+
+function createBillRecomputeStatement(
+  c: Context<BoardOpsEnv>,
+  billId: string,
+  now: string,
+) {
+  return c.env.DB.prepare(`
+    WITH payment_totals AS (
+      SELECT MAX(
+        0,
+        COALESCE(SUM(
+          CASE
+            WHEN "status" = 'APPROVED' THEN "amount"
+            WHEN "status" = 'REFUNDED' THEN -"amount"
+            ELSE 0
+          END
+        ), 0)
+      ) AS paid
+      FROM "Payment"
+      WHERE "billId" = ?1
+        AND "deletedAt" IS NULL
+        AND "status" IN ('APPROVED', 'REFUNDED')
+    )
+    UPDATE "Bill"
+    SET "paidAmount" = (SELECT paid FROM payment_totals),
+        "dueAmount" = MAX(0, "totalAmount" - (SELECT paid FROM payment_totals)),
+        "status" = CASE
+          WHEN "status" IN ('VOID', 'DELETED') THEN "status"
+          WHEN "totalAmount" > 0 AND (SELECT paid FROM payment_totals) >= "totalAmount" THEN 'PAID'
+          WHEN (SELECT paid FROM payment_totals) > 0 THEN 'PARTIALLY_PAID'
+          ELSE 'GENERATED'
+        END,
+        "updatedAt" = ?2
+    WHERE "id" = ?1
+  `).bind(billId, now);
+}
+
+async function maybeLiftFinancialRestriction(
+  c: Context<BoardOpsEnv>,
+  userId: string,
+): Promise<boolean> {
+  const db = createDatabase(c.env.DB);
+  const [enabledVar] = await db
+    .select({ value: Variable.value })
+    .from(Variable)
+    .where(eq(Variable.key, "policy.lowBalance.enabled"))
+    .limit(1);
+  if (enabledVar?.value === "false") return false;
+
+  const [requiredVar] = await db
+    .select({ value: Variable.value })
+    .from(Variable)
+    .where(eq(Variable.key, "policy.lowBalance.requiredBalance"))
+    .limit(1);
+  const parsedRequired = requiredVar ? Number.parseFloat(requiredVar.value) : Number.NaN;
+  const requiredBalance = Number.isFinite(parsedRequired) && parsedRequired !== 0
+    ? parsedRequired
+    : 1000;
+
+  const [lastLedger] = await db
+    .select({ runningBalance: LedgerEntry.runningBalance })
+    .from(LedgerEntry)
+    .where(eq(LedgerEntry.userId, userId))
+    .orderBy(desc(LedgerEntry.createdAt))
+    .limit(1);
+  const availableBalance = Math.max(0, lastLedger?.runningBalance ?? 0);
+  if (availableBalance < requiredBalance) return false;
+
+  const restrictions = await db
+    .select()
+    .from(Restriction)
+    .where(
+      and(
+        eq(Restriction.userId, userId),
+        eq(Restriction.type, "FINANCIAL"),
+        eq(Restriction.status, "ACTIVE"),
+      ),
+    )
+    .orderBy(desc(Restriction.appliedAt));
+
+  const hasExemption = restrictions.some(
+    (restriction) =>
+      restriction.source === "MANUAL" && restriction.reason.includes("EXEMPTION"),
+  );
+  if (hasExemption) return false;
+
+  const automatic = restrictions.find((restriction) => restriction.source === "AUTOMATIC");
+  if (!automatic) return false;
+
+  const now = new Date().toISOString();
+  await db
+    .update(Restriction)
+    .set({
+      status: "LIFTED",
+      liftedAt: now,
+      liftReason: `Balance restored to ₹${Math.round(availableBalance)} (≥ required ₹${requiredBalance}).`,
+      updatedAt: now,
+    })
+    .where(and(eq(Restriction.id, automatic.id), eq(Restriction.status, "ACTIVE")));
+
+  return true;
 }
 
 export function registerPaymentRoutes(app: Hono<BoardOpsEnv>): void {
@@ -221,5 +453,111 @@ export function registerPaymentRoutes(app: Hono<BoardOpsEnv>): void {
       { success: true, data: response, requestId: c.get("requestId") },
       201,
     );
+  });
+
+  app.patch("/api/payments/:id", async (c) => {
+    const access = await requirePaymentAdmin(c);
+    if (access.response) return access.response;
+    const admin = access.user!;
+
+    const id = c.req.param("id");
+    const body = (await c.req.json().catch(() => ({}))) as { action?: unknown };
+    const targetStatus = resolvePaymentTarget(body.action);
+    const db = createDatabase(c.env.DB);
+    const [existing] = await db.select().from(Payment).where(eq(Payment.id, id)).limit(1);
+    if (!existing) return failure(c, "Payment not found", 404);
+    if (existing.deletedAt) return failure(c, "Payment is scheduled for deletion", 422);
+    if (existing.status === targetStatus) {
+      return c.json<ApiSuccess<ReturnType<typeof serializePayment>>>({
+        success: true,
+        data: serializePayment(existing),
+        requestId: c.get("requestId"),
+      });
+    }
+
+    if (targetStatus === "APPROVED" && existing.billId) {
+      const [bill] = await db
+        .select({ status: Bill.status, deletedAt: Bill.deletedAt })
+        .from(Bill)
+        .where(eq(Bill.id, existing.billId))
+        .limit(1);
+      if (!bill || bill.status === "VOID" || bill.status === "DELETED" || bill.deletedAt) {
+        return failure(c, "Cannot approve payment for a voided or deleted bill", 422);
+      }
+    }
+
+    const period = targetStatus === "APPROVED" ? await getApprovalPeriod(c) : null;
+    const now = new Date().toISOString();
+    const statements = [
+      createLedgerTransitionStatement(c, existing, targetStatus, period, now),
+      createPaymentStatusStatement(c, id, admin.id, targetStatus, period, now),
+    ];
+    if (existing.billId) {
+      statements.push(createBillRecomputeStatement(c, existing.billId, now));
+    }
+
+    const results = await c.env.DB.batch(statements);
+    const paymentUpdateChanges = Number(results[1]?.meta?.changes ?? 0);
+    const [updated] = await db.select().from(Payment).where(eq(Payment.id, id)).limit(1);
+    if (!updated) return failure(c, "Payment not found", 404);
+
+    if (paymentUpdateChanges === 0) {
+      return c.json<ApiSuccess<ReturnType<typeof serializePayment>>>({
+        success: true,
+        data: serializePayment(updated),
+        requestId: c.get("requestId"),
+      });
+    }
+
+    let restrictionLifted = false;
+    if (targetStatus === "APPROVED") {
+      restrictionLifted = await maybeLiftFinancialRestriction(c, existing.userId);
+      if (restrictionLifted) {
+        await createNotification(c, {
+          userId: existing.userId,
+          title: "Meal restriction lifted",
+          description:
+            "Your available balance has been restored. Meal booking is now enabled. Please review and re-book any future meals that were turned off.",
+          type: "SUCCESS",
+          priority: "HIGH",
+          route: "user-meals",
+        });
+      }
+    }
+
+    const monthNames = [
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    await createNotification(c, {
+      userId: existing.userId,
+      title: `Payment ${targetStatus.toLowerCase()}`,
+      description: targetStatus === "APPROVED"
+        ? `Your payment of ₹${existing.amount} via ${existing.method} has been approved. ${period ? `Effective billing cycle: ${monthNames[period.month]} ${period.year}.` : ""}`
+        : `Your payment of ₹${existing.amount} via ${existing.method} has been rejected.`,
+      type: targetStatus === "APPROVED" ? "SUCCESS" : "WARNING",
+      priority: "HIGH",
+      route: "billing",
+    });
+
+    await logAudit(c, {
+      actorId: admin.id,
+      action: `PAYMENT_${targetStatus}`,
+      entity: "Payment",
+      entityId: id,
+      oldValue: serializePayment(existing),
+      newValue: {
+        ...serializePayment(updated),
+        effectiveMonth: period?.month ?? updated.effectiveMonth,
+        effectiveYear: period?.year ?? updated.effectiveYear,
+        restrictionLifted,
+      },
+    });
+
+    return c.json<ApiSuccess<ReturnType<typeof serializePayment>>>({
+      success: true,
+      data: serializePayment(updated),
+      requestId: c.get("requestId"),
+    });
   });
 }
