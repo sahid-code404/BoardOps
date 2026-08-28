@@ -1,37 +1,38 @@
-import { eq, like } from "drizzle-orm";
+export type ReferenceNumberType = "bill" | "refund" | "adjustment";
 
-import { createDatabase } from "./db/client";
-import { Adjustment, Refund, Variable } from "./db/schema";
-
-type NativeDatabase = ReturnType<typeof createDatabase>;
-
-type ReferenceKind = "adjustment" | "refund";
-
-const DEFAULTS: Record<ReferenceKind, { prefix: string; format: string; variable: string }> = {
-  adjustment: {
-    prefix: "ADJ",
-    format: "ADJ-{YEAR}-{SEQ}",
-    variable: "system.adjustmentNumberFormat",
-  },
-  refund: {
-    prefix: "REF",
-    format: "REF-{YEAR}-{SEQ}",
-    variable: "system.refundNumberFormat",
-  },
+const DEFAULTS: Record<ReferenceNumberType, { prefix: string; format: string }> = {
+  bill: { prefix: "BILL", format: "BILL-{YEAR}-{SEQ}" },
+  refund: { prefix: "REF", format: "REF-{YEAR}-{SEQ}" },
+  adjustment: { prefix: "ADJ", format: "ADJ-{YEAR}-{SEQ}" },
 };
 
 function pad(value: number, width: number): string {
   return String(value).padStart(width, "0");
 }
 
-function formatReferenceNumber(
-  kind: ReferenceKind,
+export function getReferencePrefix(type: ReferenceNumberType): string {
+  return DEFAULTS[type].prefix;
+}
+
+export function getDefaultReferenceFormat(type: ReferenceNumberType): string {
+  return DEFAULTS[type].format;
+}
+
+export function formatReferenceNumber(
+  type: ReferenceNumberType,
   sequence: number,
-  date: Date,
-  customFormat?: string,
+  date: Date = new Date(),
+  customFormat?: string | null,
 ): string {
-  const config = DEFAULTS[kind];
-  const format = customFormat || config.format;
+  if (!Number.isInteger(sequence) || sequence < 1) {
+    throw new Error("Reference sequence must be a positive integer");
+  }
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("Reference date must be valid");
+  }
+
+  const config = DEFAULTS[type];
+  const format = customFormat?.trim() || config.format;
   const year = date.getUTCFullYear();
   const month = date.getUTCMonth() + 1;
 
@@ -44,55 +45,29 @@ function formatReferenceNumber(
     .replace(/{SEQ}/g, pad(sequence, 5));
 }
 
-async function getFormatVariable(db: NativeDatabase, key: string) {
-  const [row] = await db
-    .select({ value: Variable.value })
-    .from(Variable)
-    .where(eq(Variable.key, key))
-    .limit(1);
-  return row?.value || undefined;
-}
-
-export async function generateAdjustmentNumber(
-  db: NativeDatabase,
+export function getNextReferenceSequence(
+  references: Iterable<string | null | undefined>,
+  type: ReferenceNumberType,
   date: Date = new Date(),
-): Promise<string> {
-  const year = date.getUTCFullYear();
-  const config = DEFAULTS.adjustment;
-  const customFormat = await getFormatVariable(db, config.variable);
-  const existing = await db
-    .select({ value: Adjustment.adjustmentNumber })
-    .from(Adjustment)
-    .where(like(Adjustment.adjustmentNumber, `${config.prefix}-${year}-%`));
-
-  let maxSequence = 0;
-  for (const row of existing) {
-    if (!row.value) continue;
-    const sequence = Number.parseInt(row.value.split("-").at(-1) ?? "", 10);
-    if (Number.isFinite(sequence) && sequence > maxSequence) maxSequence = sequence;
+): number {
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("Reference date must be valid");
   }
 
-  return formatReferenceNumber("adjustment", maxSequence + 1, date, customFormat);
-}
-
-export async function generateRefundNumber(
-  db: NativeDatabase,
-  date: Date = new Date(),
-): Promise<string> {
+  const prefix = DEFAULTS[type].prefix;
   const year = date.getUTCFullYear();
-  const config = DEFAULTS.refund;
-  const customFormat = await getFormatVariable(db, config.variable);
-  const existing = await db
-    .select({ value: Refund.refundNumber })
-    .from(Refund)
-    .where(like(Refund.refundNumber, `${config.prefix}-${year}-%`));
-
+  const expectedStart = `${prefix}-${year}-`;
   let maxSequence = 0;
-  for (const row of existing) {
-    if (!row.value) continue;
-    const sequence = Number.parseInt(row.value.split("-").at(-1) ?? "", 10);
-    if (Number.isFinite(sequence) && sequence > maxSequence) maxSequence = sequence;
+
+  for (const reference of references) {
+    if (!reference?.startsWith(expectedStart)) continue;
+    const suffix = reference.slice(reference.lastIndexOf("-") + 1);
+    if (!/^\d+$/.test(suffix)) continue;
+    const sequence = Number.parseInt(suffix, 10);
+    if (Number.isSafeInteger(sequence) && sequence > maxSequence) {
+      maxSequence = sequence;
+    }
   }
 
-  return formatReferenceNumber("refund", maxSequence + 1, date, customFormat);
+  return maxSequence + 1;
 }
