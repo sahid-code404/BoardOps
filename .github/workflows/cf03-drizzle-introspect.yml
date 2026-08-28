@@ -1,0 +1,94 @@
+name: CF03 Drizzle schema introspection
+
+on:
+  push:
+    branches:
+      - phase/cf-03-native-stack
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cf03-drizzle-introspection
+  cancel-in-progress: true
+
+jobs:
+  introspect:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Prepare SQLite schema database
+        run: |
+          command -v sqlite3 >/dev/null || { sudo apt-get update && sudo apt-get install -y sqlite3; }
+          rm -f .cf03-introspect.sqlite
+          sqlite3 .cf03-introspect.sqlite < migrations/0001_initial.sql
+          sqlite3 .cf03-introspect.sqlite "SELECT COUNT(*) AS table_count FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"
+
+      - name: Install introspection-only SQLite driver
+        run: npm install --no-save --no-package-lock better-sqlite3@^12.2.0 --no-audit --no-fund
+
+      - name: Generate Drizzle schema from authoritative SQL
+        run: |
+          cat > drizzle.cf03.introspect.config.ts <<'CONFIG'
+          import { defineConfig } from "drizzle-kit";
+
+          export default defineConfig({
+            dialect: "sqlite",
+            out: "./.cf03-drizzle",
+            dbCredentials: {
+              url: "./.cf03-introspect.sqlite",
+            },
+            introspect: {
+              casing: "preserve",
+            },
+          });
+          CONFIG
+          rm -rf .cf03-drizzle
+          npx --no-install drizzle-kit pull --config=drizzle.cf03.introspect.config.ts
+          test -s .cf03-drizzle/schema.ts
+          cp .cf03-drizzle/schema.ts worker/db/schema.ts
+          if test -s .cf03-drizzle/relations.ts; then
+            cp .cf03-drizzle/relations.ts worker/db/relations.ts
+          fi
+
+      - name: Verify schema coverage
+        run: |
+          expected=$(sqlite3 .cf03-introspect.sqlite "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+          generated=$(grep -c 'sqliteTable(' worker/db/schema.ts)
+          echo "Expected tables: $expected"
+          echo "Generated tables: $generated"
+          test "$expected" -eq "$generated"
+          grep -q '"User"' worker/db/schema.ts
+          grep -q '"Bill"' worker/db/schema.ts
+          grep -q '"MealConfiguration"' worker/db/schema.ts
+          grep -q '"Setting"' worker/db/schema.ts
+
+      - name: Commit authoritative Drizzle mapping
+        run: |
+          git add worker/db/schema.ts
+          test ! -f worker/db/relations.ts || git add worker/db/relations.ts
+          if git diff --cached --quiet; then
+            echo "Drizzle schema is already current."
+            exit 0
+          fi
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "cf03: map D1 schema with Drizzle"
+          git push origin HEAD:phase/cf-03-native-stack
