@@ -1,0 +1,56 @@
+name: CF03 native stack bootstrap
+
+on:
+  push:
+    branches:
+      - phase/cf-03-native-stack
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cf03-native-bootstrap
+  cancel-in-progress: true
+
+jobs:
+  bootstrap:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Resolve native dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Commit deterministic npm lockfile
+        run: |
+          if ! git diff --quiet -- package-lock.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package-lock.json
+            git commit -m "chore: lock CF03 native dependencies"
+            git push origin HEAD:phase/cf-03-native-stack
+          fi
+
+      - name: Native dependency audit
+        run: |
+          echo "Next imports in application source:"
+          grep -RInE "from ['\"]next(/|['\"])|require\(['\"]next" src --include='*.ts' --include='*.tsx' || true
+          echo "Prisma imports in application source:"
+          grep -RInE "@prisma/client|@prisma/adapter-d1|@/lib/db" src --include='*.ts' --include='*.tsx' || true
+
+      - name: Native TypeScript gate
+        run: npm run native:typecheck
+
+      - name: Native Vite Worker build
+        run: npm run native:build
