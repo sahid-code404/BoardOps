@@ -30,6 +30,7 @@ import { registerMealToggleRoutes } from "./routes/meal-toggle";
 import { registerNotificationRoutes } from "./routes/notifications";
 import { registerPasswordRecoveryRoutes } from "./routes/password-recovery";
 import { registerPaymentEditRoutes } from "./routes/payment-edit";
+import { registerPaymentRefundRoutes } from "./routes/payment-refunds";
 import { registerPaymentRoutes } from "./routes/payments";
 import { registerProductRoutes } from "./routes/products";
 import { registerRegistrationRoutes } from "./routes/registration";
@@ -114,6 +115,7 @@ export function createWorkerApp() {
   registerBillLifecycleRoutes(app);
   registerBillMarkPaidRoutes(app);
   registerPaymentRoutes(app);
+  registerPaymentRefundRoutes(app);
   registerPaymentEditRoutes(app);
   registerRefundRoutes(app);
   registerExpenseRoutes(app);
