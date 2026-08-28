@@ -9,6 +9,7 @@ import { registerAnnouncementRoutes } from "./routes/announcements";
 import { registerAuditLogRoutes } from "./routes/audit-logs";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerAvatarRoutes } from "./routes/avatar";
+import { registerHolidayRoutes } from "./routes/holidays";
 import { registerNotificationRoutes } from "./routes/notifications";
 import { registerPasswordRecoveryRoutes } from "./routes/password-recovery";
 import { registerRegistrationRoutes } from "./routes/registration";
@@ -65,6 +66,7 @@ export function createWorkerApp() {
   registerNotificationRoutes(app);
   registerAnnouncementRoutes(app);
   registerAuditLogRoutes(app);
+  registerHolidayRoutes(app);
 
   app.notFound((c) =>
     c.json<ApiFailure>(
