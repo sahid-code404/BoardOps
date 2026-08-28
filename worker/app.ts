@@ -7,6 +7,7 @@ import type { ApiFailure, ApiSuccess } from "./http";
 import { registerAccountRoutes } from "./routes/account";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerAvatarRoutes } from "./routes/avatar";
+import { registerNotificationRoutes } from "./routes/notifications";
 import { registerPasswordRecoveryRoutes } from "./routes/password-recovery";
 import { registerRegistrationRoutes } from "./routes/registration";
 import { registerResubmissionRoutes } from "./routes/resubmission";
@@ -59,6 +60,7 @@ export function createWorkerApp() {
   registerResubmissionRoutes(app);
   registerAvatarRoutes(app);
   registerUploadRoutes(app);
+  registerNotificationRoutes(app);
 
   app.notFound((c) =>
     c.json<ApiFailure>(
