@@ -16,6 +16,7 @@ import { registerPasswordRecoveryRoutes } from "./routes/password-recovery";
 import { registerRegistrationRoutes } from "./routes/registration";
 import { registerResubmissionRoutes } from "./routes/resubmission";
 import { registerTwoFactorRoutes } from "./routes/two-factor";
+import { registerUnitRoutes } from "./routes/units";
 import { registerUploadRoutes } from "./routes/uploads";
 import { registerVariableRoutes } from "./routes/variables";
 import type { BoardOpsEnv } from "./types";
@@ -71,6 +72,7 @@ export function createWorkerApp() {
   registerHolidayRoutes(app);
   registerInstitutionRoutes(app);
   registerVariableRoutes(app);
+  registerUnitRoutes(app);
 
   app.notFound((c) =>
     c.json<ApiFailure>(
