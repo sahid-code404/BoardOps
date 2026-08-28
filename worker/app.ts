@@ -8,6 +8,7 @@ import { registerAccountRoutes } from "./routes/account";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerPasswordRecoveryRoutes } from "./routes/password-recovery";
 import { registerRegistrationRoutes } from "./routes/registration";
+import { registerResubmissionRoutes } from "./routes/resubmission";
 import { registerTwoFactorRoutes } from "./routes/two-factor";
 import type { BoardOpsEnv } from "./types";
 
@@ -53,6 +54,7 @@ export function createWorkerApp() {
   registerTwoFactorRoutes(app);
   registerRegistrationRoutes(app);
   registerPasswordRecoveryRoutes(app);
+  registerResubmissionRoutes(app);
 
   app.notFound((c) =>
     c.json<ApiFailure>(
