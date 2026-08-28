@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  actions: read
 
 concurrency:
   group: finalize-node-toolchain
@@ -81,17 +80,13 @@ jobs:
           await writeFile("README.md", readme, "utf8");
           NODE
 
-      - name: Restore validated npm lockfile
-        uses: actions/download-artifact@v5
-        with:
-          name: npm-lockfile
-          path: .
-          github-token: ${{ github.token }}
-          repository: sahid-code404/BoardOps
-          run-id: 33151744556
+      - name: Resolve npm peer tree and generate lockfile
+        run: npm install --save-dev ajv@^8.20.0 --no-audit --no-fund
 
-      - name: Install from npm lockfile
-        run: npm ci --no-audit --no-fund
+      - name: Prove deterministic npm clean install
+        run: |
+          rm -rf node_modules
+          npm ci --no-audit --no-fund
 
       - name: Remove one-time migration helpers
         run: git rm scripts/finalize-node-toolchain.mjs .github/workflows/finalize-node-toolchain.yml
