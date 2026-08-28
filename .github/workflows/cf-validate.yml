@@ -21,38 +21,45 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          bun-version: latest
+          node-version: "22"
 
-      - name: Install locked dependencies
-        run: bun install --frozen-lockfile
+      - name: Install dependencies and generate npm lockfile
+        run: npm install --no-audit --no-fund
+
+      - name: Upload generated npm lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-lockfile
+          path: package-lock.json
+          if-no-files-found: error
 
       - name: Generate Prisma client
-        run: bunx prisma generate
+        run: npm run db:generate
 
       - name: Apply D1 migrations locally
-        run: bun run db:migrate:local
+        run: npm run db:migrate:local
 
       - name: D1 schema smoke test
         run: |
-          bunx wrangler d1 execute boardops --local --command 'SELECT COUNT(*) AS users FROM "User";'
-          bunx wrangler d1 execute boardops --local --command 'SELECT COUNT(*) AS settings FROM "Setting";'
-          bunx wrangler d1 execute boardops --local --command 'SELECT COUNT(*) AS meals FROM "MealConfiguration";'
-          bunx wrangler d1 execute boardops --local --command 'SELECT COUNT(*) AS bills FROM "Bill";'
+          npm exec -- wrangler d1 execute boardops --local --command 'SELECT COUNT(*) AS users FROM "User";'
+          npm exec -- wrangler d1 execute boardops --local --command 'SELECT COUNT(*) AS settings FROM "Setting";'
+          npm exec -- wrangler d1 execute boardops --local --command 'SELECT COUNT(*) AS meals FROM "MealConfiguration";'
+          npm exec -- wrangler d1 execute boardops --local --command 'SELECT COUNT(*) AS bills FROM "Bill";'
 
       - name: Regression tests
-        run: bun run test
+        run: npm test
 
       - name: Production TypeScript gate
-        run: bun run typecheck
+        run: npm run typecheck
 
       - name: Zero-warning ESLint gate
-        run: bun run lint:strict
+        run: npm run lint:strict
 
       - name: Check vinext compatibility
-        run: bunx vinext check
+        run: npm run cf:check
 
       - name: Build Cloudflare production bundle
-        run: bun run build
+        run: npm run build
