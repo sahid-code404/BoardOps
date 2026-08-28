@@ -335,4 +335,63 @@ export function registerExpenseRoutes(app: Hono<BoardOpsEnv>): void {
       requestId: c.get("requestId"),
     });
   });
+
+  app.post("/api/expenses/:id/restore", async (c) => {
+    const access = await requireAdmin(c);
+    if (access.response) return access.response;
+    const admin = access.user!;
+
+    const id = c.req.param("id");
+    const db = createDatabase(c.env.DB);
+    const [existing] = await db.select().from(Expense).where(eq(Expense.id, id)).limit(1);
+    if (!existing) return failure(c, "Expense not found", 404);
+    if (!existing.deletedAt) {
+      return failure(c, "This expense is not in the deletion queue", 422);
+    }
+
+    const now = new Date().toISOString();
+    const result = await db
+      .update(Expense)
+      .set({
+        deletedAt: null,
+        deletedBy: null,
+        deletionReason: null,
+        status: "APPROVED",
+        updatedAt: now,
+      })
+      .where(and(eq(Expense.id, id), isNotNull(Expense.deletedAt)));
+
+    if (Number(result.meta?.changes ?? 0) === 0) {
+      const [fresh] = await db.select().from(Expense).where(eq(Expense.id, id)).limit(1);
+      if (!fresh) return failure(c, "Expense not found", 404);
+      return failure(c, "This expense is not in the deletion queue", 422);
+    }
+
+    const [restoredRow] = await db
+      .select({ expense: Expense, creatorName: User.name })
+      .from(Expense)
+      .leftJoin(User, eq(Expense.createdBy, User.id))
+      .where(eq(Expense.id, id))
+      .limit(1);
+    if (!restoredRow) return failure(c, "Expense not found", 404);
+    const response = {
+      ...serializeExpense(restoredRow.expense),
+      user: restoredRow.creatorName ? { name: restoredRow.creatorName } : null,
+    };
+
+    await logAudit(c, {
+      actorId: admin.id,
+      action: "EXPENSE_RESTORE",
+      entity: "Expense",
+      entityId: id,
+      oldValue: { status: "DELETED", deletedAt: databaseDateToIso(existing.deletedAt) },
+      newValue: { status: "APPROVED" },
+    });
+
+    return c.json<ApiSuccess<typeof response>>({
+      success: true,
+      data: response,
+      requestId: c.get("requestId"),
+    });
+  });
 }
