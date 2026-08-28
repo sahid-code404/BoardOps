@@ -575,7 +575,7 @@ export const LedgerEntry = sqliteTable("LedgerEntry", {
 	amount: real().notNull(),
 	runningBalance: real().notNull(),
 	entityType: text().notNull(),
-	entityId: text().references(() => Payment.id, { onDelete: "set null", onUpdate: "cascade" } ),
+	entityId: text(),
 	description: text().notNull(),
 	billingMonth: integer(),
 	billingYear: integer(),

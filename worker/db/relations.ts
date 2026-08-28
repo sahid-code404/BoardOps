@@ -193,7 +193,7 @@ export const BillRelations = relations(Bill, ({one, many}) => ({
 	Refunds: many(Refund),
 }));
 
-export const PaymentRelations = relations(Payment, ({one, many}) => ({
+export const PaymentRelations = relations(Payment, ({one}) => ({
 	Bill: one(Bill, {
 		fields: [Payment.billId],
 		references: [Bill.id]
@@ -202,7 +202,6 @@ export const PaymentRelations = relations(Payment, ({one, many}) => ({
 		fields: [Payment.userId],
 		references: [User.id]
 	}),
-	LedgerEntries: many(LedgerEntry),
 }));
 
 export const ExpenseRelations = relations(Expense, ({one, many}) => ({
@@ -281,10 +280,6 @@ export const AdjustmentRelations = relations(Adjustment, ({one}) => ({
 }));
 
 export const LedgerEntryRelations = relations(LedgerEntry, ({one}) => ({
-	Payment: one(Payment, {
-		fields: [LedgerEntry.entityId],
-		references: [Payment.id]
-	}),
 	User: one(User, {
 		fields: [LedgerEntry.userId],
 		references: [User.id]
