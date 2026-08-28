@@ -74,10 +74,15 @@ jobs:
           echo "Expected tables: $expected"
           echo "Generated tables: $generated"
           test "$expected" -eq "$generated"
-          grep -q '"User"' worker/db/schema.ts
-          grep -q '"Bill"' worker/db/schema.ts
-          grep -q '"MealConfiguration"' worker/db/schema.ts
-          grep -q '"Setting"' worker/db/schema.ts
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          const schema = await readFile("worker/db/schema.ts", "utf8");
+          for (const table of ["User", "Bill", "MealConfiguration", "Setting"]) {
+            if (!schema.includes(`sqliteTable("${table}"`) && !schema.includes(`sqliteTable('${table}'`)) {
+              throw new Error(`Generated Drizzle schema is missing table ${table}`);
+            }
+          }
+          NODE
 
       - name: Commit authoritative Drizzle mapping
         run: |
