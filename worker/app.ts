@@ -5,6 +5,7 @@ import { secureHeaders } from "hono/secure-headers";
 import { createDatabase } from "./db/client";
 import type { ApiFailure, ApiSuccess } from "./http";
 import { registerAccountRoutes } from "./routes/account";
+import { registerAdjustmentRoutes } from "./routes/adjustments";
 import { registerAnnouncementRoutes } from "./routes/announcements";
 import { registerAuditLogRoutes } from "./routes/audit-logs";
 import { registerAuthRoutes } from "./routes/auth";
@@ -83,6 +84,7 @@ export function createWorkerApp() {
   registerFundsRoutes(app);
   registerMealConfigurationRoutes(app);
   registerMealPresetRoutes(app);
+  registerAdjustmentRoutes(app);
 
   app.notFound((c) =>
     c.json<ApiFailure>(
