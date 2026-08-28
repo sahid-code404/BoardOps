@@ -12,7 +12,7 @@ BoardOps runs on Cloudflare while preserving the existing product behavior and U
 - **Recovery:** Cloudflare-managed D1 backup/export/Time Travel.
 - **Production runtime:** Cloudflare `workerd`. There is no long-running Node application server.
 
-Node.js 22 and npm are used only for local development, build tooling, tests, and GitHub Actions. The project has no Bun runtime or Bun package-manager dependency.
+Node.js 22 and npm are the sole JavaScript toolchain for local development, build tooling, tests, and GitHub Actions. Production runs on Cloudflare workerd.
 
 ## Repository quality gates
 
@@ -37,7 +37,7 @@ Requirements:
 Install dependencies and generate Prisma types:
 
 ```bash
-npm install
+npm ci
 npm run db:generate
 ```
 
@@ -155,7 +155,7 @@ Optionally configure `BOARDOPS_PRODUCTION_URL` to enable the post-deployment `/a
 Manual validation/deployment sequence once real Cloudflare resources are provisioned:
 
 ```bash
-npm install
+npm ci
 npm run db:generate
 npm test
 npm run typecheck

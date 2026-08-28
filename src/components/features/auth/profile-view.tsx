@@ -457,6 +457,7 @@ export function ProfileView() {
 
       {/* Dialogs */}
       <EditProfileDialog
+        key={editOpen ? "edit-open" : "edit-closed"}
         open={editOpen}
         onOpenChange={setEditOpen}
         user={me}
@@ -475,6 +476,7 @@ export function ProfileView() {
         }}
       />
       <TwoFactorDialog
+        key={twoFactorOpen ? "2fa-open" : "2fa-closed"}
         open={twoFactorOpen}
         onOpenChange={setTwoFactorOpen}
         enabled={!!me.twoFactorEnabled}
@@ -706,20 +708,6 @@ function EditProfileDialog({
   });
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (open) {
-      setForm({
-        name: user.name,
-        phone: user.phone || "",
-        room: user.room || "",
-        gender: user.gender || "",
-        emergencyContact: user.emergencyContact || "",
-        theme: user.theme || "system",
-        language: user.language || "en",
-        timezone: user.timezone || "UTC",
-      });
-    }
-  }, [open, user]);
 
   const submit = async () => {
     if (form.name.trim().length < 2) {
@@ -1058,16 +1046,6 @@ function TwoFactorDialog({
   const [disablePassword, setDisablePassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (open) {
-      setStep("main");
-      setSecret("");
-      setQrCode("");
-      setCode("");
-      setBackupCodes([]);
-      setDisablePassword("");
-    }
-  }, [open]);
 
   const startSetup = async () => {
     setLoading(true);

@@ -859,13 +859,11 @@ function CalendarSkeleton({ mode }: { mode: ViewMode }) {
 export function CalendarView() {
   const isMobile = useIsMobile();
   const qc = useQueryClient();
-  const [mode, setMode] = React.useState<ViewMode>("agenda");
+  const [modeOverride, setModeOverride] = React.useState<ViewMode | null>(null);
   const [cursor, setCursor] = React.useState<Date>(new Date());
 
-  // Mobile defaults to agenda, desktop defaults to month
-  React.useEffect(() => {
-    setMode(isMobile ? "agenda" : "month");
-  }, [isMobile]);
+  // Follow the responsive default until the user explicitly chooses a view.
+  const mode: ViewMode = modeOverride ?? (isMobile ? "agenda" : "month");
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -994,7 +992,7 @@ export function CalendarView() {
         <div className="flex items-center justify-end">
           <GlassNav<ViewMode>
             value={mode}
-            onChange={setMode}
+            onChange={setModeOverride}
             items={[
               {
                 value: "agenda",

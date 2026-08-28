@@ -18,6 +18,7 @@ node_modules
 /out/
 
 # Cloudflare / vinext local and build state
+/.vinext/
 /.wrangler/
 /dist/
 .dev.vars*

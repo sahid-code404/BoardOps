@@ -52,7 +52,8 @@ const RADIUS_OPTIONS = [
 
 export function PersonalizationView() {
   const { theme, previewTheme, refresh } = useThemeConfig();
-  const [local, setLocal] = useState<ThemeConfig>(theme);
+  const [draft, setLocal] = useState<ThemeConfig | null>(null);
+  const local = draft ?? theme;
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -60,9 +61,6 @@ export function PersonalizationView() {
     refresh().finally(() => setLoading(false));
   }, [refresh]);
 
-  useEffect(() => {
-    setLocal(theme);
-  }, [theme]);
 
   const dirty = JSON.stringify(local) !== JSON.stringify(theme);
 
@@ -103,6 +101,7 @@ export function PersonalizationView() {
       await api.put("/theme", local);
       toast.success("Theme saved — applied to all users");
       await refresh();
+      setLocal(null);
     } catch (e: unknown) {
       toast.error((e as Error).message || "Failed to save theme");
     } finally {
@@ -128,6 +127,7 @@ export function PersonalizationView() {
       await api.put("/theme", defaults);
       toast.success("Theme reset to defaults");
       await refresh();
+      setLocal(null);
     } catch (e: unknown) {
       toast.error("Failed to reset theme");
     }
