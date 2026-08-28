@@ -17,6 +17,7 @@ import { registerRegistrationRoutes } from "./routes/registration";
 import { registerResubmissionRoutes } from "./routes/resubmission";
 import { registerTwoFactorRoutes } from "./routes/two-factor";
 import { registerUploadRoutes } from "./routes/uploads";
+import { registerVariableRoutes } from "./routes/variables";
 import type { BoardOpsEnv } from "./types";
 
 export function createWorkerApp() {
@@ -69,6 +70,7 @@ export function createWorkerApp() {
   registerAuditLogRoutes(app);
   registerHolidayRoutes(app);
   registerInstitutionRoutes(app);
+  registerVariableRoutes(app);
 
   app.notFound((c) =>
     c.json<ApiFailure>(
