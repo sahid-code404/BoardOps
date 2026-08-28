@@ -66,6 +66,17 @@ jobs:
           if test -s .cf03-drizzle/relations.ts; then
             cp .cf03-drizzle/relations.ts worker/db/relations.ts
           fi
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile } from "node:fs/promises";
+          for (const path of ["worker/db/schema.ts", "worker/db/relations.ts"]) {
+            try {
+              const content = await readFile(path, "utf8");
+              await writeFile(path, `${content.trimEnd()}\n`, "utf8");
+            } catch (error) {
+              if (error?.code !== "ENOENT") throw error;
+            }
+          }
+          NODE
 
       - name: Verify schema coverage
         run: |
