@@ -18,6 +18,7 @@ import { registerMealConfigurationRoutes } from "./routes/meals-config";
 import { registerMealPresetRoutes } from "./routes/meal-presets";
 import { registerNotificationRoutes } from "./routes/notifications";
 import { registerPasswordRecoveryRoutes } from "./routes/password-recovery";
+import { registerPaymentRoutes } from "./routes/payments";
 import { registerProductRoutes } from "./routes/products";
 import { registerRegistrationRoutes } from "./routes/registration";
 import { registerResubmissionRoutes } from "./routes/resubmission";
@@ -87,6 +88,7 @@ export function createWorkerApp() {
   registerMealPresetRoutes(app);
   registerAdjustmentRoutes(app);
   registerFormulaRoutes(app);
+  registerPaymentRoutes(app);
 
   app.notFound((c) =>
     c.json<ApiFailure>(
