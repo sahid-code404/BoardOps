@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { User, RegistrationRequest, UserSession, TrustedDevice, LoginHistory, Permission, RolePermission, Role, MealConfiguration, MealEntry, MealHistory, MealOverride, MealPresetItem, MealPreset, LeaveApplication, GuestMeal, FormulaVersion, Formula, BillingCycle, MonthlySnapshot, Bill, Payment, Expense, Unit, Product, Purchase, PurchaseItem, Refund, RefundTransaction, Adjustment, LedgerEntry, Restriction, Notification, Announcement, AuditLog, BackgroundTask, StaffRecord } from "./schema";
+import { User, RegistrationRequest, UserSession, TrustedDevice, LoginHistory, Permission, RolePermission, Role, MealConfiguration, MealEntry, MealHistory, MealOverride, MealPresetItem, MealPreset, LeaveApplication, GuestMeal, FormulaVersion, Formula, BillingCycle, MonthlySnapshot, Bill, Payment, Expense, Unit, Product, Purchase, PurchaseItem, Refund, RefundTransaction, Adjustment, Restriction, Notification, Announcement, AuditLog, BackgroundTask, StaffRecord, LedgerEntry } from "./schema";
 
 export const RegistrationRequestRelations = relations(RegistrationRequest, ({one}) => ({
 	User: one(User, {
@@ -29,13 +29,13 @@ export const UserRelations = relations(User, ({many}) => ({
 	Adjustments_userId: many(Adjustment, {
 		relationName: "Adjustment_userId_User_id"
 	}),
-	LedgerEntries: many(LedgerEntry),
 	Restrictions: many(Restriction),
 	Notifications: many(Notification),
 	Announcements: many(Announcement),
 	AuditLogs: many(AuditLog),
 	BackgroundTasks: many(BackgroundTask),
 	StaffRecords: many(StaffRecord),
+	LedgerEntries: many(LedgerEntry),
 }));
 
 export const UserSessionRelations = relations(UserSession, ({one}) => ({
