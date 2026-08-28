@@ -27,6 +27,18 @@ export function getEffectiveBillingPeriod(
   return { month: month + 1, year };
 }
 
+export function getLedgerTargetBalance(status: string, amount: number): number {
+  return status === "APPROVED" ? amount : 0;
+}
+
+export function getLedgerCorrection(
+  status: string,
+  amount: number,
+  currentPaymentLedgerNet: number,
+): number {
+  return getLedgerTargetBalance(status, amount) - currentPaymentLedgerNet;
+}
+
 export function getPaymentLedgerIntent(
   targetStatus: PaymentTargetStatus,
   amount: number,

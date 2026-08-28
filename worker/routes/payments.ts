@@ -29,6 +29,7 @@ import type { ApiFailure, ApiSuccess } from "../http";
 import { createNotification } from "../notifications";
 import {
   getEffectiveBillingPeriod,
+  getLedgerTargetBalance,
   getPaymentLedgerIntent,
   resolvePaymentTarget,
   type PaymentTargetStatus,
@@ -143,54 +144,65 @@ async function getApprovalPeriod(c: Context<BoardOpsEnv>) {
   return getEffectiveBillingPeriod(now, cycle?.status);
 }
 
-function createLedgerTransitionStatement(
+function createLedgerNormalizationStatement(
   c: Context<BoardOpsEnv>,
   payment: typeof Payment.$inferSelect,
-  targetStatus: PaymentTargetStatus,
+  targetStatus: string,
   period: { month: number; year: number } | null,
   now: string,
+  description?: string,
 ) {
-  const intent = getPaymentLedgerIntent(targetStatus, payment.amount, payment.method);
-  const transitionCondition = targetStatus === "APPROVED"
-    ? `p."status" <> 'APPROVED'`
-    : `p."status" = 'APPROVED'`;
+  const targetBalance = getLedgerTargetBalance(targetStatus, payment.amount);
+  const defaultDescription = targetStatus === "APPROVED"
+    ? getPaymentLedgerIntent("APPROVED", payment.amount, payment.method).description
+    : getPaymentLedgerIntent("REJECTED", payment.amount, payment.method).description;
 
   return c.env.DB.prepare(`
+    WITH current_state AS (
+      SELECT COALESCE(SUM(le."amount"), 0) AS net
+      FROM "LedgerEntry" le
+      WHERE le."entityType" = 'Payment'
+        AND le."entityId" = ?1
+    ),
+    correction AS (
+      SELECT ?2 - net AS amount
+      FROM current_state
+    )
     INSERT INTO "LedgerEntry" (
       "id", "userId", "type", "amount", "runningBalance", "entityType", "entityId",
       "description", "billingMonth", "billingYear", "createdAt"
     )
     SELECT
-      ?1,
-      p."userId",
-      ?2,
       ?3,
+      p."userId",
+      CASE WHEN ?4 = 1 AND correction.amount > 0 THEN 'DEPOSIT' ELSE 'ADJUSTMENT' END,
+      correction.amount,
       COALESCE((
         SELECT le."runningBalance"
         FROM "LedgerEntry" le
         WHERE le."userId" = p."userId"
         ORDER BY le."createdAt" DESC, le.rowid DESC
         LIMIT 1
-      ), 0) + ?3,
+      ), 0) + correction.amount,
       'Payment',
       p."id",
-      ?4,
       ?5,
       ?6,
-      ?7
+      ?7,
+      ?8
     FROM "Payment" p
-    WHERE p."id" = ?8
-      AND p."deletedAt" IS NULL
-      AND ${transitionCondition}
+    CROSS JOIN correction
+    WHERE p."id" = ?1
+      AND ABS(correction.amount) > 0.000001
   `).bind(
+    payment.id,
+    targetBalance,
     crypto.randomUUID(),
-    intent.type,
-    intent.amount,
-    intent.description,
+    targetStatus === "APPROVED" ? 1 : 0,
+    description ?? defaultDescription,
     period?.month ?? null,
     period?.year ?? null,
     now,
-    payment.id,
   );
 }
 
@@ -489,7 +501,7 @@ export function registerPaymentRoutes(app: Hono<BoardOpsEnv>): void {
     const period = targetStatus === "APPROVED" ? await getApprovalPeriod(c) : null;
     const now = new Date().toISOString();
     const statements = [
-      createLedgerTransitionStatement(c, existing, targetStatus, period, now),
+      createLedgerNormalizationStatement(c, existing, targetStatus, period, now),
       createPaymentStatusStatement(c, id, admin.id, targetStatus, period, now),
     ];
     if (existing.billId) {
@@ -557,6 +569,143 @@ export function registerPaymentRoutes(app: Hono<BoardOpsEnv>): void {
     return c.json<ApiSuccess<ReturnType<typeof serializePayment>>>({
       success: true,
       data: serializePayment(updated),
+      requestId: c.get("requestId"),
+    });
+  });
+
+  app.delete("/api/payments/:id", async (c) => {
+    const access = await requirePaymentAdmin(c);
+    if (access.response) return access.response;
+    const admin = access.user!;
+
+    const id = c.req.param("id");
+    const body = (await c.req.json().catch(() => ({}))) as { reason?: string };
+    const db = createDatabase(c.env.DB);
+    const [existing] = await db.select().from(Payment).where(eq(Payment.id, id)).limit(1);
+    if (!existing) return failure(c, "Payment not found", 404);
+    if (existing.deletedAt) {
+      return failure(c, "Payment is already scheduled for deletion", 422);
+    }
+
+    const nowDate = new Date();
+    const now = nowDate.toISOString();
+    const deletionDate = new Date(nowDate.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const statements = [
+      createLedgerNormalizationStatement(
+        c,
+        existing,
+        "DELETED",
+        null,
+        now,
+        `Payment scheduled for deletion: ledger normalized for ₹${Math.round(existing.amount).toLocaleString("en-IN")}`,
+      ),
+      c.env.DB.prepare(`
+        UPDATE "Payment"
+        SET "deletedAt" = ?1,
+            "deletedBy" = ?2,
+            "deletionReason" = ?3,
+            "status" = 'DELETED',
+            "updatedAt" = ?4
+        WHERE "id" = ?5
+          AND "deletedAt" IS NULL
+      `).bind(deletionDate, admin.id, body.reason ?? null, now, id),
+    ];
+    if (existing.billId) {
+      statements.push(createBillRecomputeStatement(c, existing.billId, now));
+    }
+
+    const results = await c.env.DB.batch(statements);
+    const updateChanges = Number(results[1]?.meta?.changes ?? 0);
+    if (updateChanges === 0) {
+      return failure(c, "Payment is already scheduled for deletion", 422);
+    }
+
+    await logAudit(c, {
+      actorId: admin.id,
+      action: "PAYMENT_SOFT_DELETE",
+      entity: "Payment",
+      entityId: id,
+      oldValue: serializePayment(existing),
+      newValue: { deletedAt: deletionDate, status: "DELETED", reason: body.reason },
+      reason: body.reason,
+    });
+
+    const response = { success: true as const, permanentDeletion: deletionDate };
+    return c.json<ApiSuccess<typeof response>>({
+      success: true,
+      data: response,
+      requestId: c.get("requestId"),
+    });
+  });
+
+  app.post("/api/payments/:id/restore", async (c) => {
+    const access = await requirePaymentAdmin(c);
+    if (access.response) return access.response;
+    const admin = access.user!;
+
+    const id = c.req.param("id");
+    const db = createDatabase(c.env.DB);
+    const [existing] = await db.select().from(Payment).where(eq(Payment.id, id)).limit(1);
+    if (!existing) return failure(c, "Payment not found", 404);
+    if (!existing.deletedAt) {
+      return failure(c, "This payment is not in the deletion queue", 422);
+    }
+
+    const now = new Date().toISOString();
+    const statements = [
+      createLedgerNormalizationStatement(
+        c,
+        existing,
+        "PENDING",
+        null,
+        now,
+        "Payment restored to pending: ledger normalized",
+      ),
+      c.env.DB.prepare(`
+        UPDATE "Payment"
+        SET "deletedAt" = NULL,
+            "deletedBy" = NULL,
+            "deletionReason" = NULL,
+            "status" = 'PENDING',
+            "updatedAt" = ?1
+        WHERE "id" = ?2
+          AND "deletedAt" IS NOT NULL
+      `).bind(now, id),
+    ];
+    if (existing.billId) {
+      statements.push(createBillRecomputeStatement(c, existing.billId, now));
+    }
+
+    const results = await c.env.DB.batch(statements);
+    const updateChanges = Number(results[1]?.meta?.changes ?? 0);
+    if (updateChanges === 0) {
+      return failure(c, "This payment is not in the deletion queue", 422);
+    }
+
+    const [restored] = await db.select().from(Payment).where(eq(Payment.id, id)).limit(1);
+    if (!restored) return failure(c, "Payment not found", 404);
+    const [resident] = await db
+      .select({ name: User.name, email: User.email, room: User.room, avatarUrl: User.avatarUrl })
+      .from(User)
+      .where(eq(User.id, restored.userId))
+      .limit(1);
+    const response = {
+      ...serializePayment(restored),
+      user: resident ?? null,
+    };
+
+    await logAudit(c, {
+      actorId: admin.id,
+      action: "PAYMENT_RESTORE",
+      entity: "Payment",
+      entityId: id,
+      oldValue: { status: "DELETED", deletedAt: databaseDateToIso(existing.deletedAt) },
+      newValue: { status: "PENDING" },
+    });
+
+    return c.json<ApiSuccess<typeof response>>({
+      success: true,
+      data: response,
       requestId: c.get("requestId"),
     });
   });

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   getEffectiveBillingPeriod,
+  getLedgerCorrection,
+  getLedgerTargetBalance,
   getPaymentLedgerIntent,
   resolvePaymentTarget,
 } from "../payment-state";
@@ -27,6 +29,22 @@ describe("payment state helpers", () => {
     expect(
       getEffectiveBillingPeriod(new Date("2026-12-15T13:00:00.000Z"), "CLOSED"),
     ).toEqual({ month: 0, year: 2027 });
+  });
+
+  it("keeps approved payments credited and every non-approved state neutral", () => {
+    expect(getLedgerTargetBalance("APPROVED", 1250)).toBe(1250);
+    expect(getLedgerTargetBalance("PENDING", 1250)).toBe(0);
+    expect(getLedgerTargetBalance("REJECTED", 1250)).toBe(0);
+    expect(getLedgerTargetBalance("VOID", 1250)).toBe(0);
+    expect(getLedgerTargetBalance("DELETED", 1250)).toBe(0);
+  });
+
+  it("computes self-healing ledger corrections", () => {
+    expect(getLedgerCorrection("APPROVED", 1250, 0)).toBe(1250);
+    expect(getLedgerCorrection("APPROVED", 1250, 1000)).toBe(250);
+    expect(getLedgerCorrection("REJECTED", 1250, 1250)).toBe(-1250);
+    expect(getLedgerCorrection("DELETED", 1250, 2500)).toBe(-2500);
+    expect(getLedgerCorrection("PENDING", 1250, -50)).toBe(50);
   });
 
   it("creates credit and reversal ledger intents", () => {
