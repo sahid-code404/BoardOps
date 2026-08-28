@@ -23,6 +23,7 @@ import { registerPaymentEditRoutes } from "./routes/payment-edit";
 import { registerPaymentRoutes } from "./routes/payments";
 import { registerProductRoutes } from "./routes/products";
 import { registerRegistrationRoutes } from "./routes/registration";
+import { registerRefundRoutes } from "./routes/refunds";
 import { registerResubmissionRoutes } from "./routes/resubmission";
 import { registerSettingRoutes } from "./routes/settings";
 import { registerTwoFactorRoutes } from "./routes/two-factor";
@@ -92,6 +93,7 @@ export function createWorkerApp() {
   registerFormulaRoutes(app);
   registerPaymentRoutes(app);
   registerPaymentEditRoutes(app);
+  registerRefundRoutes(app);
   registerExpenseRoutes(app);
 
   app.notFound((c) =>
