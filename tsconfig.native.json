@@ -21,14 +21,15 @@
     "types": ["vite/client", "@cloudflare/workers-types"]
   },
   "include": [
-    "src/**/*.ts",
-    "src/**/*.tsx",
+    "src/client/**/*.ts",
+    "src/client/**/*.tsx",
     "worker/**/*.ts",
     "worker/**/*.tsx",
     "vite.native.config.ts"
   ],
   "exclude": [
     "node_modules",
+    "src/app/api/**",
     ".next",
     ".vinext",
     "dist"
