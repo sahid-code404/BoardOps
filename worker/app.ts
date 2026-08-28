@@ -19,6 +19,7 @@ import { registerMealConfigurationRoutes } from "./routes/meals-config";
 import { registerMealPresetRoutes } from "./routes/meal-presets";
 import { registerNotificationRoutes } from "./routes/notifications";
 import { registerPasswordRecoveryRoutes } from "./routes/password-recovery";
+import { registerPaymentEditRoutes } from "./routes/payment-edit";
 import { registerPaymentRoutes } from "./routes/payments";
 import { registerProductRoutes } from "./routes/products";
 import { registerRegistrationRoutes } from "./routes/registration";
@@ -90,6 +91,7 @@ export function createWorkerApp() {
   registerAdjustmentRoutes(app);
   registerFormulaRoutes(app);
   registerPaymentRoutes(app);
+  registerPaymentEditRoutes(app);
   registerExpenseRoutes(app);
 
   app.notFound((c) =>
