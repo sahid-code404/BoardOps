@@ -20,6 +20,7 @@ import { registerKitchenRoutes } from "./routes/kitchen";
 import { registerLeaveRoutes } from "./routes/leave";
 import { registerMealConfigurationRoutes } from "./routes/meals-config";
 import { registerMealEntryRoutes } from "./routes/meal-entries";
+import { registerMealOverrideRoutes } from "./routes/meal-override";
 import { registerMealPresetRoutes } from "./routes/meal-presets";
 import { registerMealToggleRoutes } from "./routes/meal-toggle";
 import { registerNotificationRoutes } from "./routes/notifications";
@@ -96,6 +97,7 @@ export function createWorkerApp() {
   registerMealPresetRoutes(app);
   registerMealEntryRoutes(app);
   registerMealToggleRoutes(app);
+  registerMealOverrideRoutes(app);
   registerLeaveRoutes(app);
   registerKitchenRoutes(app);
   registerKitchenGuestRoutes(app);
