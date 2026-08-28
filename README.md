@@ -1,176 +1,179 @@
 # BoardOps — Cloudflare Edition
 
-BoardOps migrated to a Cloudflare-native production runtime while preserving the existing product behavior and UI.
+BoardOps runs on Cloudflare while preserving the existing product behavior and UI.
 
 ## Runtime architecture
 
-- **Application:** Next.js 16 + React 19, built for Cloudflare Workers through vinext/Vite.
-- **Relational data:** Cloudflare D1, accessed through Prisma with `@prisma/adapter-d1`.
-- **Uploads:** Cloudflare R2 through the `UPLOADS` binding. Avatar files are no longer written to a local server filesystem.
-- **Authentication throttling:** Cloudflare Workers Rate Limiting through the `AUTH_RATE_LIMITER` binding.
-- **Transactional email:** Cloudflare Email Workers through the `EMAIL` binding. Production email fails closed when `EMAIL_FROM` is not configured.
-- **Database backup:** Cloudflare-managed D1 backup/export/PITR. The application does not shell out to `sqlite3` or create local database snapshots.
+- **Application:** Next.js 16 + React 19, compiled for Cloudflare Workers through vinext/Vite.
+- **Relational data:** Cloudflare D1 through Prisma and `@prisma/adapter-d1`.
+- **Uploads:** Cloudflare R2 through the `UPLOADS` binding.
+- **Authentication throttling:** Cloudflare Workers Rate Limiting through `AUTH_RATE_LIMITER`.
+- **Transactional email:** Cloudflare Email through the `EMAIL` binding.
+- **Recovery:** Cloudflare-managed D1 backup/export/Time Travel.
+- **Production runtime:** Cloudflare `workerd`. There is no long-running Node application server.
 
-The application is designed for an ephemeral Worker filesystem. Runtime code must not depend on a long-running Node process, a local SQLite file, a writable `public/` directory, shell scripts, or process-local rate-limit counters.
+Node.js 22 and npm are used only for local development, build tooling, tests, and GitHub Actions. The project has no Bun runtime or Bun package-manager dependency.
 
-## Current repository gates
+## Repository quality gates
 
-Every push to `phase/cf-01-runtime-foundation` runs the permanent Cloudflare validation workflow. It must pass all of the following before the branch is considered deployable:
+Every push to `phase/cf-01-runtime-foundation` validates:
 
-1. locked Bun dependency installation;
+1. npm dependency installation;
 2. Prisma client generation;
-3. Bun regression tests;
-4. production TypeScript with zero errors;
-5. ESLint with zero warnings;
-6. vinext compatibility checking;
-7. the full Cloudflare production bundle build.
-
-`next.config.ts` does not suppress TypeScript build failures.
+3. local D1 migrations and schema smoke queries;
+4. Vitest regression tests;
+5. production TypeScript with zero errors;
+6. ESLint with zero warnings;
+7. vinext compatibility;
+8. the full Cloudflare production bundle.
 
 ## Local development
+
+Requirements:
+
+- Node.js 22
+- npm
 
 Install dependencies and generate Prisma types:
 
 ```bash
-bun install --frozen-lockfile
-bun run db:generate
+npm install
+npm run db:generate
 ```
 
-Run the vinext development server:
+Create the local D1 schema and a local administrator:
 
 ```bash
-bun run dev
+npm run db:bootstrap:local
 ```
 
-Run the production quality gates locally:
+The bootstrap command uses Wrangler `--local` only. It prints the generated local administrator credentials in your terminal and never writes them to the repository.
+
+Start development:
 
 ```bash
-bun run test
-bun run typecheck
-bun run lint:strict
-bun run cf:check
-bun run build
+npm run dev
+```
+
+Run the production-quality gates locally:
+
+```bash
+npm test
+npm run typecheck
+npm run lint:strict
+npm run cf:check
+npm run build
 ```
 
 Preview the generated Worker bundle locally:
 
 ```bash
-bun run preview
+npm run preview
 ```
 
-`bun run start` starts Wrangler against an already-generated `dist/server/wrangler.json`; run `bun run build` first.
+`npm run start` starts Wrangler against an already-generated `dist/server/wrangler.json`; run `npm run build` first.
 
 ## Cloudflare resource provisioning
 
-The repository intentionally does **not** contain real Cloudflare account credentials. Before the first remote deployment, provision the required account resources.
+The repository intentionally contains no real Cloudflare account credentials.
 
-### 1. D1
+### D1
 
 Create the production database:
 
 ```bash
-wrangler d1 create boardops
+npx wrangler d1 create boardops
 ```
 
-Cloudflare returns a database ID. For local/manual deployment you may replace the all-zero `database_id` in `wrangler.jsonc` with that real ID. The production GitHub workflow instead injects `CLOUDFLARE_D1_DATABASE_ID` into its checked-out copy at deployment time, so the repository can safely retain the placeholder.
+The checked-in `wrangler.jsonc` intentionally keeps a placeholder D1 ID. The production GitHub workflow injects `CLOUDFLARE_D1_DATABASE_ID` into its checkout at deployment time.
 
-Apply the checked-in D1 migration locally when testing:
+Local migration:
 
 ```bash
-bun run db:migrate:local
+npm run db:migrate:local
 ```
 
-Apply it to the real production D1 database only after the resource ID has been configured and the migration has been reviewed:
+Remote production migration, only after the production D1 resource is configured:
 
 ```bash
-bun run db:migrate:remote
+npm run db:migrate:remote
 ```
 
-### 2. R2
+### R2
 
-Create the upload bucket if it does not already exist:
+Create the upload bucket:
 
 ```bash
-wrangler r2 bucket create boardops-uploads
+npx wrangler r2 bucket create boardops-uploads
 ```
 
-The application expects the R2 binding name `UPLOADS` and bucket name `boardops-uploads`.
+The Worker expects the binding `UPLOADS`.
 
-### 3. Authentication rate limiting
+### Authentication rate limiting
 
-The Worker expects the binding `AUTH_RATE_LIMITER`. Its repository configuration currently limits authentication actions to five requests per 60-second period per action/IP key. Review that policy for the intended production traffic before launch.
+The Worker expects `AUTH_RATE_LIMITER`. Review the checked-in rate-limit policy before production launch.
 
-### 4. Transactional email
+### Transactional email
 
-Configure Cloudflare Email Routing/Email Workers for the production domain and ensure the sender address is valid for that Cloudflare account. The Worker binding name is `EMAIL`.
-
-Set the sender address as a Worker secret or environment variable named `EMAIL_FROM`, for example:
+Configure Cloudflare Email for the production domain and set a verified sender in `EMAIL_FROM`.
 
 ```bash
-wrangler secret put EMAIL_FROM
+npx wrangler secret put EMAIL_FROM
 ```
 
-Do not enable production login flows that require OTP/password-reset email until a real sender has been configured and verified end-to-end.
+Production authentication flows that require OTP/password-reset email fail closed if email is not configured.
 
 ## Existing-data cutover
 
-Creating the D1 schema is **not** the same as migrating existing production data. If an existing BoardOps installation contains live data, use a controlled cutover:
+Creating D1 tables is not the same as migrating existing live data. For a production cutover:
 
 1. take and verify a source backup/export;
 2. rehearse the conversion/import into a non-production D1 database;
-3. verify row counts, foreign-key relationships, financial totals, user/session policy, and representative records;
-4. schedule a write freeze on the old deployment;
+3. verify row counts, foreign keys, financial totals, authentication records, and representative data;
+4. freeze writes on the old deployment;
 5. export the final source state;
-6. import/transform it into D1;
-7. run post-import integrity checks;
-8. deploy the Worker and execute authentication, billing, meal, upload, refund, and admin smoke tests;
-9. switch production traffic only after those checks pass;
-10. keep the old deployment read-only until the rollback window closes.
+6. import/transform into D1;
+7. run integrity checks;
+8. deploy and test authentication, billing, meals, uploads, refunds, and administration;
+9. switch production traffic only after all checks pass;
+10. retain the old deployment read-only during the rollback window.
 
-Never use the demo seed as a production migration mechanism. `bun run seed:demo:local` exists only for disposable local/demo databases and creates known demo accounts/data.
+The local administrator bootstrap is never a production migration mechanism.
 
 ## Deployment safety
 
-`bun run deploy` first runs `bun run cf:preflight`. The preflight refuses deployment if the D1 binding is missing or still contains the all-zero placeholder database ID, or if the required `UPLOADS`, `AUTH_RATE_LIMITER`, `EMAIL`, or vinext Worker entry bindings are missing.
+`npm run deploy` runs `npm run cf:preflight` first. The preflight refuses deployment when the D1 ID is still the placeholder or required D1, R2, rate-limit, email, or Worker bindings are missing.
 
-For production, use the manual **Deploy BoardOps to Cloudflare** GitHub Actions workflow. It uses the GitHub `production` environment and reruns tests, typecheck, zero-warning lint, vinext compatibility, and the production build before any remote mutation.
-
-The production workflow expects these GitHub secrets:
+The manual **Deploy BoardOps to Cloudflare** GitHub workflow expects:
 
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_D1_DATABASE_ID`
 
-Optionally set the GitHub environment/repository variable `BOARDOPS_PRODUCTION_URL`; when present, the workflow performs a post-deployment `/api` smoke test and fails the deployment run if the endpoint does not become healthy.
+Optionally configure `BOARDOPS_PRODUCTION_URL` to enable the post-deployment `/api` smoke test.
 
-After validation, the workflow injects the production D1 ID into the checkout, runs the Cloudflare configuration preflight, applies checked-in D1 migrations, deploys the Worker, and performs the optional smoke test.
-
-## Manual build and deployment
-
-Once the real Cloudflare resources and email sender are configured:
+Manual validation/deployment sequence once real Cloudflare resources are provisioned:
 
 ```bash
-bun install --frozen-lockfile
-bun run db:generate
-bun run test
-bun run typecheck
-bun run lint:strict
-bun run cf:check
-bun run build
-bun run db:migrate:remote
-bun run deploy
+npm install
+npm run db:generate
+npm test
+npm run typecheck
+npm run lint:strict
+npm run cf:check
+npm run build
+npm run db:migrate:remote
+npm run deploy
 ```
-
-The exact ordering of the final D1 migration and Worker traffic cutover should follow the rehearsed migration plan when existing live data is involved.
 
 ## Security and operations
 
-- Do not commit `.env` files, database exports, backups, generated uploads, API tokens, or runtime logs.
-- Do not restore the old local-server/SQLite operational scripts into the Cloudflare deployment path.
+- Never commit `.env` files, `.dev.vars`, database exports, backups, generated uploads, API tokens, or runtime logs.
+- Runtime application code must not depend on a writable local filesystem or a long-running server process.
 - Treat D1 migrations as production changes and review them before applying remotely.
-- Keep `EMAIL_FROM` and any future credentials in Cloudflare/GitHub managed configuration.
-- Use the `/api/system/backup` endpoint only to inspect the application's D1 backup posture; actual backup/export/PITR operations belong to Cloudflare tooling.
+- Keep `EMAIL_FROM` and credentials in Cloudflare/GitHub managed configuration.
+- The `/api/system/backup` endpoint reports D1 recovery posture; actual recovery operations belong to Cloudflare tooling.
 
 ## Deployment status
 
-The repository runtime is Cloudflare-compatible and protected by regression tests plus strict build/type/lint/compatibility gates. The production deployment workflow is fail-closed on missing Cloudflare configuration. **Cloudflare account resources are not provisioned by this repository itself.** A real D1 database, R2 bucket, Email Worker sender/domain configuration, production data migration, deployment, and post-deploy smoke testing remain required before declaring a live production cutover complete.
+The repository has a Cloudflare-compatible application path and fail-closed deployment workflow. Real Cloudflare account resources, remote migration, live deployment, data cutover when applicable, and post-deployment validation are still separate production operations and must succeed before production is considered live.
