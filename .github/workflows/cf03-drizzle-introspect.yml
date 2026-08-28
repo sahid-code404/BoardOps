@@ -95,3 +95,25 @@ jobs:
             }
           }
           NODE
+
+      - name: Preserve drift diagnostics
+        if: failure()
+        run: |
+          mkdir -p .cf03-drift-diagnostics
+          if [ -f .cf03-drizzle/schema.ts ]; then
+            cp .cf03-drizzle/schema.ts .cf03-drift-diagnostics/generated-schema.ts
+            diff -u worker/db/schema.ts .cf03-drizzle/schema.ts > .cf03-drift-diagnostics/schema.diff || true
+          fi
+          if [ -f .cf03-drizzle/relations.ts ]; then
+            cp .cf03-drizzle/relations.ts .cf03-drift-diagnostics/generated-relations.ts
+            diff -u worker/db/relations.ts .cf03-drizzle/relations.ts > .cf03-drift-diagnostics/relations.diff || true
+          fi
+
+      - name: Upload drift diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cf03-drizzle-drift-${{ github.sha }}
+          path: .cf03-drift-diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
