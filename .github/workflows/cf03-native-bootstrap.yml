@@ -1,4 +1,4 @@
-name: CF03 native stack bootstrap
+name: CF03 native stack validation
 
 on:
   push:
@@ -7,22 +7,19 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: cf03-native-bootstrap
+  group: cf03-native-validation
   cancel-in-progress: true
 
 jobs:
-  bootstrap:
-    if: github.actor != 'github-actions[bot]'
+  validate:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -32,18 +29,6 @@ jobs:
 
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
-
-      - name: Apply native client compatibility fixes
-        run: |
-          node scripts/cf03-fix-client-types.mjs
-          if ! git diff --quiet -- src/components/features/dashboard/dashboard-view.tsx; then
-            git diff --check
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add src/components/features/dashboard/dashboard-view.tsx
-            git commit -m "cf03: fix native client type compatibility"
-            git push origin HEAD:phase/cf-03-native-stack
-          fi
 
       - name: Native dependency audit
         run: |
