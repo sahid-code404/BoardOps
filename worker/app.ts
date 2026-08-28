@@ -10,6 +10,7 @@ import { registerAnnouncementRoutes } from "./routes/announcements";
 import { registerAuditLogRoutes } from "./routes/audit-logs";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerAvatarRoutes } from "./routes/avatar";
+import { registerBillLifecycleRoutes } from "./routes/bill-lifecycle";
 import { registerBillRoutes } from "./routes/bills";
 import { registerBillingCycleRoutes } from "./routes/billing-cycles";
 import { registerExpenseRoutes } from "./routes/expenses";
@@ -109,6 +110,7 @@ export function createWorkerApp() {
   registerFormulaRoutes(app);
   registerBillingCycleRoutes(app);
   registerBillRoutes(app);
+  registerBillLifecycleRoutes(app);
   registerPaymentRoutes(app);
   registerPaymentEditRoutes(app);
   registerRefundRoutes(app);
