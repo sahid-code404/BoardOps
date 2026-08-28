@@ -4,6 +4,7 @@ import { secureHeaders } from "hono/secure-headers";
 
 import { createDatabase } from "./db/client";
 import type { ApiFailure, ApiSuccess } from "./http";
+import { registerAccountRoutes } from "./routes/account";
 import { registerAuthRoutes } from "./routes/auth";
 import type { BoardOpsEnv } from "./types";
 
@@ -45,6 +46,7 @@ export function createWorkerApp() {
   });
 
   registerAuthRoutes(app);
+  registerAccountRoutes(app);
 
   app.notFound((c) =>
     c.json<ApiFailure>(
