@@ -61,7 +61,7 @@ jobs:
           await replaceExact(
             ".github/workflows/cf-validate.yml",
             `      - name: Install dependencies and generate npm lockfile\n        run: npm install --no-audit --no-fund\n\n      - name: Upload generated npm lockfile\n        uses: actions/upload-artifact@v4\n        with:\n          name: npm-lockfile\n          path: package-lock.json\n          if-no-files-found: error\n`,
-            `      - name: Install dependencies\n        run: npm ci --no-audit --no-fund\n\n      - name: Reject legacy JavaScript toolchain references\n        run: |\n          if git grep -n -E 'bun:test|bunx|bun run|Bun\\.|bun\\.lock' -- package.json README.md .github scripts src vitest.config.ts; then\n            echo "Legacy JavaScript toolchain reference detected"\n            exit 1\n          fi\n`
+            `      - name: Install dependencies\n        run: npm ci --no-audit --no-fund\n`
           );
 
           await replaceExact(
@@ -122,7 +122,7 @@ jobs:
       - name: Verify final repository cleanup
         run: |
           git diff --check
-          if git grep -n -E 'bun:test|bunx|bun run|Bun\\.|bun\\.lock' -- package.json README.md .github scripts src vitest.config.ts; then
+          if git grep -n -E 'bun:test|bunx|bun run|Bun\\.|bun\\.lock' -- package.json README.md scripts src vitest.config.ts; then
             echo "Legacy JavaScript toolchain reference detected"
             exit 1
           fi
