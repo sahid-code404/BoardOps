@@ -1,9 +1,20 @@
+import { eq, like } from "drizzle-orm";
+
+import type { BoardOpsDatabase } from "./db/client";
+import { Adjustment, Bill, Refund, Variable } from "./db/schema";
+
 export type ReferenceNumberType = "bill" | "refund" | "adjustment";
 
 const DEFAULTS: Record<ReferenceNumberType, { prefix: string; format: string }> = {
   bill: { prefix: "BILL", format: "BILL-{YEAR}-{SEQ}" },
   refund: { prefix: "REF", format: "REF-{YEAR}-{SEQ}" },
   adjustment: { prefix: "ADJ", format: "ADJ-{YEAR}-{SEQ}" },
+};
+
+const FORMAT_KEYS: Record<ReferenceNumberType, string> = {
+  bill: "system.billNumberFormat",
+  refund: "system.refundNumberFormat",
+  adjustment: "system.adjustmentNumberFormat",
 };
 
 function pad(value: number, width: number): string {
@@ -70,4 +81,78 @@ export function getNextReferenceSequence(
   }
 
   return maxSequence + 1;
+}
+
+async function loadConfiguredFormat(
+  db: BoardOpsDatabase,
+  type: ReferenceNumberType,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ value: Variable.value })
+    .from(Variable)
+    .where(eq(Variable.key, FORMAT_KEYS[type]))
+    .limit(1);
+  return row?.value?.trim() || null;
+}
+
+async function generateReferenceNumber(
+  db: BoardOpsDatabase,
+  type: ReferenceNumberType,
+  date: Date,
+): Promise<string> {
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("Reference date must be valid");
+  }
+
+  const prefix = getReferencePrefix(type);
+  const year = date.getUTCFullYear();
+  const pattern = `${prefix}-${year}-%`;
+  let references: Array<string | null>;
+
+  if (type === "bill") {
+    const rows = await db
+      .select({ value: Bill.billNumber })
+      .from(Bill)
+      .where(like(Bill.billNumber, pattern));
+    references = rows.map((row) => row.value);
+  } else if (type === "refund") {
+    const rows = await db
+      .select({ value: Refund.refundNumber })
+      .from(Refund)
+      .where(like(Refund.refundNumber, pattern));
+    references = rows.map((row) => row.value);
+  } else {
+    const rows = await db
+      .select({ value: Adjustment.adjustmentNumber })
+      .from(Adjustment)
+      .where(like(Adjustment.adjustmentNumber, pattern));
+    references = rows.map((row) => row.value);
+  }
+
+  const [customFormat, sequence] = await Promise.all([
+    loadConfiguredFormat(db, type),
+    Promise.resolve(getNextReferenceSequence(references, type, date)),
+  ]);
+  return formatReferenceNumber(type, sequence, date, customFormat);
+}
+
+export function generateBillNumber(
+  db: BoardOpsDatabase,
+  date: Date = new Date(),
+): Promise<string> {
+  return generateReferenceNumber(db, "bill", date);
+}
+
+export function generateRefundNumber(
+  db: BoardOpsDatabase,
+  date: Date = new Date(),
+): Promise<string> {
+  return generateReferenceNumber(db, "refund", date);
+}
+
+export function generateAdjustmentNumber(
+  db: BoardOpsDatabase,
+  date: Date = new Date(),
+): Promise<string> {
+  return generateReferenceNumber(db, "adjustment", date);
 }
