@@ -34,6 +34,7 @@ import { registerPaymentRefundRoutes } from "./routes/payment-refunds";
 import { registerPaymentRoutes } from "./routes/payments";
 import { registerProductRoutes } from "./routes/products";
 import { registerPurchaseLifecycleRoutes } from "./routes/purchase-lifecycle";
+import { registerPurchaseStatsRoutes } from "./routes/purchase-stats";
 import { registerPurchaseRoutes } from "./routes/purchases";
 import { registerRegistrationRoutes } from "./routes/registration";
 import { registerRefundRoutes } from "./routes/refunds";
@@ -122,6 +123,7 @@ export function createWorkerApp() {
   registerRefundRoutes(app);
   registerExpenseRoutes(app);
   registerPurchaseRoutes(app);
+  registerPurchaseStatsRoutes(app);
   registerPurchaseLifecycleRoutes(app);
 
   app.notFound((c) =>
