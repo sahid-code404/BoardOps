@@ -6,10 +6,12 @@ import { createDatabase } from "./db/client";
 import type { ApiFailure, ApiSuccess } from "./http";
 import { registerAccountRoutes } from "./routes/account";
 import { registerAuthRoutes } from "./routes/auth";
+import { registerAvatarRoutes } from "./routes/avatar";
 import { registerPasswordRecoveryRoutes } from "./routes/password-recovery";
 import { registerRegistrationRoutes } from "./routes/registration";
 import { registerResubmissionRoutes } from "./routes/resubmission";
 import { registerTwoFactorRoutes } from "./routes/two-factor";
+import { registerUploadRoutes } from "./routes/uploads";
 import type { BoardOpsEnv } from "./types";
 
 export function createWorkerApp() {
@@ -55,6 +57,8 @@ export function createWorkerApp() {
   registerRegistrationRoutes(app);
   registerPasswordRecoveryRoutes(app);
   registerResubmissionRoutes(app);
+  registerAvatarRoutes(app);
+  registerUploadRoutes(app);
 
   app.notFound((c) =>
     c.json<ApiFailure>(
