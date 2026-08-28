@@ -37,6 +37,9 @@ jobs:
           echo "Prisma imports in application source:"
           grep -RInE "@prisma/client|@prisma/adapter-d1|@/lib/db" src --include='*.ts' --include='*.tsx' || true
 
+      - name: Native unit tests
+        run: npx --no-install vitest run --config vitest.native.config.ts
+
       - name: Native TypeScript gate
         run: npm run native:typecheck
 
