@@ -14,6 +14,7 @@ import { registerBillLifecycleRoutes } from "./routes/bill-lifecycle";
 import { registerBillMarkPaidRoutes } from "./routes/bill-mark-paid";
 import { registerBillRoutes } from "./routes/bills";
 import { registerBillingCycleRoutes } from "./routes/billing-cycles";
+import { registerDashboardRoutes } from "./routes/dashboard";
 import { registerExpenseRoutes } from "./routes/expenses";
 import { registerFormulaRoutes } from "./routes/formulas";
 import { registerFundsRoutes } from "./routes/funds";
@@ -95,6 +96,7 @@ export function createWorkerApp() {
   registerNotificationRoutes(app);
   registerAnnouncementRoutes(app);
   registerAuditLogRoutes(app);
+  registerDashboardRoutes(app);
   registerHolidayRoutes(app);
   registerInstitutionRoutes(app);
   registerVariableRoutes(app);
