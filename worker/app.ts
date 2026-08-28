@@ -21,6 +21,7 @@ import { registerLeaveRoutes } from "./routes/leave";
 import { registerMealConfigurationRoutes } from "./routes/meals-config";
 import { registerMealEntryRoutes } from "./routes/meal-entries";
 import { registerMealPresetRoutes } from "./routes/meal-presets";
+import { registerMealToggleRoutes } from "./routes/meal-toggle";
 import { registerNotificationRoutes } from "./routes/notifications";
 import { registerPasswordRecoveryRoutes } from "./routes/password-recovery";
 import { registerPaymentEditRoutes } from "./routes/payment-edit";
@@ -94,6 +95,7 @@ export function createWorkerApp() {
   registerMealConfigurationRoutes(app);
   registerMealPresetRoutes(app);
   registerMealEntryRoutes(app);
+  registerMealToggleRoutes(app);
   registerLeaveRoutes(app);
   registerKitchenRoutes(app);
   registerKitchenGuestRoutes(app);
