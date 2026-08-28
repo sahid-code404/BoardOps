@@ -1,4 +1,4 @@
-name: CF03 Drizzle schema normalization
+name: CF03 Drizzle schema validation
 
 on:
   push:
@@ -7,22 +7,19 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: cf03-drizzle-normalization
+  group: cf03-drizzle-validation
   cancel-in-progress: true
 
 jobs:
-  normalize:
-    if: github.actor != 'github-actions[bot]'
+  validate:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -42,7 +39,7 @@ jobs:
       - name: Install introspection-only SQLite driver
         run: npm install --no-save --no-package-lock better-sqlite3@^12.2.0 --no-audit --no-fund
 
-      - name: Generate and normalize Drizzle mapping
+      - name: Regenerate normalized Drizzle mapping in scratch space
         run: |
           cat > drizzle.cf03.introspect.config.ts <<'CONFIG'
           import { defineConfig } from "drizzle-kit";
@@ -63,35 +60,35 @@ jobs:
           test -s .cf03-drizzle/schema.ts
           test -s .cf03-drizzle/relations.ts
           node scripts/cf03-normalize-drizzle-schema.mjs .cf03-drizzle/schema.ts
-          cp .cf03-drizzle/schema.ts worker/db/schema.ts
-          cp .cf03-drizzle/relations.ts worker/db/relations.ts
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from "node:fs/promises";
-          for (const path of ["worker/db/schema.ts", "worker/db/relations.ts"]) {
+          for (const path of [".cf03-drizzle/schema.ts", ".cf03-drizzle/relations.ts"]) {
             const content = await readFile(path, "utf8");
             await writeFile(path, `${content.trimEnd()}\n`, "utf8");
           }
           NODE
 
-      - name: Verify normalized schema
+      - name: Verify schema coverage and drift
         run: |
           expected=$(sqlite3 .cf03-introspect.sqlite "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
-          generated=$(grep -c 'sqliteTable(' worker/db/schema.ts)
+          generated=$(grep -c 'sqliteTable(' .cf03-drizzle/schema.ts)
+          committed=$(grep -c 'sqliteTable(' worker/db/schema.ts)
+          booleans=$(grep -c 'integer({ mode: "boolean" })' worker/db/schema.ts)
           echo "Authoritative tables: $expected"
-          echo "Normalized Drizzle tables: $generated"
+          echo "Generated Drizzle tables: $generated"
+          echo "Committed Drizzle tables: $committed"
+          echo "Canonical BOOLEAN columns: $booleans"
           test "$expected" -eq "$generated"
-          test "$(grep -c 'integer({ mode: "boolean" })' worker/db/schema.ts)" -eq 14
-          git diff --check
-
-      - name: Commit normalized mapping
-        run: |
-          git add worker/db/schema.ts worker/db/relations.ts
-          if git diff --cached --quiet; then
-            echo "Drizzle mapping is already normalized."
-            exit 0
-          fi
-          git diff --cached --check
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "cf03: normalize Drizzle boolean columns"
-          git push origin HEAD:phase/cf-03-native-stack
+          test "$expected" -eq "$committed"
+          test "$booleans" -eq 14
+          diff -u worker/db/schema.ts .cf03-drizzle/schema.ts
+          diff -u worker/db/relations.ts .cf03-drizzle/relations.ts
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          const schema = await readFile("worker/db/schema.ts", "utf8");
+          for (const table of ["User", "UserSession", "TrustedDevice", "LoginHistory", "AuditLog", "Bill", "MealConfiguration", "Setting"]) {
+            if (!schema.includes(`sqliteTable("${table}"`) && !schema.includes(`sqliteTable('${table}'`)) {
+              throw new Error(`Committed Drizzle schema is missing table ${table}`);
+            }
+          }
+          NODE
