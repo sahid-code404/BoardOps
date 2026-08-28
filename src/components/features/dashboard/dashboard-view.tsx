@@ -142,7 +142,7 @@ export function DashboardView() {
                   <div className="text-2xl font-bold tracking-tight">
                     <AnimatedCounter
                       value={kpi.value}
-                      prefix={kpi.prefix || ""}
+                      prefix={"prefix" in kpi ? kpi.prefix : ""}
                     />
                   </div>
                   <p className="text-[11px] text-muted-foreground mt-1">{kpi.change}</p>
