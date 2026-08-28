@@ -33,6 +33,7 @@ import { registerPaymentEditRoutes } from "./routes/payment-edit";
 import { registerPaymentRefundRoutes } from "./routes/payment-refunds";
 import { registerPaymentRoutes } from "./routes/payments";
 import { registerProductRoutes } from "./routes/products";
+import { registerPurchaseRoutes } from "./routes/purchases";
 import { registerRegistrationRoutes } from "./routes/registration";
 import { registerRefundRoutes } from "./routes/refunds";
 import { registerRestrictionRoutes } from "./routes/restrictions";
@@ -119,6 +120,7 @@ export function createWorkerApp() {
   registerPaymentEditRoutes(app);
   registerRefundRoutes(app);
   registerExpenseRoutes(app);
+  registerPurchaseRoutes(app);
 
   app.notFound((c) =>
     c.json<ApiFailure>(
