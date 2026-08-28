@@ -13,6 +13,7 @@ import { registerHolidayRoutes } from "./routes/holidays";
 import { registerInstitutionRoutes } from "./routes/institution";
 import { registerNotificationRoutes } from "./routes/notifications";
 import { registerPasswordRecoveryRoutes } from "./routes/password-recovery";
+import { registerProductRoutes } from "./routes/products";
 import { registerRegistrationRoutes } from "./routes/registration";
 import { registerResubmissionRoutes } from "./routes/resubmission";
 import { registerTwoFactorRoutes } from "./routes/two-factor";
@@ -73,6 +74,7 @@ export function createWorkerApp() {
   registerInstitutionRoutes(app);
   registerVariableRoutes(app);
   registerUnitRoutes(app);
+  registerProductRoutes(app);
 
   app.notFound((c) =>
     c.json<ApiFailure>(
